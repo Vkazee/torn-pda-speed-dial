@@ -1,4 +1,4 @@
-// Speed Dial module: Travel Helper v0.5.2
+// Speed Dial module: Travel Helper v0.5.3
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Tapping a country offers "Open travel agency": it opens Torn's travel page and
@@ -238,60 +238,41 @@
     if (!p || Date.now() - p.t > 60000) { try { sessionStorage.removeItem(PEND); } catch (e) {} return; }
     picking = true;
     const names = p.k.concat([p.n.toLowerCase()]);
+    const want = p.n.toLowerCase();
     const norm = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    const SKIP = /\b(travel|continue|back|cancel|confirm)\b/;
-    // Torn names the map pin images after the country: mexico, cayman_islands, south_africa, uk ...
-    const img = p.n === 'United Kingdom' ? 'uk' : p.n.toLowerCase().replace(/\s+/g, '_');
-    const press = e => {
-      ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(t => {
-        try { e.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })); } catch (x) {}
-      });
-    };
     const mine = e => !e.closest('#sdial');
-    // the page says "Do you want to travel to <country> ..." once the country is really selected
+    const root = () => document.getElementById('travel-root') || document;
+    // Torn's Travel Agency (React). The page says "Do you want to travel to <country> ..." once a country is really selected.
     const selected = () => {
       const t = norm(document.body.innerText);
       return names.some(n => t.indexOf('travel to ' + n) > -1 || t.indexOf('travel to the ' + n) > -1);
     };
-    const hasName = e => { const t = norm(e.textContent); return t === p.n.toLowerCase() || names.some(n => t === n); };
-    const findPin = () => {
-      const pins = document.querySelectorAll('div[class*="pin___"], [class*="pin___"]');
-      for (let i = 0; i < pins.length; i++) {
-        const e = pins[i];
-        if (!mine(e)) continue;
-        const bg = (e.style.backgroundImage || '').toLowerCase();
-        const im = e.querySelector('img');
-        const src = im ? ((im.getAttribute('src') || '') + ' ' + (im.getAttribute('alt') || '')).toLowerCase() : '';
-        if (bg.indexOf(img) > -1 || src.indexOf(img) > -1) return e;
+    // map layout: <label class="destinationLabel___"><input class="destinationRadio___" aria-label="Mexico - ..."> <div class="pin___">
+    const mapInputs = () => root().querySelectorAll('label[class*="destinationLabel___"] input[class*="destinationRadio___"]');
+    const findMap = () => {
+      const ins = mapInputs();
+      for (let i = 0; i < ins.length; i++) {
+        const c = norm((ins[i].getAttribute('aria-label') || '').split(' - ')[0]);
+        if (c === want || names.indexOf(c) > -1) return ins[i];
       }
       return null;
     };
-    const findRow = () => {
-      const spans = document.querySelectorAll('span[class*="country___"]');
-      for (let i = 0; i < spans.length; i++) {
-        if (mine(spans[i]) && hasName(spans[i])) return spans[i].closest('button, li, a, [role="option"]') || spans[i];
-      }
-      const els = document.querySelectorAll('button, a, li, [role="button"], [role="option"]');
-      for (let i = 0; i < els.length; i++) {
-        const e = els[i];
-        if (!mine(e)) continue;
-        const t = norm(e.textContent);
-        if (!t || t.length > 40 || SKIP.test(t)) continue;
-        if (names.some(n => t === n || t.indexOf(n + ' ') === 0)) return e;
+    // list layout: <div class="destination___"><button><span class="country___">Mexico</span>
+    const listSpans = () => root().querySelectorAll('span[class*="country___"]');
+    const findList = () => {
+      const sp = listSpans();
+      for (let i = 0; i < sp.length; i++) {
+        if (mine(sp[i]) && (norm(sp[i].textContent) === want || names.indexOf(norm(sp[i].textContent)) > -1)) {
+          return sp[i].closest('button') || sp[i];
+        }
       }
       return null;
     };
-    // the "Torn -> UAE" box: the button that shows the currently chosen country and opens the list
-    const findTrigger = () => {
-      const all = DEST.map(d => d.k.concat([d.n.toLowerCase()])).reduce((a, b) => a.concat(b), []);
-      const els = document.querySelectorAll('button, [role="button"], [class*="select"], [class*="dropdown"]');
-      for (let i = 0; i < els.length; i++) {
-        const e = els[i];
-        if (!mine(e)) continue;
-        const t = norm(e.textContent);
-        if (t && t.length < 30 && all.indexOf(t) > -1) return e;
-      }
-      return null;
+    const press = e => {
+      if (e.tagName === 'INPUT' || typeof e.click === 'function' && e.tagName === 'BUTTON') { e.click(); return; }
+      ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(t => {
+        try { e.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })); } catch (x) {}
+      });
     };
     const finish = msg => {
       clearInterval(iv); picking = false;
@@ -299,20 +280,16 @@
       SD.toast(msg);
     };
     const t0 = Date.now();
-    let lastTry = 0, opened = 0;
+    let lastTry = 0;
     const iv = setInterval(() => {
       const now = Date.now();
       if (selected()) return finish(p.n + ' selected. Press Travel yourself.');
-      if (now - t0 > 14000) return finish("Couldn't select " + p.n + '. Pick it yourself.');
-      if (now - lastTry < 1200) return;      // give the page time to react before trying again
-      lastTry = now;
-      const e = findPin() || findRow();
-      if (e) { press(e); return; }
-      // list not open yet: open it (at most twice)
-      if (opened < 2) {
-        const tr = findTrigger();
-        if (tr) { opened++; press(tr); lastTry = now - 600; }
+      if (now - t0 > 14000) {
+        return finish("Couldn't select " + p.n + ' (map ' + mapInputs().length + ', list ' + listSpans().length + ', v0.5.3). Pick it yourself.');
       }
+      if (now - lastTry < 1200) return;      // give the page time to react before trying again
+      const e = findMap() || findList();
+      if (e) { lastTry = now; press(e); }
     }, 400);
   }
 
@@ -340,10 +317,8 @@
     #sdial .trv .row .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
     #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
     #sdial .trv .dt .sub{color:#8a8a8a;font-size:11px;margin-bottom:4px}
-    #sdial .trv .go{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;flex:none;margin-top:8px;height:34px;background:#2a3140;border-color:#4a8fd9;color:#fff}
-    #sdial .trv .go:active{background:#323b4f}
-    #sdial .trv .go svg{width:14px;height:14px;stroke:#fff}
-    #sdial .trv .go:disabled{opacity:.4;background:#242424;border-color:#333;color:#cfcfcf}
+    #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:30px;font-size:12px}
+    #sdial .trv .go:disabled{opacity:.4}
     #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:6px;font-size:12px}
     #sdial .trv .w.ok{background:#1f3322;color:#a8d5ad}
     #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
@@ -470,7 +445,7 @@
         if (i === sel) {
           const box = document.createElement('div');
           box.className = 'dt';
-          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>Go to ' + SD.esc(d.n) + '</span></button>';
+          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go">Go to ' + SD.esc(d.n) + '</button>';
           box.querySelector('.go').addEventListener('click', () => goTravel(d));
           list.appendChild(box);
           box.querySelector('.go').disabled = !!box.querySelector('.w.bad');
