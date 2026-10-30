@@ -1,20 +1,20 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.1.0
+// @version      0.2.0
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open.
 // @match        https://www.torn.com/*
 // @grant        none
 // ==/UserScript==
 
-// Speed Dial core v0.1.0
+// Speed Dial core v0.2.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
 // A module only builds its UI, timers and API calls while its panel is open (lazy).
 (function () {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, version: '0.1.0', started: false };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -214,11 +214,9 @@
     cur = me;
     const ctx = {
       el,
-      sd: SD,
       get alive() { return cur === me; },
       every: (fn, ms) => { const id = setInterval(fn, ms); timers.push(['i', id]); return id; },
-      after: (fn, ms) => { const id = setTimeout(fn, ms); timers.push(['t', id]); return id; },
-      close: () => closeAll()
+      after: (fn, ms) => { const id = setTimeout(fn, ms); timers.push(['t', id]); return id; }
     };
     try { me.inst = m.mount(ctx) || null; } catch (e) { el.textContent = 'Error: ' + e.message; }
   }
@@ -693,7 +691,7 @@
     label: 'Item Dock',
     width: 200,
     // crossbody (messenger) bag
-    icon: '<rect x="3.5" y="9" width="17" height="11" rx="2"/><path d="M3.8 10.8L12 16l8.2-5.2"/><path d="M12 16v2.2"/><path d="M7 9C7 5.8 9 4.2 12 4.2s5 1.6 5 4.8"/>',
+    icon: '<path d="M5.6 8h12.8l1.5 10.6a2 2 0 0 1-2 2.4H6.1a2 2 0 0 1-2-2.4L5.6 8z"/><path d="M8.5 8V7a3.5 3.5 0 0 1 7 0v1"/>',
     mount
   });
 })();
@@ -910,7 +908,7 @@
     label: 'Travel Helper',
     width: 230,
     // paper plane
-    icon: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+    icon: '<path d="M12 2.5c.9 0 1.5.9 1.5 2V9l7 4.5v2l-7-2v3.5l2 1.5V21l-3.5-1-3.5 1v-1.5l2-1.5V13.5l-7 2v-2L10.5 9V4.5c0-1.1.6-2 1.5-2z"/>',
     mount
   });
 })();

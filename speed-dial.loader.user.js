@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (loader)
 // @namespace    speeddial
-// @version      0.1.0
+// @version      0.2.0
 // @description  Loads Speed Dial core + modules from GitHub (list in manifest.json). Install once, never edit again.
 // @match        https://www.torn.com/*
 // @grant        none
@@ -46,15 +46,42 @@
     (document.body || document.documentElement).appendChild(d);
   };
 
+  // Torn's CSP blocks eval but allows inline scripts that carry the page's nonce.
+  // Copy the nonce from any existing <script nonce> and reuse it for our own script tag.
+  const getNonce = async () => {
+    for (let i = 0; i < 50; i++) {
+      const el = document.querySelector('script[nonce]');
+      const n = el && (el.nonce || el.getAttribute('nonce'));
+      if (n) return n;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return '';
+  };
+
+  const run = (code, file, nonce) => {
+    let err = '';
+    const onErr = e => { err = e.message || 'error'; };
+    window.addEventListener('error', onErr);
+    const el = document.createElement('script');
+    if (nonce) el.nonce = nonce;
+    el.textContent = code + '\n//# sourceURL=speeddial/' + file;
+    (document.head || document.documentElement).appendChild(el); // runs synchronously
+    el.remove();
+    window.removeEventListener('error', onErr);
+    if (err) throw new Error(err);
+  };
+
   (async () => {
     try {
       if (window.SpeedDial && window.SpeedDial.started) return;
       const man = JSON.parse(await load('manifest.json'));
       const codes = await Promise.all(man.files.map(load)); // download in parallel
-      man.files.forEach((f, i) => {                          // run in manifest order
-        try { (0, eval)(codes[i] + '\n//# sourceURL=speeddial/' + f); }
-        catch (e) { fail(f + ': ' + e.message); }
-      });
+      const nonce = await getNonce();
+      if (!nonce) return fail('no page nonce found (CSP)');
+      for (let i = 0; i < man.files.length; i++) {            // run in manifest order
+        try { run(codes[i], man.files[i], nonce); }
+        catch (e) { return fail(man.files[i] + ': ' + e.message); }
+      }
       if (!window.SpeedDial) return fail('core did not load');
       window.SpeedDial.start({ apiKey: API_KEY });
     } catch (e) {

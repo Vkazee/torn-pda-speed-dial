@@ -407,7 +407,7 @@
     label: 'Item Dock',
     width: 200,
     // crossbody (messenger) bag
-    icon: '<rect x="3.5" y="9" width="17" height="11" rx="2"/><path d="M3.8 10.8L12 16l8.2-5.2"/><path d="M12 16v2.2"/><path d="M7 9C7 5.8 9 4.2 12 4.2s5 1.6 5 4.8"/>',
+    icon: '<path d="M5.6 8h12.8l1.5 10.6a2 2 0 0 1-2 2.4H6.1a2 2 0 0 1-2-2.4L5.6 8z"/><path d="M8.5 8V7a3.5 3.5 0 0 1 7 0v1"/>',
     mount
   });
 })();

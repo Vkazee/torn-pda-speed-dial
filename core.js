@@ -1,11 +1,11 @@
-// Speed Dial core v0.1.0
+// Speed Dial core v0.2.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
 // A module only builds its UI, timers and API calls while its panel is open (lazy).
 (function () {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, version: '0.1.0', started: false };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -205,11 +205,9 @@
     cur = me;
     const ctx = {
       el,
-      sd: SD,
       get alive() { return cur === me; },
       every: (fn, ms) => { const id = setInterval(fn, ms); timers.push(['i', id]); return id; },
-      after: (fn, ms) => { const id = setTimeout(fn, ms); timers.push(['t', id]); return id; },
-      close: () => closeAll()
+      after: (fn, ms) => { const id = setTimeout(fn, ms); timers.push(['t', id]); return id; }
     };
     try { me.inst = m.mount(ctx) || null; } catch (e) { el.textContent = 'Error: ' + e.message; }
   }

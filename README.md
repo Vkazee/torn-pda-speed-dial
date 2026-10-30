@@ -6,45 +6,42 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 
 | File | Function |
 |---|---|
+| `speed-dial.loader.user.js` | The only script installed in PDA. Downloads everything listed in `manifest.json` from GitHub |
+| `manifest.json` | List of files the loader downloads, in order |
 | `core.js` | Core: main circle, module list, shared player data (1 API call), toast, storage |
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
-| `manifest.json` | List of files the loader downloads (add new modules here) |
-| `speed-dial.loader.user.js` | **Recommended.** The only script installed in PDA; downloads everything in `manifest.json` from GitHub |
-| `speed-dial.user.js` | Older version that uses `@require` (PDA may not load it, see Troubleshooting) |
-| `dist/speed-dial.bundle.user.js` | Single-file version (backup, no GitHub required) |
-| `build.sh` | Combines everything into the bundle file |
+| `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
+| `build.sh` | Combines `core.js` + `modules/` into the bundle |
 
-## How to Use via GitHub (loader)
+## Install
 
-1. Create a **public** repo named `torn-pda-speed-dial`.
+1. Create a **public** GitHub repo named `torn-pda-speed-dial`.
 2. Upload `core.js`, `manifest.json`, and the `modules/` folder to the repo root.
-3. Open `speed-dial.loader.user.js` and make sure `BASE` matches your username/repo/branch.
-4. In Torn PDA, add `speed-dial.loader.user.js` as a new userscript (paste the contents, or add it by raw URL).
-5. **Disable or delete** the old Item Dock, Travel Helper, and any earlier Speed Dial scripts to avoid duplicates.
+3. Open `speed-dial.loader.user.js` and make sure `BASE` matches your username, repo, and branch.
+4. In Torn PDA, add `speed-dial.loader.user.js` as a new userscript.
+5. Disable or delete the old Item Dock, Travel Helper, and any earlier Speed Dial scripts to avoid duplicates.
 6. Reload the Torn page. A circle with a four-square icon should appear.
 
-The loader downloads files through PDA's `PDA_httpGet` bridge and keeps the last good copy in localStorage, so it still works if GitHub is unreachable.
+How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps the last good copy in localStorage (works if GitHub is unreachable), and runs them as inline scripts using the page's CSP nonce, because Torn blocks `eval`.
 
 ## Adding a New Module
 
 1. Create `modules/name.js` that calls `SpeedDial.register({ id, label, icon, width, mount })`.
+   - `icon` is inner SVG markup for a 24x24 stroke icon.
+   - `mount(ctx)` gets `ctx.el`, `ctx.every(fn, ms)`, `ctx.after(fn, ms)` and `ctx.alive`; timers are cleared automatically when the panel closes.
 2. Add `"modules/name.js"` to `manifest.json` (after `core.js`).
-3. Push to GitHub. No change is needed in PDA.
+3. Push to GitHub. Nothing changes in PDA.
 4. Optional: run `./build.sh` to refresh the offline bundle.
 
 ## Troubleshooting
 
-- **Red box "Speed Dial: ..."**: the message says which file failed. Open the raw URL in a browser to check it exists (repo public, correct branch, correct path).
-- **"load failed" or eval errors**: Torn may block `eval` in your PDA version. Use `dist/speed-dial.bundle.user.js` as a single pasted script instead.
-- **"@require failed"** (old `speed-dial.user.js`): PDA does not load `@require`. Use the loader or the bundle.
+- **Red box "Speed Dial: ..."**: the message names the failing file. Open its raw URL in a browser (repo public, correct branch and path).
+- **"no page nonce found" or other CSP errors**: use `dist/speed-dial.bundle.user.js` as a single pasted script instead.
 - **"No API key available"**: the `###PDA-APIKEY###` placeholder was not filled in. Make sure the script is added inside PDA's userscripts.
 - GitHub caches raw files for around 5 minutes, so changes may take a while to appear.
 
-## Legacy Data
-
-The Item Dock item list and Travel Helper settings use the same storage keys as the old scripts, so they are carried over. The circle's position is reset (shifted once only).
-
 ## Notes
 
-- From the main circle: blue = abroad or traveling, yellow = hospital, red = jail, federal, or hospital abroad. Status is checked once each time the page loads.
+- Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
+- Main circle colours: blue = abroad or traveling, yellow = hospital, red = jail, federal, or hospital abroad. Status is checked once per page load.
