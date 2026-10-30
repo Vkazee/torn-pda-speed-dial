@@ -1,4 +1,4 @@
-// Speed Dial module: Travel Helper v0.5.4
+// Speed Dial module: Travel Helper v0.6.0
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Tapping a country offers "Open travel agency": it opens Torn's travel page and
@@ -220,138 +220,11 @@
       const r = ((D.cd || {})[k] || 0) - e;
       if (r > 0 && r < secs) w.push(['info', l + ' cooldown ends in ' + SD.dur(r) + ' (while you are away)']);
     });
-    if (!w.length) w.push(['ok', 'No conflicts']);
     return w;
   }
   const warnHtml = w => w.map(x => '<div class="w ' + x[0] + '">' + SD.esc(x[1]) + '</div>').join('');
 
-  // ---------- open the travel agency and pick the country ----------
-  // Only navigates and selects. The real Travel / Continue buttons are never touched.
-  const PEND = 'travelHelper.go'; // sessionStorage: { n, k, t }
-  const onTravelPage = () => /[?&]sid=travel(&|$)/.test(location.href);
-  let picking = false;
-
-  function preselect() {
-    if (picking) return;
-    let p = null;
-    try { p = JSON.parse(sessionStorage.getItem(PEND)); } catch (e) {}
-    if (!p || Date.now() - p.t > 60000) { try { sessionStorage.removeItem(PEND); } catch (e) {} return; }
-    picking = true;
-    const names = p.k.concat([p.n.toLowerCase()]);
-    const want = p.n.toLowerCase();
-    const norm = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    const mine = e => !e.closest('#sdial');
-    const isName = t => t === want || names.indexOf(t) > -1;
-    // The page says "Do you want to travel to <country> ..." once a country is really selected.
-    const selected = () => {
-      const t = norm(document.body.innerText);
-      return names.some(n => t.indexOf('travel to ' + n) > -1 || t.indexOf('travel to the ' + n) > -1);
-    };
-    // 1) radio/pin/button that carries the country in aria-label, title, alt or value ("Mexico - ...")
-    const findByLabel = () => {
-      const els = document.querySelectorAll('[aria-label], [title], img[alt], input[value]');
-      for (let i = 0; i < els.length; i++) {
-        const e = els[i];
-        if (!mine(e)) continue;
-        const raw = e.getAttribute('aria-label') || e.getAttribute('title') || e.getAttribute('alt') || e.getAttribute('value') || '';
-        if (raw.length > 60) continue;
-        const t = norm(raw.split(' - ')[0]);
-        if (!isName(t)) continue;
-        if (e.tagName === 'INPUT') return e;
-        return e.closest('label, button, a, [role="button"], [class*="pin"]') || e;
-      }
-      return null;
-    };
-    // 2) list layout: a button/row whose own text is the country name
-    const findByText = () => {
-      const sp = document.querySelectorAll('span[class*="country"], button, a, li, [role="button"], [role="option"]');
-      for (let i = 0; i < sp.length; i++) {
-        const e = sp[i];
-        if (!mine(e)) continue;
-        const t = norm(e.textContent);
-        if (!t || t.length > 40 || /\b(travel|continue|back|cancel|confirm)\b/.test(t)) continue;
-        if (isName(t)) return e.closest('button, a, li, [role="button"], [role="option"]') || e;
-      }
-      return null;
-    };
-    // 3) the "Torn -> UAE" box: shows the chosen country and opens the list
-    const findTrigger = () => {
-      const all = DEST.map(d => d.k.concat([d.n.toLowerCase()])).reduce((x, y) => x.concat(y), []);
-      const els = document.querySelectorAll('button, [role="button"], [class*="select"], [class*="dropdown"], [class*="destination"]');
-      for (let i = 0; i < els.length; i++) {
-        const e = els[i];
-        if (!mine(e)) continue;
-        const t = norm(e.textContent);
-        if (t && t.length < 30 && all.indexOf(t) > -1) return e;
-      }
-      return null;
-    };
-    const press = e => {
-      if (e.tagName === 'INPUT' || e.tagName === 'BUTTON' || e.tagName === 'LABEL') { e.click(); return; }
-      ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(t => {
-        try { e.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })); } catch (x) {}
-      });
-    };
-    // short outline of the destination area, copied to the clipboard when selection fails (for debugging)
-    const outline = () => {
-      let h = null;
-      document.querySelectorAll('*').forEach(e => { if (!h && !e.children.length && /select destination/i.test(e.textContent)) h = e; });
-      let box = h;
-      for (let i = 0; i < 3 && box && box.parentElement; i++) box = box.parentElement;
-      if (!box) return 'no destination area found';
-      const out = [];
-      const walk = (e, d) => {
-        if (out.length > 90 || d > 9) return;
-        const cls = String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className || '').split(/\s+/).slice(0, 2).join('.');
-        const at = ['aria-label', 'title', 'alt', 'value', 'role', 'type'].map(k => e.getAttribute && e.getAttribute(k) ? k + '=' + e.getAttribute(k).slice(0, 30) : '').filter(Boolean).join(' ');
-        const own = Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').slice(0, 24);
-        out.push(new Array(d + 1).join(' ') + e.tagName.toLowerCase() + (cls ? '.' + cls : '') + (at ? ' [' + at + ']' : '') + (own ? ' "' + own + '"' : ''));
-        Array.from(e.children).forEach(c => walk(c, d + 1));
-      };
-      walk(box, 0);
-      return out.join('\n');
-    };
-    const copy = txt => {
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).catch(() => {}); return; }
-      } catch (e) {}
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
-        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
-      } catch (e) {}
-    };
-    const finish = msg => {
-      clearInterval(iv); picking = false;
-      try { sessionStorage.removeItem(PEND); } catch (x) {}
-      SD.toast(msg);
-    };
-    const t0 = Date.now();
-    let lastTry = 0, opened = false;
-    const iv = setInterval(() => {
-      const now = Date.now();
-      if (selected()) return finish(p.n + ' selected. Press Travel yourself.');
-      if (now - t0 > 14000) {
-        copy(outline());
-        return finish("Couldn't select " + p.n + ' (v0.5.4). Page layout copied: paste it to Claude.');
-      }
-      if (now - lastTry < 1200) return;      // give the page time to react before trying again
-      const e = findByLabel() || findByText();
-      if (e) { lastTry = now; press(e); return; }
-      if (!opened && now - t0 > 3000) {       // nothing found yet: open the country list once
-        const tr = findTrigger();
-        if (tr) { opened = true; lastTry = now - 600; press(tr); }
-      }
-    }, 400);
-  }
-
-  function goTravel(d) {
-    try { sessionStorage.setItem(PEND, JSON.stringify({ n: d.n, k: d.k, t: Date.now() })); } catch (e) {}
-    if (onTravelPage()) preselect();
-    else location.href = '/page.php?sid=travel';
-  }
-  // arrived on the travel page with a destination waiting
-  if (onTravelPage()) { try { if (sessionStorage.getItem(PEND)) setTimeout(preselect, 300); } catch (e) {} }
+  const TRAVEL_URL = '/page.php?sid=travel';
 
   const CSS = `
     #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:#242424;line-height:1.4}
@@ -372,7 +245,6 @@
     #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:30px;font-size:12px}
     #sdial .trv .go:disabled{opacity:.4}
     #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:6px;font-size:12px}
-    #sdial .trv .w.ok{background:#1f3322;color:#a8d5ad}
     #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
     #sdial .trv .w.warn{background:#3a2f1a;color:#f0d9a0}
     #sdial .trv .w.bad{background:#3a1f1d;color:#f1b5b0}
@@ -497,8 +369,8 @@
         if (i === sel) {
           const box = document.createElement('div');
           box.className = 'dt';
-          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go">Go to ' + SD.esc(d.n) + '</button>';
-          box.querySelector('.go').addEventListener('click', () => goTravel(d));
+          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go">Go to travel agency</button>';
+          box.querySelector('.go').addEventListener('click', () => { location.href = TRAVEL_URL; });
           list.appendChild(box);
           box.querySelector('.go').disabled = !!box.querySelector('.w.bad');
         }
