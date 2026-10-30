@@ -1,4 +1,4 @@
-// Speed Dial module: Item Dock v0.9.1
+// Speed Dial module: Item Dock v0.9.3
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
 // In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
 // Torn's own Items page, where item counts are read from the page (live, no API cache).
@@ -228,6 +228,7 @@
     #sdial .idock .ir.out{border-left-color:#e5534b;cursor:not-allowed}
     #sdial .idock .ir.out:active{background:#242424}
     #sdial .idock .ir.low{border-left-color:#d9a441}
+    #sdial .idock .ir.fac{border-left-color:#4a8fd9}
     #sdial .idock .ir.low .qty{color:#d9a441}
     #sdial .idock .ir.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
     #sdial .idock .ir .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -316,6 +317,7 @@
         }
         row.querySelector('.nm').textContent = it.name;
         if (it.fac) {
+          row.classList.add('fac');
           const tag = document.createElement('span');
           tag.className = 'tag';
           tag.textContent = 'Faction';

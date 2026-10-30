@@ -1,4 +1,4 @@
-// Speed Dial module: Travel Helper v0.6.2
+// Speed Dial module: Travel Helper v0.6.3
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Tapping a country offers "Go to travel agency", which only opens
