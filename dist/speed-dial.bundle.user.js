@@ -839,7 +839,7 @@
   });
 })();
 
-// Speed Dial module: Travel Helper v0.5.0
+// Speed Dial module: Travel Helper v0.5.1
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Tapping a country offers "Open travel agency": it opens Torn's travel page and
@@ -1081,8 +1081,25 @@
     const names = p.k.concat([p.n.toLowerCase()]);
     const norm = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
     const SKIP = /\b(travel|continue|back|cancel|confirm)\b/;
-    const find = sel => {
-      const els = document.querySelectorAll(sel);
+    // Torn names the map pin images after the country: mexico, cayman_islands, south_africa, uk ...
+    const img = p.n === 'United Kingdom' ? 'uk' : p.n.toLowerCase().replace(/\s+/g, '_');
+    const click = e => e.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const find = () => {
+      // 1) desktop layout: map pins whose background image carries the country name
+      const pins = document.querySelectorAll('div[class*="pin___"]');
+      for (let i = 0; i < pins.length; i++) {
+        if ((pins[i].style.backgroundImage || '').toLowerCase().indexOf(img) > -1) return pins[i];
+      }
+      // 2) mobile layout: list buttons holding a span with the country name
+      const spans = document.querySelectorAll('span[class*="country___"]');
+      for (let i = 0; i < spans.length; i++) {
+        if (norm(spans[i].textContent) === p.n.toLowerCase()) {
+          const b = spans[i].closest('button');
+          if (b) return b;
+        }
+      }
+      // 3) fallback: any short button/link whose text is the country name
+      const els = document.querySelectorAll('button, a, [role="button"]');
       for (let i = 0; i < els.length; i++) {
         const e = els[i];
         if (e.closest('#sdial')) continue;
@@ -1094,11 +1111,11 @@
     };
     const t0 = Date.now();
     const iv = setInterval(() => {
-      const e = find('button, a, [role="button"]') || find('li, [role="option"]');
+      const e = find();
       if (e) {
         clearInterval(iv); picking = false;
         try { sessionStorage.removeItem(PEND); } catch (x) {}
-        e.click();
+        click(e);
         SD.toast(p.n + ' selected. Press Travel yourself.');
       } else if (Date.now() - t0 > 12000) {
         clearInterval(iv); picking = false;
@@ -1132,8 +1149,10 @@
     #sdial .trv .row .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
     #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
     #sdial .trv .dt .sub{color:#8a8a8a;font-size:11px;margin-bottom:4px}
-    #sdial .trv .go{width:100%;flex:none;margin-top:8px;height:34px;background:#2a3140;border-color:#4a8fd9;color:#fff}
-    #sdial .trv .go:disabled{opacity:.4;border-color:#333;background:#242424}
+    #sdial .trv .go{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;flex:none;margin-top:10px;height:40px;border-radius:10px;border:1px solid #5aa2ea;background:#2f6fb5;color:#fff;font-size:13px;font-weight:600;box-shadow:0 2px 0 #1d4a7c,0 3px 6px rgba(0,0,0,.35)}
+    #sdial .trv .go:active{background:#2a62a0;transform:translateY(1px);box-shadow:0 1px 0 #1d4a7c}
+    #sdial .trv .go svg{width:16px;height:16px;stroke:#fff}
+    #sdial .trv .go:disabled{opacity:.45;background:#2b2f36;border-color:#3a3a3a;box-shadow:none;color:#9a9a9a}
     #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:6px;font-size:12px}
     #sdial .trv .w.ok{background:#1f3322;color:#a8d5ad}
     #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
@@ -1260,7 +1279,7 @@
         if (i === sel) {
           const box = document.createElement('div');
           box.className = 'dt';
-          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go">Open travel agency \u00b7 ' + SD.esc(d.n) + '</button>';
+          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>Go to ' + SD.esc(d.n) + '</span></button>';
           box.querySelector('.go').addEventListener('click', () => goTravel(d));
           list.appendChild(box);
           box.querySelector('.go').disabled = !!box.querySelector('.w.bad');
