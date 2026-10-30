@@ -43,5 +43,6 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 
 ## Notes
 
+- Travel Helper: tap a country, then "Open travel agency". It opens Torn's travel page and tries to select that country. It never presses Travel/Continue. The button is disabled while you are in hospital or jail. Selection is best effort: if Torn changes the page, you will see a toast and can pick the country yourself.
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
 - Main circle colours: blue = abroad or traveling, yellow = hospital, red = jail, federal, or hospital abroad. Status is checked once per page load.

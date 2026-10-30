@@ -1,7 +1,9 @@
-// Speed Dial module: Travel Helper v0.4.0
+// Speed Dial module: Travel Helper v0.5.0
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
-// (YATA first, Prometheus as fallback). Nothing runs until the panel is opened.
+// (YATA first, Prometheus as fallback). Tapping a country offers "Open travel agency": it opens Torn's travel page and
+// tries to pick that country for you (you still press Travel yourself). Nothing runs until the panel is opened,
+// except a tiny check on the travel page itself.
 (function () {
   'use strict';
   const SD = window.SpeedDial;
@@ -223,6 +225,56 @@
   }
   const warnHtml = w => w.map(x => '<div class="w ' + x[0] + '">' + SD.esc(x[1]) + '</div>').join('');
 
+  // ---------- open the travel agency and pick the country ----------
+  // Only navigates and selects. The real Travel / Continue buttons are never touched.
+  const PEND = 'travelHelper.go'; // sessionStorage: { n, k, t }
+  const onTravelPage = () => /[?&]sid=travel(&|$)/.test(location.href);
+  let picking = false;
+
+  function preselect() {
+    if (picking) return;
+    let p = null;
+    try { p = JSON.parse(sessionStorage.getItem(PEND)); } catch (e) {}
+    if (!p || Date.now() - p.t > 60000) { try { sessionStorage.removeItem(PEND); } catch (e) {} return; }
+    picking = true;
+    const names = p.k.concat([p.n.toLowerCase()]);
+    const norm = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const SKIP = /\b(travel|continue|back|cancel|confirm)\b/;
+    const find = sel => {
+      const els = document.querySelectorAll(sel);
+      for (let i = 0; i < els.length; i++) {
+        const e = els[i];
+        if (e.closest('#sdial')) continue;
+        const t = norm(e.textContent);
+        if (!t || t.length > 40 || SKIP.test(t)) continue;
+        if (names.some(n => t === n || t.indexOf(n + ' ') === 0)) return e;
+      }
+      return null;
+    };
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      const e = find('button, a, [role="button"]') || find('li, [role="option"]');
+      if (e) {
+        clearInterval(iv); picking = false;
+        try { sessionStorage.removeItem(PEND); } catch (x) {}
+        e.click();
+        SD.toast(p.n + ' selected. Press Travel yourself.');
+      } else if (Date.now() - t0 > 12000) {
+        clearInterval(iv); picking = false;
+        try { sessionStorage.removeItem(PEND); } catch (x) {}
+        SD.toast("Couldn't find " + p.n + ' on the page. Pick it yourself.');
+      }
+    }, 400);
+  }
+
+  function goTravel(d) {
+    try { sessionStorage.setItem(PEND, JSON.stringify({ n: d.n, k: d.k, t: Date.now() })); } catch (e) {}
+    if (onTravelPage()) preselect();
+    else location.href = '/page.php?sid=travel';
+  }
+  // arrived on the travel page with a destination waiting
+  if (onTravelPage()) { try { if (sessionStorage.getItem(PEND)) setTimeout(preselect, 300); } catch (e) {} }
+
   const CSS = `
     #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:#242424;line-height:1.4}
     #sdial .trv .stat b{color:#fff}
@@ -239,6 +291,8 @@
     #sdial .trv .row .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
     #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
     #sdial .trv .dt .sub{color:#8a8a8a;font-size:11px;margin-bottom:4px}
+    #sdial .trv .go{width:100%;flex:none;margin-top:8px;height:34px;background:#2a3140;border-color:#4a8fd9;color:#fff}
+    #sdial .trv .go:disabled{opacity:.4;border-color:#333;background:#242424}
     #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:6px;font-size:12px}
     #sdial .trv .w.ok{background:#1f3322;color:#a8d5ad}
     #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
@@ -343,8 +397,11 @@
     }
 
     function renderDetail() {
-      const box = list.querySelector('.dt');
-      if (box && sel > -1) box.innerHTML = detailHtml(DEST[sel]);
+      const x = list.querySelector('.dtx');
+      if (!x || sel < 0) return;
+      x.innerHTML = detailHtml(DEST[sel]);
+      const go = list.querySelector('.go');
+      if (go) go.disabled = !!x.querySelector('.w.bad');
     }
 
     function renderList() {
@@ -362,8 +419,10 @@
         if (i === sel) {
           const box = document.createElement('div');
           box.className = 'dt';
-          box.innerHTML = detailHtml(d);
+          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go">Open travel agency \u00b7 ' + SD.esc(d.n) + '</button>';
+          box.querySelector('.go').addEventListener('click', () => goTravel(d));
           list.appendChild(box);
+          box.querySelector('.go').disabled = !!box.querySelector('.w.bad');
         }
       });
     }

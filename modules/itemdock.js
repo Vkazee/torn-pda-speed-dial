@@ -1,6 +1,7 @@
-// Speed Dial module: Item Dock v0.8.1
+// Speed Dial module: Item Dock v0.9.0
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
-// In Edit mode, drag the handle to reorder. Nothing runs until the panel is opened.
+// In Edit mode, drag the handle to reorder. Nothing runs until the panel is opened, except on
+// Torn's own Items page, where item counts are read from the page (live, no API cache).
 (function () {
   'use strict';
   const SD = window.SpeedDial;
@@ -27,6 +28,8 @@
   // still reports the old number. We remember our own uses (adj) and keep showing them until the API
   // number changes (it has caught up) or the cache window has passed. Kept in localStorage so a page
   // change does not bring the old number back.
+  // Counts read from Torn's Items page are live, so they are stored with base = null: they stay until
+  // the window passes (and are corrected by later uses), whatever the cached API says.
   const ADJK = 'itemDock.adj', ADJ_TTL = 65 * 60 * 1000;
   let adj = SD.read(ADJK, null) || {};
   const saveAdj = () => SD.write(ADJK, adj);
@@ -43,16 +46,8 @@
     return map;
   }
 
-  // fresh = the person pressed refresh: ask Torn to skip its cache (plain call if the extra parameter is refused)
-  async function apiGet(url, fresh) {
-    let j;
-    if (fresh) {
-      try { j = await SD.api(url + '&timestamp=' + Math.floor(Date.now() / 1000)); }
-      catch (e) { j = await SD.api(url); }
-    } else {
-      j = await SD.api(url);
-    }
-    const m = tally(j, {});
+  async function apiGet(url) {
+    const m = tally(await SD.api(url), {});
     return Object.keys(m).length ? m : null;
   }
 
@@ -80,7 +75,7 @@
     let dirty = false;
     Object.keys(adj).forEach(id => {
       const a = adj[id];
-      if (now - a.t > ADJ_TTL || (stock.raw[id] || 0) !== a.base) { delete adj[id]; dirty = true; }  // expired, or the API caught up
+      if (now - a.t > ADJ_TTL || (a.base !== null && (stock.raw[id] || 0) !== a.base)) { delete adj[id]; dirty = true; }  // expired, or the API caught up
       else stock.own[id] = a.n;
     });
     if (dirty) saveAdj();
@@ -102,7 +97,7 @@
   }
   const outOf = it => qtyOf(it) === 0;
 
-  async function loadStock(force, fresh) {
+  async function loadStock(force) {
     if (!SD.hasKey || !S.items.length) return;
     if (!force && Date.now() - stock.t < 30000) return;
     stock.t = Date.now();
@@ -114,7 +109,7 @@
       const merged = {}, okCat = {};
       for (const cat of Array.from(new Set(own.map(i => i.type)))) {
         try {
-          const m = await apiGet('https://api.torn.com/v2/user/inventory?cat=' + encodeURIComponent(cat), fresh);
+          const m = await apiGet('https://api.torn.com/v2/user/inventory?cat=' + encodeURIComponent(cat));
           if (m) { Object.assign(merged, m); okCat[cat] = true; }
         } catch (e) { errs.push(cat + ': ' + e.message); }
       }
@@ -173,6 +168,51 @@
     }
     busy = false;
   }
+
+  // ---------- live counts from Torn's own Items page ----------
+  // Only runs on /item.php. The page shows your real, current counts, so we copy them for the dock items.
+  function readPageCounts() {
+    const ids = {};
+    S.items.forEach(i => { if (!i.fac) ids[String(i.id)] = true; });
+    if (!Object.keys(ids).length) return 0;
+    let changed = 0;
+    const now = Date.now();
+    document.querySelectorAll('li[data-item]').forEach(li => {
+      const id = li.getAttribute('data-item');
+      const q = li.querySelector('.qty');
+      if (!ids[id] || !q) return;
+      const v = parseInt(String(q.textContent).replace(/[^\d]/g, ''), 10);
+      if (!(v >= 0)) return;
+      const a = adj[id];
+      if (a && a.base === null && a.n === v && now - a.t < 60000) return;
+      if (!(a && a.base === null && a.n === v)) changed++;
+      adj[id] = { n: v, base: null, t: now };
+    });
+    saveAdj();
+    if (changed) { if (stock.raw) applyAdj(); refresh(); }
+    return changed;
+  }
+
+  function startPageSync() {
+    let timer = null;
+    const run = () => {
+      timer = null;
+      const n = readPageCounts();
+      if (n) SD.toast('Item Dock: synced ' + n + ' count' + (n > 1 ? 's' : '') + ' from your Items page');
+    };
+    const kick = () => { if (!timer) timer = setTimeout(run, 400); };
+    const inList = node => { const t = node.nodeType === 1 ? node : node.parentElement; return !!(t && t.closest && t.closest('li[data-item]')); };
+    new MutationObserver(recs => {
+      for (const r of recs) {
+        if (inList(r.target)) return kick();
+        for (const n of r.addedNodes) {
+          if (n.nodeType === 1 && ((n.matches && n.matches('li[data-item]')) || (n.querySelector && n.querySelector('li[data-item]')))) return kick();
+        }
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    kick();
+  }
+  if (/^\/item\.php/.test(location.pathname)) startPageSync();
 
   // ---------- panel (built only when opened) ----------
   const CSS = `
@@ -448,9 +488,9 @@
     // ----- footer buttons -----
     const syncBtn = el.querySelector('.sync');
     syncBtn.addEventListener('click', () => {
-      SD.spin(syncBtn, Promise.all([loadStock(true, true), SD.data(true).then(() => { if (ctx.alive) status(); })])).then(() => {
+      SD.spin(syncBtn, Promise.all([loadStock(true), SD.data(true).then(() => { if (ctx.alive) status(); })])).then(() => {
         if (!ctx.alive) return;
-        SD.toast(Object.keys(adj).length ? 'Refreshed. Torn caches stock for up to 1h, so your recent uses are counted locally' : 'Refreshed');
+        SD.toast(Object.keys(adj).length ? 'Refreshed. Torn caches stock for up to 1h; open your Items page to sync live counts' : 'Refreshed');
       });
     });
     el.querySelector('.add').addEventListener('click', openAdd);
