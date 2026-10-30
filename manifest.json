@@ -1,0 +1,7 @@
+{
+  "files": [
+    "core.js",
+    "modules/itemdock.js",
+    "modules/travelhelper.js"
+  ]
+}
