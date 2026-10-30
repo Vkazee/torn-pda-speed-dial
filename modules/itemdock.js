@@ -1,4 +1,4 @@
-// Speed Dial module: Item Dock v0.9.2
+// Speed Dial module: Item Dock v0.9.3
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
 // In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
 // Torn's own Items page, where item counts are read from the page (live, no API cache).
@@ -223,13 +223,14 @@
     #sdial .idock.blocked .list{opacity:.45}
     #sdial .idock .cd{display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px}
     #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:#242424;border:1px solid #333;color:#cfcfcf;font-size:11px}
-    #sdial .idock .row{display:flex;align-items:center;height:40px;border-radius:8px;color:#e6e6e6;padding:0 10px;border-left:3px solid #555;margin-bottom:3px;background:#242424;user-select:none;-webkit-user-select:none}
+    #sdial .idock .row{display:flex;align-items:center;height:40px;border-radius:8px;color:#e6e6e6;padding:0 10px 0 13px;--c:#555;position:relative;overflow:hidden;margin-bottom:3px;background:#242424;user-select:none;-webkit-user-select:none}
+    #sdial .idock .row::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c)}
     #sdial .idock .row:active{background:#2e2e2e}
-    #sdial .idock .row.ok{border-left-color:#4a8f4e}
+    #sdial .idock .row.ok{--c:#4a8f4e}
     #sdial .idock .row.ok .qty{color:#7fd08a}
-    #sdial .idock .row.out{border-left-color:#e5534b;cursor:not-allowed;opacity:.5}
+    #sdial .idock .row.out{--c:#e5534b;cursor:not-allowed;opacity:.5}
     #sdial .idock .row.out:active{background:#242424}
-    #sdial .idock .row.low{border-left-color:#d9a441}
+    #sdial .idock .row.low{--c:#d9a441}
     #sdial .idock .row.low .qty{color:#d9a441}
     #sdial .idock .row.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
     #sdial .idock .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
