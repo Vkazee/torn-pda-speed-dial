@@ -1,4 +1,4 @@
-// Speed Dial module: Item Dock v0.9.4
+// Speed Dial module: Item Dock v0.9.1
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
 // In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
 // Torn's own Items page, where item counts are read from the page (live, no API cache).
@@ -223,15 +223,13 @@
     #sdial .idock.blocked .list{opacity:.45}
     #sdial .idock .cd{display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px}
     #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:#242424;border:1px solid #333;color:#cfcfcf;font-size:11px}
-    #sdial .idock .row{display:flex;align-items:center;height:40px;border-radius:8px;color:#e6e6e6;padding:0 10px 0 13px;--c:#555;margin-bottom:3px;background:linear-gradient(var(--c),var(--c)) 0 0/3px 100% no-repeat,#242424;user-select:none;-webkit-user-select:none}
-    #sdial .idock .row:active{background-color:#2e2e2e}
-    #sdial .idock .row.ok{--c:#4a8f4e}
-    #sdial .idock .row.ok .qty{color:#7fd08a}
-    #sdial .idock .row.out{--c:#e5534b;cursor:not-allowed;opacity:.5}
-    #sdial .idock .row.out:active{background-color:#242424}
-    #sdial .idock .row.low{--c:#d9a441}
+    #sdial .idock .row{display:flex;align-items:center;height:40px;border-radius:8px;color:#e6e6e6;padding:0 10px;border-left:3px solid #4a8f4e;margin-bottom:3px;background:#242424;user-select:none;-webkit-user-select:none}
+    #sdial .idock .row:active{background:#2e2e2e}
+    #sdial .idock .row.out{border-left-color:#e5534b;cursor:not-allowed}
+    #sdial .idock .row.out:active{background:#242424}
+    #sdial .idock .row.low{border-left-color:#d9a441}
     #sdial .idock .row.low .qty{color:#d9a441}
-    #sdial .idock .row.drag{position:relative;z-index:5;background-color:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
+    #sdial .idock .row.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
     #sdial .idock .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .idock .row .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
     #sdial .idock .row .grip svg{width:18px;height:18px;stroke:#8a8a8a}
@@ -240,7 +238,7 @@
     #sdial .idock .row .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:#e5534b;font-size:18px;padding:0}
     #sdial .idock.edit .row .x{display:block}
     #sdial .idock .qty{margin-left:8px;color:#9a9a9a;font-size:12px;white-space:nowrap}
-    #sdial .idock .row.out .qty{color:#f1807a}
+    #sdial .idock .row.out .qty{color:#e5534b}
     #sdial .idock .tag{margin-left:6px;padding:1px 6px;border-radius:6px;background:#2d3b52;color:#9bb8e0;font-size:10px}
     #sdial .idock.asking .list,#sdial .idock.asking .foot{display:none}
     #sdial .idock .confirm{display:none;padding:8px 6px 4px;text-align:center;color:#e6e6e6}
@@ -313,9 +311,8 @@
         const n = qtyOf(it);
         if (n !== null) {
           row.querySelector('.qty').textContent = n === 0 ? 'Out' : '\u00d7' + n;
-          if (n === 0) row.classList.add('out');
+          if (n === 0) { row.classList.add('out'); row.style.opacity = '.6'; }
           else if (n <= LOW) row.classList.add('low');
-          else row.classList.add('ok');
         }
         row.querySelector('.nm').textContent = it.name;
         if (it.fac) {

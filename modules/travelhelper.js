@@ -1,4 +1,4 @@
-// Speed Dial module: Travel Helper v0.6.4
+// Speed Dial module: Travel Helper v0.6.2
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Tapping a country offers "Go to travel agency", which only opens
@@ -237,10 +237,9 @@
     #sdial .trv button{flex:1;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
     #sdial .trv button:active{background:#2e2e2e}
     #sdial .trv .list{max-height:30vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .row{display:flex;align-items:center;height:34px;border-radius:8px;padding:0 10px 0 13px;margin-bottom:3px;background:linear-gradient(var(--c),var(--c)) 0 0/3px 100% no-repeat,#242424}
-    #sdial .trv .row{--c:var(--st)}
-    #sdial .trv .row:active{background-color:#2e2e2e}
-    #sdial .trv .row.sel{background-color:#2a3140}
+    #sdial .trv .row{display:flex;align-items:center;height:34px;border-radius:8px;padding:0 10px;margin-bottom:3px;background:#242424;box-shadow:inset 3px 0 0 var(--st)}
+    #sdial .trv .row:active{background:#2e2e2e}
+    #sdial .trv .row.sel{background:#2a3140}
     #sdial .trv .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .trv .row .tm{color:#cfcfcf;font-size:12px;white-space:nowrap}
     #sdial .trv .row .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
@@ -265,9 +264,9 @@
     #sdial .trv .skbox .so.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
     #sdial .trv .skbox .meta{color:#8a8a8a;font-size:11px;margin-bottom:5px;line-height:1.35}
     #sdial .trv .skl{max-height:52vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .sk{padding:6px 10px 6px 13px;border-radius:8px;margin-bottom:3px;--c:#555;background:linear-gradient(var(--c),var(--c)) 0 0/3px 100% no-repeat,#242424}
-    #sdial .trv .sk.up{--c:#4a8f4e}
-    #sdial .trv .sk.dn{--c:#e5534b}
+    #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #555}
+    #sdial .trv .sk.up{border-left-color:#4a8f4e}
+    #sdial .trv .sk.dn{border-left-color:#e5534b}
     #sdial .trv .sk.out{opacity:.5}
     #sdial .trv .sk .l1{display:flex;align-items:center;gap:8px}
     #sdial .trv .sk .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
