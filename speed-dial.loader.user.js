@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (loader)
 // @namespace    speeddial
-// @version      0.2.0
+// @version      0.3.0
 // @description  Loads Speed Dial core + modules from GitHub (list in manifest.json). Install once, never edit again.
 // @match        https://www.torn.com/*
 // @grant        none

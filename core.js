@@ -1,6 +1,7 @@
-// Speed Dial core v0.4.1
+// Speed Dial core v0.5.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
+// The Customize module (pinned) lets you hide/show modules and drag them into your own order.
 // A module only builds its UI, timers and API calls while its panel is open (lazy).
 (function () {
   'use strict';
@@ -11,6 +12,7 @@
   const DK = 'speedDial.data1';
   const TTL = 30000;
   const GAP = 46;
+  const LAY = 'speedDial.layout1';   // { order: [ids], hidden: [ids] }
 
   // ---------- helpers shared by modules ----------
   SD.read = (k, def) => {
@@ -125,6 +127,7 @@
   // ---------- module registry ----------
   // m = { id, label, icon (inner SVG markup, 24x24, stroke style) | emoji, width, mount(ctx) -> { unmount() }?, href?, ord? }
   // emoji replaces the SVG icon; href makes the circle a shortcut (no panel); ord sorts circles (default 0, same ord = order of registering)
+  // pinned: true keeps the circle last and always visible (used by Customize, so you can never lock yourself out)
   SD.register = m => {
     SD.mods.push(m);
     if (stack) refreshCircles();
@@ -135,6 +138,46 @@
     const m = SD.mods[i];
     if (cur && cur.m === m) { unmount(); state = 'menu'; }
     SD.mods.splice(i, 1);
+    const ly = layout0();                       // forget a removed module in the saved layout
+    ly.order = ly.order.filter(x => x !== id);
+    ly.hidden = ly.hidden.filter(x => x !== id);
+    SD.write(LAY, ly);
+    if (stack) refreshCircles();
+  };
+
+  // ---------- menu layout: your order + hidden modules (edited in Customize) ----------
+  let LY = null;
+  const layout0 = () => {
+    if (!LY) {
+      const v = SD.read(LAY, {}) || {};
+      const ids = a => (Array.isArray(a) ? a.filter(x => typeof x === 'string') : []);
+      LY = { order: ids(v.order), hidden: ids(v.hidden) };
+    }
+    return LY;
+  };
+  // every module except pinned ones, in menu order, hidden ones included.
+  // modules you never placed (new ones) come after the placed ones, in their default order.
+  SD.ordered = () => {
+    const ly = layout0();
+    return SD.mods.map((m, i) => [m, i]).filter(x => !x[0].pinned)
+      .sort((a, b) => {
+        const ia = ly.order.indexOf(a[0].id), ib = ly.order.indexOf(b[0].id);
+        if (ia > -1 && ib > -1) return ia - ib;
+        if (ia > -1) return -1;
+        if (ib > -1) return 1;
+        return ((a[0].ord || 0) - (b[0].ord || 0)) || (a[1] - b[1]);
+      }).map(x => x[0]);
+  };
+  SD.isHidden = id => layout0().hidden.indexOf(id) > -1;
+  // order / hidden = arrays of module ids. Ids of modules that are not loaded right now are kept as they were.
+  SD.setLayout = (order, hidden) => {
+    const ly = layout0();
+    const here = id => SD.mods.some(m => m.id === id);
+    LY = {
+      order: order.concat(ly.order.filter(id => order.indexOf(id) < 0 && !here(id))),
+      hidden: hidden.filter(id => here(id)).concat(ly.hidden.filter(id => !here(id)))
+    };
+    SD.write(LAY, LY);
     if (stack) refreshCircles();
   };
 
@@ -218,9 +261,9 @@
   // rebuild every circle in order (after a module is added or removed)
   function refreshCircles() {
     circles.splice(0).forEach(c => c.b.remove());
-    SD.mods.map((m, i) => [m, i])
-      .sort((a, b) => ((a[0].ord || 0) - (b[0].ord || 0)) || (a[1] - b[1]))
-      .forEach(x => addCircle(x[0]));
+    SD.ordered().filter(m => !SD.isHidden(m.id))
+      .concat(SD.mods.filter(m => m.pinned))
+      .forEach(addCircle);
     markActive(cur ? cur.m : null);
     layout();
   }

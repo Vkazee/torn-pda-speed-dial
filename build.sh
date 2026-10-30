@@ -8,7 +8,7 @@ cat <<'HEAD'
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.2.0
+// @version      0.3.0
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open.
 // @match        https://www.torn.com/*
 // @grant        none
