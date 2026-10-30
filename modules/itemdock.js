@@ -223,22 +223,22 @@
     #sdial .idock.blocked .list{opacity:.45}
     #sdial .idock .cd{display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px}
     #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:#242424;border:1px solid #333;color:#cfcfcf;font-size:11px}
-    #sdial .idock .row{display:flex;align-items:center;height:40px;border-radius:8px;color:#e6e6e6;padding:0 10px;border-left:3px solid #4a8f4e;margin-bottom:3px;background:#242424;user-select:none;-webkit-user-select:none}
-    #sdial .idock .row:active{background:#2e2e2e}
-    #sdial .idock .row.out{border-left-color:#e5534b;cursor:not-allowed}
-    #sdial .idock .row.out:active{background:#242424}
-    #sdial .idock .row.low{border-left-color:#d9a441}
-    #sdial .idock .row.low .qty{color:#d9a441}
-    #sdial .idock .row.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
-    #sdial .idock .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .idock .row .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
-    #sdial .idock .row .grip svg{width:18px;height:18px;stroke:#8a8a8a}
-    #sdial .idock.edit .row .grip{display:flex}
-    #sdial .idock .row.drag .grip svg{stroke:#e6e6e6}
-    #sdial .idock .row .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:#e5534b;font-size:18px;padding:0}
-    #sdial .idock.edit .row .x{display:block}
+    #sdial .idock .ir{display:flex;align-items:center;min-height:40px;box-sizing:border-box;padding:6px 10px;border-radius:8px;color:#e6e6e6;margin-bottom:3px;background:#242424;border-left:3px solid #4a8f4e;user-select:none;-webkit-user-select:none}
+    #sdial .idock .ir:active{background:#2e2e2e}
+    #sdial .idock .ir.out{border-left-color:#e5534b;cursor:not-allowed}
+    #sdial .idock .ir.out:active{background:#242424}
+    #sdial .idock .ir.low{border-left-color:#d9a441}
+    #sdial .idock .ir.low .qty{color:#d9a441}
+    #sdial .idock .ir.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
+    #sdial .idock .ir .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .idock .ir .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
+    #sdial .idock .ir .grip svg{width:18px;height:18px;stroke:#8a8a8a}
+    #sdial .idock.edit .ir .grip{display:flex}
+    #sdial .idock .ir.drag .grip svg{stroke:#e6e6e6}
+    #sdial .idock .ir .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:#e5534b;font-size:18px;padding:0}
+    #sdial .idock.edit .ir .x{display:block}
     #sdial .idock .qty{margin-left:8px;color:#9a9a9a;font-size:12px;white-space:nowrap}
-    #sdial .idock .row.out .qty{color:#e5534b}
+    #sdial .idock .ir.out .qty{color:#e5534b}
     #sdial .idock .tag{margin-left:6px;padding:1px 6px;border-radius:6px;background:#2d3b52;color:#9bb8e0;font-size:10px}
     #sdial .idock.asking .list,#sdial .idock.asking .foot{display:none}
     #sdial .idock .confirm{display:none;padding:8px 6px 4px;text-align:center;color:#e6e6e6}
@@ -306,7 +306,7 @@
       }
       S.items.forEach((it, idx) => {
         const row = document.createElement('div');
-        row.className = 'row';
+        row.className = 'ir';
         row.innerHTML = '<span class=\"grip\" aria-label=\"Drag to reorder\"><svg viewBox=\"0 0 24 24\"><line x1=\"5\" y1=\"8\" x2=\"19\" y2=\"8\"/><line x1=\"5\" y1=\"12\" x2=\"19\" y2=\"12\"/><line x1=\"5\" y1=\"16\" x2=\"19\" y2=\"16\"/></svg></span><span class="nm"></span><span class="qty"></span><button class="x" aria-label="Remove">\u00d7</button>';
         const n = qtyOf(it);
         if (n !== null) {

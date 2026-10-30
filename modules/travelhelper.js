@@ -237,12 +237,12 @@
     #sdial .trv button{flex:1;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
     #sdial .trv button:active{background:#2e2e2e}
     #sdial .trv .list{max-height:30vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .row{display:flex;align-items:center;height:34px;border-radius:8px;padding:0 10px;margin-bottom:3px;background:#242424;box-shadow:inset 3px 0 0 var(--st)}
-    #sdial .trv .row:active{background:#2e2e2e}
-    #sdial .trv .row.sel{background:#2a3140}
-    #sdial .trv .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .trv .row .tm{color:#cfcfcf;font-size:12px;white-space:nowrap}
-    #sdial .trv .row .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
+    #sdial .trv .cr{display:flex;align-items:center;min-height:34px;box-sizing:border-box;padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid var(--st,#5a5a5a)}
+    #sdial .trv .cr:active{background:#2e2e2e}
+    #sdial .trv .cr.sel{background:#2a3140}
+    #sdial .trv .cr .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .trv .cr .tm{color:#cfcfcf;font-size:12px;white-space:nowrap}
+    #sdial .trv .cr .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
     #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
     #sdial .trv .dt .sub{color:#8a8a8a;font-size:11px;margin-bottom:4px}
     #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:30px;font-size:12px}
@@ -363,7 +363,7 @@
       list.innerHTML = '';
       DEST.forEach((d, i) => {
         const row = document.createElement('div');
-        row.className = 'row' + (i === sel ? ' sel' : '');
+        row.className = 'cr' + (i === sel ? ' sel' : '');
         const one = oneWay(d) * 60, rt = one * 2 + S.stay * 60;
         row.innerHTML = '<span class="nm">' + SD.esc(d.n) + '</span><span class="tm">' + SD.dur(one) + '<i>\u21c4 ' + SD.dur(rt) + '</i></span>';
         row.addEventListener('click', () => { sel = (sel === i ? -1 : i); renderList(); });
