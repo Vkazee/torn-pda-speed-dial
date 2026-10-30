@@ -1,13 +1,14 @@
-// Speed Dial module: Travel Helper v0.2.0
+// Speed Dial module: Travel Helper v0.3.1
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
-// bars or cooldowns clash with the trip. Nothing runs until the panel is opened.
+// bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
+// (YATA first, Prometheus as fallback). Nothing runs until the panel is opened.
 (function () {
   'use strict';
   const SD = window.SpeedDial;
   if (!SD) return;
 
   const LS = 'travelHelper.v1'; // same key as the standalone Travel Helper, so your settings carry over
-  const S = Object.assign({ method: 0, book: false, stay: 0 }, SD.read(LS, null) || {});
+  const S = Object.assign({ method: 0, book: false, stay: 0, sc: 'all', ss: 'profit' }, SD.read(LS, null) || {});
   const save = () => SD.write(LS, S);
 
   // flight times (minutes, one way) from the Torn wiki
@@ -32,6 +33,159 @@
     const s = String(name || '').toLowerCase();
     return DEST.find(d => d.k.some(k => s.includes(k)));
   };
+
+  // ---------- foreign stocks ----------
+  // YATA and Prometheus return the same shape: { stocks: { <code>: { update, stocks: [{ id, name, quantity, cost }] } }, timestamp }
+  const CTRY = { mex: 'Mexico', cay: 'Cayman Islands', can: 'Canada', haw: 'Hawaii', uni: 'United Kingdom', arg: 'Argentina', swi: 'Switzerland', jap: 'Japan', chi: 'China', uae: 'UAE', sou: 'South Africa' };
+  const SOURCES = [
+    { n: 'YATA', u: 'https://yata.yt/api/v1/travel/export/' },
+    { n: 'Prometheus', u: 'https://api.prombot.co.uk/api/travel' }
+  ];
+  const MVK = 'travelHelper.mv';          // cached market values: { t, v: { itemId: value } }
+  const MV_TTL = 30 * 60 * 1000;
+  const STK_TTL = 60 * 1000;
+  const MVC = SD.read(MVK, null) || {};
+  const mv = { t: MVC.t || 0, v: MVC.v || {}, err: '' };
+  const stk = { rows: null, src: '', t: 0, ts: 0, note: '' };
+
+  // PDA's own HTTP bridge (no CORS limits), plain fetch as a fallback; 12s timeout so the fallback source can kick in
+  const http = url => new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error('timeout')), 12000);
+    const ok = v => { clearTimeout(t); res(v); }, bad = e => { clearTimeout(t); rej(e); };
+    if (typeof PDA_httpGet === 'function') {
+      PDA_httpGet(url).then(r => (r && r.status >= 400) ? bad(new Error('HTTP ' + r.status)) : ok(r.responseText), bad);
+    } else {
+      fetch(url).then(r => r.ok ? r.text().then(ok, bad) : bad(new Error('HTTP ' + r.status)), bad);
+    }
+  });
+
+  function parseStocks(j) {
+    const st = j && j.stocks, rows = [];
+    if (!st || typeof st !== 'object') throw new Error('bad data');
+    let ts = +j.timestamp || 0;
+    Object.keys(st).forEach(c => {
+      const arr = st[c] && st[c].stocks;
+      if (!Array.isArray(arr)) return;
+      if (!j.timestamp && st[c].update > ts) ts = st[c].update;
+      arr.forEach(i => {
+        if (i && i.id && i.name) rows.push({ c, id: +i.id, name: String(i.name), q: +i.quantity || 0, cost: +i.cost || 0 });
+      });
+    });
+    if (!rows.length) throw new Error('empty');
+    return { rows, ts };
+  }
+
+  // first source that answers with usable data wins
+  async function fetchStocks() {
+    const failed = [];
+    for (const s of SOURCES) {
+      try {
+        const r = parseStocks(JSON.parse(await http(s.u)));
+        return { rows: r.rows, ts: r.ts, src: s.n, t: Date.now(), note: failed.join(', ') };
+      } catch (e) { failed.push(s.n + ' failed (' + e.message + ')'); }
+    }
+    throw new Error(failed.join(', '));
+  }
+
+  async function loadMV(force) {
+    if (!SD.hasKey) return;
+    if (!force && mv.t && Date.now() - mv.t < MV_TTL) return;
+    const j = await SD.api('https://api.torn.com/torn/?selections=items');
+    const v = {};
+    Object.keys(j.items || {}).forEach(id => { const x = j.items[id]; if (x && x.market_value) v[id] = x.market_value; });
+    mv.t = Date.now(); mv.v = v;
+    SD.write(MVK, { t: mv.t, v });
+  }
+
+  const money = n => {
+    const a = Math.abs(n), sg = n < 0 ? '-' : '';
+    if (a >= 1e9) return sg + '$' + +(a / 1e9).toFixed(2) + 'b';
+    if (a >= 1e6) return sg + '$' + +(a / 1e6).toFixed(2) + 'm';
+    if (a >= 1e3) return sg + '$' + +(a / 1e3).toFixed(1) + 'k';
+    return sg + '$' + Math.round(a);
+  };
+
+  // builds the Stocks box inside the panel; returns { refresh(force) }
+  function setupStocks(ctx, el) {
+    const btn = el.querySelector('.skb'), box = el.querySelector('.skbox'), panelEl = el.parentNode;
+    box.innerHTML =
+      '<div class="bar"><select class="sc"></select><button class="so" data-s="profit">Profit</button><button class="so" data-s="value">Value</button></div>' +
+      '<div class="meta"></div><div class="skl"></div>';
+    const sc = box.querySelector('.sc'), meta = box.querySelector('.meta'), skl = box.querySelector('.skl');
+    sc.innerHTML = '<option value="all">All countries</option>' +
+      Object.keys(CTRY).map(c => '<option value="' + c + '">' + CTRY[c] + '</option>').join('');
+    sc.value = S.sc;
+    let open = false, loading = false, err = '';
+
+    function render() {
+      box.querySelectorAll('.so').forEach(b => b.classList.toggle('on', b.dataset.s === S.ss));
+      const info = [];
+      if (loading) info.push('Loading...');
+      if (stk.rows) {
+        info.push(stk.src + (stk.ts ? ' \u00b7 updated ' + (Date.now() / 1000 - stk.ts < 90 ? 'just now' : SD.dur(Date.now() / 1000 - stk.ts) + ' ago') : ''));
+        if (stk.note) info.push(stk.note);
+      }
+      if (err) info.push(err);
+      if (stk.rows && !Object.keys(mv.v).length) info.push(SD.hasKey ? 'Values unavailable, profit hidden' : 'No API key: profit hidden');
+      meta.textContent = info.join(' \u00b7 ');
+      if (!stk.rows) { skl.innerHTML = ''; return; }
+
+      const byValue = S.ss === 'value';
+      let rows = stk.rows.filter(r => S.sc === 'all' || r.c === S.sc).map(r => {
+        const v = mv.v[r.id] || 0;
+        return { r, v, p: v ? v - r.cost : null };
+      });
+      const num = x => { const k = byValue ? (x.v || null) : x.p; return k == null ? -1e18 : k; };
+      rows.sort((a, b) => ((b.r.q > 0) - (a.r.q > 0)) || (num(b) - num(a)));   // out-of-stock goes last
+      const total = rows.length;
+      rows = rows.slice(0, 60);
+
+      skl.innerHTML = '';
+      rows.forEach(x => {
+        const d = document.createElement('div');
+        const dir = x.p == null ? '' : (x.p >= 0 ? 'up' : 'dn');
+        d.className = 'sk ' + dir + (x.r.q > 0 ? '' : ' out');
+        d.innerHTML = '<div class="l1"><span class="nm">' + SD.esc(x.r.name) + '</span><span class="pf ' + dir + '">' +
+          (x.p == null ? '-' : (x.p >= 0 ? '+' : '') + money(x.p)) + '</span></div><div class="l2"></div>';
+        d.querySelector('.l2').textContent = (S.sc === 'all' ? (CTRY[x.r.c] || x.r.c.toUpperCase()) + ' \u00b7 ' : '') +
+          (x.r.q > 0 ? '\u00d7' + x.r.q.toLocaleString() : 'out of stock') +
+          ' \u00b7 cost ' + money(x.r.cost) + (x.v ? ' \u00b7 value ' + money(x.v) : '');
+        skl.appendChild(d);
+      });
+      if (total > rows.length) {
+        const n = document.createElement('div');
+        n.className = 'meta'; n.style.textAlign = 'center';
+        n.textContent = 'Top ' + rows.length + ' of ' + total + ' - pick a country to narrow down';
+        skl.appendChild(n);
+      }
+    }
+
+    async function loadStocks(force) {
+      if (loading) return;
+      if (!force && stk.rows && Date.now() - stk.t < STK_TTL) { render(); return; }
+      loading = true; err = ''; render();
+      const [rs] = await Promise.all([
+        fetchStocks().then(v => v, e => { err = 'Stocks unavailable: ' + e.message; return null; }),
+        loadMV(force).catch(e => { err = err || 'Values: ' + e.message; })
+      ]);
+      if (rs) Object.assign(stk, rs);
+      loading = false;
+      if (ctx.alive) render();
+    }
+
+    btn.addEventListener('click', () => {
+      open = !open;
+      box.style.display = open ? 'block' : 'none';
+      btn.classList.toggle('on', open);
+      el.classList.toggle('stk', open);
+      panelEl.style.width = open ? Math.min(300, window.innerWidth - 64) + 'px' : '230px';
+      if (open) loadStocks(false);
+    });
+    sc.addEventListener('change', () => { S.sc = sc.value; save(); render(); });
+    box.querySelectorAll('.so').forEach(b => b.addEventListener('click', () => { S.ss = b.dataset.s; save(); render(); }));
+
+    return { refresh: force => (open ? loadStocks(force) : Promise.resolve()) };
+  }
 
   let lastLoad = 0;
   const elapsed = () => { const d = SD.peek(); return d ? (Date.now() - d.t) / 1000 : 0; };
@@ -85,6 +239,26 @@
     #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
     #sdial .trv .w.warn{background:#3a2f1a;color:#f0d9a0}
     #sdial .trv .w.bad{background:#3a1f1d;color:#f1b5b0}
+    #sdial .trv .foot .ico{flex:0 0 44px}
+    #sdial .trv .foot .skb.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
+    #sdial .trv .skbox{display:none;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
+    #sdial .trv .skbox .bar{display:flex;gap:6px;margin-bottom:6px}
+    #sdial .trv .skbox select{flex:1;min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 6px}
+    #sdial .trv .skbox .so{flex:0 0 auto;padding:0 10px}
+    #sdial .trv .skbox .so.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
+    #sdial .trv .skbox .meta{color:#8a8a8a;font-size:11px;margin-bottom:5px;line-height:1.35}
+    #sdial .trv .skl{max-height:34vh;overflow-y:auto;touch-action:pan-y}
+    #sdial .trv.stk .list{max-height:20vh}
+    #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #555}
+    #sdial .trv .sk.up{border-left-color:#4a8f4e}
+    #sdial .trv .sk.dn{border-left-color:#e5534b}
+    #sdial .trv .sk.out{opacity:.5}
+    #sdial .trv .sk .l1{display:flex;align-items:center;gap:8px}
+    #sdial .trv .sk .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .trv .sk .pf{font-weight:600;white-space:nowrap;color:#8a8a8a}
+    #sdial .trv .sk .pf.up{color:#7fd08a}
+    #sdial .trv .sk .pf.dn{color:#f1807a}
+    #sdial .trv .sk .l2{color:#8a8a8a;font-size:11px;margin-top:1px}
   `;
 
   function mount(ctx) {
@@ -95,7 +269,8 @@
       '<div class="stat"></div>' +
       '<div class="opts"><button class="m"></button><button class="bk"></button><button class="st"></button></div>' +
       '<div class="list"></div>' +
-      '<div class="foot"><button class="sync">Sync</button></div>';
+      '<div class="foot"><button class="skb">Stocks</button><button class="sync ico" aria-label="Refresh">' + SD.icons.refresh + '</button></div>' +
+      '<div class="skbox"></div>';
     const statEl = el.querySelector('.stat');
     const list = el.querySelector('.list');
     const bM = el.querySelector('.m'), bBk = el.querySelector('.bk'), bSt = el.querySelector('.st');
@@ -105,7 +280,7 @@
 
     function load(force) {
       lastLoad = Date.now();
-      SD.data(force).then(() => { if (ctx.alive) renderAll(); });
+      return SD.data(force).then(() => { if (ctx.alive) renderAll(); });
     }
 
     function renderOpts() {
@@ -190,7 +365,11 @@
     bM.addEventListener('click', () => { S.method = (S.method + 1) % METHODS.length; save(); renderAll(); });
     bBk.addEventListener('click', () => { S.book = !S.book; save(); renderAll(); });
     bSt.addEventListener('click', () => { S.stay = STAYS[(STAYS.indexOf(S.stay) + 1) % STAYS.length]; save(); renderAll(); });
-    el.querySelector('.sync').addEventListener('click', () => load(true));
+    const stocksUI = setupStocks(ctx, el);
+    const syncBtn = el.querySelector('.sync');
+    syncBtn.addEventListener('click', () => {
+      SD.spin(syncBtn, Promise.all([load(true), stocksUI.refresh(true)])).then(() => { if (ctx.alive) SD.toast('Updated'); });
+    });
 
     renderAll();
     load(false);
@@ -209,7 +388,7 @@
     id: 'travel',
     label: 'Travel Helper',
     width: 230,
-    // paper plane
+    // airplane
     icon: '<path d="M12 2.5c.9 0 1.5.9 1.5 2V9l7 4.5v2l-7-2v3.5l2 1.5V21l-3.5-1-3.5 1v-1.5l2-1.5V13.5l-7 2v-2L10.5 9V4.5c0-1.1.6-2 1.5-2z"/>',
     mount
   });

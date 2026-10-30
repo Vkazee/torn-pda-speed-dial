@@ -1,6 +1,6 @@
-// Speed Dial module: Item Dock v0.7.0
+// Speed Dial module: Item Dock v0.8.1
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
-// Long-press a row and drag to reorder. Nothing runs until the panel is opened.
+// In Edit mode, drag the handle to reorder. Nothing runs until the panel is opened.
 (function () {
   'use strict';
   const SD = window.SpeedDial;
@@ -22,9 +22,15 @@
   const refresh = () => { if (ui) ui.fillList(); };
 
   // ---------- stock (own items only, loaded when the panel is opened) ----------
-  // adj = counts we know after a use, kept until the API catches up (it can lag a bit)
   // okCat = inventory categories that loaded fine (so "Out" is only trusted for those)
-  const stock = { own: null, t: 0, warned: false, adj: {}, okCat: {} };
+  // Torn caches /user/inventory for up to 1 hour per category, so right after you use an item the API
+  // still reports the old number. We remember our own uses (adj) and keep showing them until the API
+  // number changes (it has caught up) or the cache window has passed. Kept in localStorage so a page
+  // change does not bring the old number back.
+  const ADJK = 'itemDock.adj', ADJ_TTL = 65 * 60 * 1000;
+  let adj = SD.read(ADJK, null) || {};
+  const saveAdj = () => SD.write(ADJK, adj);
+  const stock = { raw: null, own: null, t: 0, warned: false, okCat: {} };
 
   function tally(node, map) {
     if (Array.isArray(node)) { node.forEach(n => tally(n, map)); return map; }
@@ -37,33 +43,55 @@
     return map;
   }
 
-  async function apiGet(url) {
-    const m = tally(await SD.api(url), {});
+  // fresh = the person pressed refresh: ask Torn to skip its cache (plain call if the extra parameter is refused)
+  async function apiGet(url, fresh) {
+    let j;
+    if (fresh) {
+      try { j = await SD.api(url + '&timestamp=' + Math.floor(Date.now() / 1000)); }
+      catch (e) { j = await SD.api(url); }
+    } else {
+      j = await SD.api(url);
+    }
+    const m = tally(j, {});
     return Object.keys(m).length ? m : null;
+  }
+
+  // item catalog (one API call, kept in memory): used for item types and for the Add search
+  let catalog = null;
+  async function loadCatalog() {
+    if (catalog) return catalog;
+    const j = await SD.api('https://api.torn.com/torn/?selections=items');
+    catalog = Object.entries(j.items || {}).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase() }));
+    return catalog;
   }
 
   async function ensureTypes() {
     if (S.items.every(i => i.type)) return;
-    const j = await SD.api('https://api.torn.com/torn/?selections=items');
-    S.items.forEach(i => { if (!i.type && j.items[i.id]) i.type = j.items[i.id].type; });
+    const types = {};
+    (await loadCatalog()).forEach(c => { types[c.id] = c.type; });
+    S.items.forEach(i => { if (!i.type && types[i.id]) i.type = types[i.id]; });
     save();
   }
 
   function applyAdj() {
-    if (!stock.own) return;
+    if (!stock.raw) { stock.own = null; return; }
+    stock.own = Object.assign({}, stock.raw);
     const now = Date.now();
-    Object.keys(stock.adj).forEach(id => {
-      const a = stock.adj[id];
-      if (now - a.t > 120000 || (stock.own[id] || 0) <= a.n) delete stock.adj[id];
+    let dirty = false;
+    Object.keys(adj).forEach(id => {
+      const a = adj[id];
+      if (now - a.t > ADJ_TTL || (stock.raw[id] || 0) !== a.base) { delete adj[id]; dirty = true; }  // expired, or the API caught up
       else stock.own[id] = a.n;
     });
+    if (dirty) saveAdj();
   }
 
   function bump(id, d) {
-    if (!stock.own) return;
+    if (!stock.raw) return;
     const n = Math.max(0, (stock.own[id] || 0) + d);
+    adj[id] = { n, base: adj[id] ? adj[id].base : (stock.raw[id] || 0), t: Date.now() };
     stock.own[id] = n;
-    stock.adj[id] = { n, t: Date.now() };
+    saveAdj();
     refresh();
   }
 
@@ -74,7 +102,7 @@
   }
   const outOf = it => qtyOf(it) === 0;
 
-  async function loadStock(force) {
+  async function loadStock(force, fresh) {
     if (!SD.hasKey || !S.items.length) return;
     if (!force && Date.now() - stock.t < 30000) return;
     stock.t = Date.now();
@@ -86,12 +114,12 @@
       const merged = {}, okCat = {};
       for (const cat of Array.from(new Set(own.map(i => i.type)))) {
         try {
-          const m = await apiGet('https://api.torn.com/v2/user/inventory?cat=' + encodeURIComponent(cat));
+          const m = await apiGet('https://api.torn.com/v2/user/inventory?cat=' + encodeURIComponent(cat), fresh);
           if (m) { Object.assign(merged, m); okCat[cat] = true; }
         } catch (e) { errs.push(cat + ': ' + e.message); }
       }
-      stock.own = Object.keys(merged).length ? merged : null;
-      stock.okCat = stock.own ? okCat : {};
+      stock.raw = Object.keys(merged).length ? merged : null;
+      stock.okCat = stock.raw ? okCat : {};
       applyAdj();
     }
     refresh();
@@ -140,40 +168,10 @@
       SD.toast(msg ? msg.slice(0, 160) : 'Done');
       if (ok && !it.fac) bump(it.id, -1);                 // update the count right away
       SD.data(true).then(() => { if (ui) ui.status(); });  // fresh status + cooldowns
-      if (ui) ui.after(() => loadStock(true), 2000);       // then confirm stock with the API
     } catch (e) {
       SD.toast('Failed: ' + e.message);
     }
     busy = false;
-  }
-
-  // ---------- add item (catalog fetched only when needed) ----------
-  async function addItem() {
-    if (!SD.hasKey) return alert('No API key available.');
-    const q = (prompt('Item name (e.g. first aid, morphine, blood bag):') || '').trim().toLowerCase();
-    if (!q) return;
-    try {
-      const j = await SD.api('https://api.torn.com/torn/?selections=items');
-      const list = Object.entries(j.items)
-        .map(([id, v]) => ({ id: +id, name: v.name, type: v.type }))
-        .filter(i => i.name.toLowerCase().includes(q))
-        .slice(0, 8);
-      if (!list.length) return alert('No item found.');
-      let pick = list[0];
-      if (list.length > 1) {
-        const n = parseInt(prompt(list.map((i, k) => (k + 1) + '. ' + i.name).join('\n') + '\n\nEnter a number:'), 10);
-        if (!n || n < 1 || n > list.length) return;
-        pick = list[n - 1];
-      }
-      const src = parseInt(prompt('Source for ' + pick.name + ':\n1. My items\n2. Faction armoury\n\nEnter a number:', '1'), 10);
-      if (src !== 1 && src !== 2) return;
-      const fac = src === 2;
-      if (S.items.some(i => i.id === pick.id && !!i.fac === fac)) return alert('Already in your dock.');
-      S.items.push({ id: pick.id, name: pick.name, type: pick.type, fac });
-      save(); refresh();
-    } catch (e) {
-      alert('Could not load items: ' + e.message);
-    }
   }
 
   // ---------- panel (built only when opened) ----------
@@ -213,6 +211,27 @@
     #sdial .idock .foot{display:flex;gap:6px;margin-top:4px;padding-top:6px;border-top:1px solid #2c2c2c}
     #sdial .idock .foot button{flex:1;height:34px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
     #sdial .idock .foot button:active{background:#2e2e2e}
+    #sdial .idock .foot .ico{flex:0 0 44px}
+    #sdial .idock .addv{display:none}
+    #sdial .idock.adding .addv{display:block}
+    #sdial .idock.adding .list,#sdial .idock.adding .foot,#sdial .idock.adding .banner,#sdial .idock.adding .cd{display:none!important}
+    #sdial .idock .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#e6e6e6;font-size:13px}
+    #sdial .idock .ah .back{flex:0 0 32px;height:32px;border-radius:8px;border:1px solid #333;background:#242424;display:flex;align-items:center;justify-content:center;padding:0}
+    #sdial .idock .ah .back:active{background:#2e2e2e}
+    #sdial .idock .sq{box-sizing:border-box;width:100%;height:38px;border-radius:8px;border:1px solid #3a3a3a;background:#242424;color:#e6e6e6;font-size:16px;padding:0 10px;margin-bottom:6px;outline:none}
+    #sdial .idock .sq:focus{border-color:#4a8fd9}
+    #sdial .idock .seg{display:flex;gap:6px;margin-bottom:6px}
+    #sdial .idock .seg button{flex:1;height:30px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0}
+    #sdial .idock .seg button.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
+    #sdial .idock .res{max-height:38vh;overflow-y:auto;touch-action:pan-y}
+    #sdial .idock .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #4a8fd9}
+    #sdial .idock .res .r:active{background:#2e2e2e}
+    #sdial .idock .res .r.have{opacity:.5}
+    #sdial .idock .res .t{flex:1;min-width:0}
+    #sdial .idock .res .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .idock .res .ty{display:block;color:#8a8a8a;font-size:11px}
+    #sdial .idock .res .pl{color:#7fd08a;font-size:18px;line-height:1}
+    #sdial .idock .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px}
   `;
 
   function mount(ctx) {
@@ -222,8 +241,14 @@
     el.innerHTML =
       '<div class="banner"></div><div class="cd"></div>' +
       '<div class="confirm"><div class="q"></div><div class="btns"><button class="no">Cancel</button><button class="ok">Use</button></div></div>' +
+      '<div class="addv">' +
+        '<div class="ah"><button class="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><span>Add item</span></div>' +
+        '<input class="sq" type="text" placeholder="Search item name" autocomplete="off" autocapitalize="off" spellcheck="false">' +
+        '<div class="seg"><button class="s1 on">My items</button><button class="s2">Faction</button></div>' +
+        '<div class="res"></div>' +
+      '</div>' +
       '<div class="list"></div>' +
-      '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="sync">Sync</button></div>';
+      '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="sync ico" aria-label="Refresh">' + SD.icons.refresh + '</button></div>';
     const banner = el.querySelector('.banner');
     const cdEl = el.querySelector('.cd');
     const list = el.querySelector('.list');
@@ -354,13 +379,81 @@
       renderCd();
     }
 
-    // ----- footer buttons -----
-    el.querySelector('.add').addEventListener('click', addItem);
-    el.querySelector('.sync').addEventListener('click', () => {
-      SD.toast('Syncing...');
-      loadStock(true);
-      SD.data(true).then(() => { if (ctx.alive) status(); });
+    // ----- add item view (search the catalog, tap a result to add) -----
+    const addv = el.querySelector('.addv'), qIn = addv.querySelector('.sq'), res = addv.querySelector('.res');
+    let addFac = false, added = false;
+
+    function renderRes() {
+      if (!catalog) return;
+      const q = qIn.value.trim().toLowerCase();
+      if (q.length < 2) { res.innerHTML = '<div class="hint">Type at least 2 letters</div>'; return; }
+      const words = q.split(/\s+/);
+      const hits = catalog.filter(c => words.every(w => c.l.indexOf(w) > -1))
+        .sort((a, b) => (b.l.indexOf(q) === 0) - (a.l.indexOf(q) === 0) || a.l.localeCompare(b.l))
+        .slice(0, 25);
+      if (!hits.length) { res.innerHTML = '<div class="hint">No item found</div>'; return; }
+      res.innerHTML = '';
+      hits.forEach(c => {
+        const have = S.items.some(i => i.id === c.id && !!i.fac === addFac);
+        const r = document.createElement('div');
+        r.className = 'r' + (have ? ' have' : '');
+        r.innerHTML = '<span class="t"><span class="nm"></span><span class="ty"></span></span><span class="pl"></span>';
+        r.querySelector('.nm').textContent = c.name;
+        r.querySelector('.ty').textContent = c.type || '';
+        r.querySelector('.pl').textContent = have ? '\u2713' : '+';
+        if (!have) {
+          r.addEventListener('click', () => {
+            S.items.push({ id: c.id, name: c.name, type: c.type, fac: addFac });
+            save(); added = true;
+            SD.toast('Added ' + c.name);
+            renderRes();
+          });
+        }
+        res.appendChild(r);
+      });
+    }
+
+    async function openAdd() {
+      if (!SD.hasKey) return SD.toast('No API key available');
+      added = false;
+      el.classList.add('adding');
+      qIn.value = '';
+      qIn.focus();
+      if (!catalog) {
+        res.innerHTML = '<div class="hint">Loading items...</div>';
+        try { await loadCatalog(); }
+        catch (e) { res.innerHTML = '<div class="hint">Could not load items (' + SD.esc(e.message) + ')</div>'; return; }
+      }
+      if (ctx.alive) renderRes();
+    }
+
+    function closeAdd() {
+      el.classList.remove('adding');
+      qIn.blur();
+      fillList();
+      if (added) loadStock(true);   // show stock for the new items
+    }
+
+    qIn.addEventListener('input', renderRes);
+    addv.querySelector('.back').addEventListener('click', closeAdd);
+    [['.s1', false], ['.s2', true]].forEach(([sel, fac]) => {
+      addv.querySelector(sel).addEventListener('click', () => {
+        addFac = fac;
+        addv.querySelector('.s1').classList.toggle('on', !fac);
+        addv.querySelector('.s2').classList.toggle('on', fac);
+        renderRes();
+      });
     });
+
+    // ----- footer buttons -----
+    const syncBtn = el.querySelector('.sync');
+    syncBtn.addEventListener('click', () => {
+      SD.spin(syncBtn, Promise.all([loadStock(true, true), SD.data(true).then(() => { if (ctx.alive) status(); })])).then(() => {
+        if (!ctx.alive) return;
+        SD.toast(Object.keys(adj).length ? 'Refreshed. Torn caches stock for up to 1h, so your recent uses are counted locally' : 'Refreshed');
+      });
+    });
+    el.querySelector('.add').addEventListener('click', openAdd);
     el.querySelector('.edit').addEventListener('click', e => {
       const on = el.classList.toggle('edit');
       e.target.textContent = on ? 'Done' : 'Edit';
