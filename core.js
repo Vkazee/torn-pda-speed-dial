@@ -1,4 +1,4 @@
-// Speed Dial core v0.5.0
+// Speed Dial core v0.5.1
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // The Settings module (pinned) lets you hide/show modules and drag them into your own order.
@@ -83,7 +83,7 @@
   SD.data = function (force) {
     if (!SD.hasKey) return Promise.resolve(null);
     SD.peek();
-    if (!force && D && Date.now() - D.t < TTL) return Promise.resolve(D);
+    if (!force && D && Date.now() - D.t < TTL) { ring(); return Promise.resolve(D); }   // cache masih segar: tetap gambar outline
     if (inflight) return inflight;
     inflight = fetch('https://api.torn.com/user/?selections=basic,travel,cooldowns,bars&key=' + SD.key)
       .then(r => r.json())
@@ -356,7 +356,10 @@
     });
     addEventListener('resize', layout);
 
-    // one light status check per page load, only to colour the main circle
+    // pakai status terakhir dari cache dulu supaya outline langsung muncul di tiap halaman,
+    // lalu satu pengecekan ringan per page load untuk menyegarkannya
+    SD.peek();
+    ring();
     SD.data(false);
   };
 })();
