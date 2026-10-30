@@ -2,6 +2,7 @@
   "files": [
     "core.js",
     "modules/itemdock.js",
-    "modules/travelhelper.js"
+    "modules/travelhelper.js",
+    "modules/shortcuts.js"
   ]
 }

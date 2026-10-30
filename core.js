@@ -1,5 +1,6 @@
-// Speed Dial core v0.3.2
+// Speed Dial core v0.4.1
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
+// A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // A module only builds its UI, timers and API calls while its panel is open (lazy).
 (function () {
   'use strict';
@@ -94,6 +95,7 @@
         D = {
           t: Date.now(),
           state,
+          level: typeof j.level === 'number' ? j.level : 0,   // 0 = unknown
           until: state === 'Okay' ? 0 : (st.until || 0),
           desc,
           dest,
@@ -121,10 +123,19 @@
   };
 
   // ---------- module registry ----------
-  // m = { id, label, icon (inner SVG markup, 24x24, stroke style), width, mount(ctx) -> { unmount() }? }
+  // m = { id, label, icon (inner SVG markup, 24x24, stroke style) | emoji, width, mount(ctx) -> { unmount() }?, href?, ord? }
+  // emoji replaces the SVG icon; href makes the circle a shortcut (no panel); ord sorts circles (default 0, same ord = order of registering)
   SD.register = m => {
     SD.mods.push(m);
-    if (stack) addCircle(m);
+    if (stack) refreshCircles();
+  };
+  SD.unregister = id => {
+    const i = SD.mods.findIndex(m => m.id === id);
+    if (i < 0) return;
+    const m = SD.mods[i];
+    if (cur && cur.m === m) { unmount(); state = 'menu'; }
+    SD.mods.splice(i, 1);
+    if (stack) refreshCircles();
   };
 
   // ---------- hub UI ----------
@@ -150,6 +161,7 @@
     #sdial[data-st="blk"]{--st:#e5534b}
     #sdial .mod.act{border-color:var(--st)}
     #sdial .mod:active{background:#2e2e2e}
+    #sdial .emo{font-size:18px;line-height:1;pointer-events:none}
     #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
     #sdial.r .lb{left:auto;right:40px}
     #sdial.pnl .lb{display:none}
@@ -194,11 +206,22 @@
     const b = document.createElement('button');
     b.className = 'mod';
     b.setAttribute('aria-label', m.label);
-    b.innerHTML = '<svg viewBox="0 0 24 24">' + m.icon + '</svg><span class="lb"></span>';
+    b.innerHTML = (m.emoji ? '<span class="emo"></span>' : '<svg viewBox="0 0 24 24">' + m.icon + '</svg>') + '<span class="lb"></span>';
+    if (m.emoji) b.querySelector('.emo').textContent = m.emoji;
     b.querySelector('.lb').textContent = m.label;
-    b.addEventListener('click', () => pick(m));
+    b.addEventListener('click', () => { if (m.href) location.href = m.href; else pick(m); });
     stack.appendChild(b);
     circles.push({ m, b });
+    layout();
+  }
+
+  // rebuild every circle in order (after a module is added or removed)
+  function refreshCircles() {
+    circles.splice(0).forEach(c => c.b.remove());
+    SD.mods.map((m, i) => [m, i])
+      .sort((a, b) => ((a[0].ord || 0) - (b[0].ord || 0)) || (a[1] - b[1]))
+      .forEach(x => addCircle(x[0]));
+    markActive(cur ? cur.m : null);
     layout();
   }
 
@@ -267,8 +290,7 @@
     fab = root.querySelector('.fab');
     stack = root.querySelector('.stack');
     panel = root.querySelector('.panel');
-    SD.mods.forEach(addCircle);
-    layout();
+    refreshCircles();
 
     // drag + tap on the main circle
     let sx, sy, ox, oy, moved = false;

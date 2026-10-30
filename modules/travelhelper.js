@@ -1,9 +1,9 @@
-// Speed Dial module: Travel Helper v0.6.0
+// Speed Dial module: Travel Helper v0.6.2
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
-// (YATA first, Prometheus as fallback). Tapping a country offers "Open travel agency": it opens Torn's travel page and
-// tries to pick that country for you (you still press Travel yourself). Nothing runs until the panel is opened,
-// except a tiny check on the travel page itself.
+// (YATA first, Prometheus as fallback). Tapping a country offers "Go to travel agency", which only opens
+// Torn's travel page (nothing on that page is read or clicked). Below level 15 the whole panel shows only a red notice.
+// Nothing runs until the panel is opened.
 (function () {
   'use strict';
   const SD = window.SpeedDial;
@@ -225,6 +225,9 @@
   const warnHtml = w => w.map(x => '<div class="w ' + x[0] + '">' + SD.esc(x[1]) + '</div>').join('');
 
   const TRAVEL_URL = '/page.php?sid=travel';
+  const MIN_LEVEL = 15;                        // Torn unlocks travelling at level 15
+  const level = () => { const D = SD.peek(); return D && D.level ? D.level : 0; };   // 0 = unknown, never blocks
+  const locked = () => { const l = level(); return l > 0 && l < MIN_LEVEL; };
 
   const CSS = `
     #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:#242424;line-height:1.4}
@@ -273,8 +276,7 @@
     #sdial .trv .sk .l2{color:#8a8a8a;font-size:11px;margin-top:1px}
   `;
 
-  function mount(ctx) {
-    SD.css('sd-travel', CSS);
+  function build(ctx) {
     const el = ctx.el;
     el.className = 'trv';
     el.innerHTML =
@@ -399,6 +401,25 @@
       const D = SD.peek();
       if (D && mode() === 'flying' && D.left - elapsed() <= 0 && Date.now() - lastLoad > 15000) load(true);
     }, 1000);
+  }
+
+  // the circle stays tappable below level 15: the panel then shows only a red notice
+  function mount(ctx) {
+    SD.css('sd-travel', CSS);
+    const el = ctx.el;
+    el.className = 'trv';
+    const gate = () => {
+      if (!locked()) return false;
+      el.innerHTML = '<div class="w bad">Travel unlocks at level ' + MIN_LEVEL + ' (you are level ' + level() + ')</div>';
+      return true;
+    };
+    if (gate()) return;
+    if (SD.hasKey && !SD.peek()) {   // level not known yet: wait for the status check
+      el.textContent = 'Loading...';
+      SD.data(false).then(() => { if (ctx.alive && !gate()) build(ctx); });
+      return;
+    }
+    build(ctx);
   }
 
   SD.register({

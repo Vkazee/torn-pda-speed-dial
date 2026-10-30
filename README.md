@@ -11,6 +11,7 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 | `core.js` | Core: main circle, module list, shared player data (1 API call), toast, storage |
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
+| `modules/shortcuts.js` | Shortcuts module: your own emoji circles that open a Torn page, plus the "+" circle to add them |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
 | `build.sh` | Combines `core.js` + `modules/` into the bundle |
 
@@ -28,7 +29,7 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 ## Adding a New Module
 
 1. Create `modules/name.js` that calls `SpeedDial.register({ id, label, icon, width, mount })`.
-   - `icon` is inner SVG markup for a 24x24 stroke icon.
+   - `icon` is inner SVG markup for a 24x24 stroke icon. Use `emoji` instead for an emoji circle; `href` makes the circle open a page instead of a panel; `ord` sorts circles. `SpeedDial.unregister(id)` removes one.
    - `mount(ctx)` gets `ctx.el`, `ctx.every(fn, ms)`, `ctx.after(fn, ms)` and `ctx.alive`; timers are cleared automatically when the panel closes.
 2. Add `"modules/name.js"` to `manifest.json` (after `core.js`).
 3. Push to GitHub. Nothing changes in PDA.
@@ -43,6 +44,7 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 
 ## Notes
 
-- Travel Helper: tap a country, then "Open travel agency". It opens Torn's travel page and tries to select that country. It never presses Travel/Continue. The button is disabled while you are in hospital or jail. Selection is best effort: if Torn changes the page, you will see a toast and can pick the country yourself.
+- Travel Helper: tap a country for flight times, the time you will be back, and warnings. "Go to travel agency" only opens Torn's travel page (nothing on the page is clicked or read). The button is disabled while you are in hospital or jail.
+- Shortcuts: tap the "+" circle, pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Tap a shortcut circle to open its page; remove it from the "+" panel. Only torn.com pages are accepted.
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
 - Main circle colours: blue = abroad or traveling, yellow = hospital, red = jail, federal, or hospital abroad. Status is checked once per page load.

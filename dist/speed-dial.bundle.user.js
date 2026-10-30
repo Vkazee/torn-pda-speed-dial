@@ -7,8 +7,9 @@
 // @grant        none
 // ==/UserScript==
 
-// Speed Dial core v0.3.2
+// Speed Dial core v0.4.1
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
+// A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // A module only builds its UI, timers and API calls while its panel is open (lazy).
 (function () {
   'use strict';
@@ -103,6 +104,7 @@
         D = {
           t: Date.now(),
           state,
+          level: typeof j.level === 'number' ? j.level : 0,   // 0 = unknown
           until: state === 'Okay' ? 0 : (st.until || 0),
           desc,
           dest,
@@ -130,10 +132,19 @@
   };
 
   // ---------- module registry ----------
-  // m = { id, label, icon (inner SVG markup, 24x24, stroke style), width, mount(ctx) -> { unmount() }? }
+  // m = { id, label, icon (inner SVG markup, 24x24, stroke style) | emoji, width, mount(ctx) -> { unmount() }?, href?, ord? }
+  // emoji replaces the SVG icon; href makes the circle a shortcut (no panel); ord sorts circles (default 0, same ord = order of registering)
   SD.register = m => {
     SD.mods.push(m);
-    if (stack) addCircle(m);
+    if (stack) refreshCircles();
+  };
+  SD.unregister = id => {
+    const i = SD.mods.findIndex(m => m.id === id);
+    if (i < 0) return;
+    const m = SD.mods[i];
+    if (cur && cur.m === m) { unmount(); state = 'menu'; }
+    SD.mods.splice(i, 1);
+    if (stack) refreshCircles();
   };
 
   // ---------- hub UI ----------
@@ -159,6 +170,7 @@
     #sdial[data-st="blk"]{--st:#e5534b}
     #sdial .mod.act{border-color:var(--st)}
     #sdial .mod:active{background:#2e2e2e}
+    #sdial .emo{font-size:18px;line-height:1;pointer-events:none}
     #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
     #sdial.r .lb{left:auto;right:40px}
     #sdial.pnl .lb{display:none}
@@ -203,11 +215,22 @@
     const b = document.createElement('button');
     b.className = 'mod';
     b.setAttribute('aria-label', m.label);
-    b.innerHTML = '<svg viewBox="0 0 24 24">' + m.icon + '</svg><span class="lb"></span>';
+    b.innerHTML = (m.emoji ? '<span class="emo"></span>' : '<svg viewBox="0 0 24 24">' + m.icon + '</svg>') + '<span class="lb"></span>';
+    if (m.emoji) b.querySelector('.emo').textContent = m.emoji;
     b.querySelector('.lb').textContent = m.label;
-    b.addEventListener('click', () => pick(m));
+    b.addEventListener('click', () => { if (m.href) location.href = m.href; else pick(m); });
     stack.appendChild(b);
     circles.push({ m, b });
+    layout();
+  }
+
+  // rebuild every circle in order (after a module is added or removed)
+  function refreshCircles() {
+    circles.splice(0).forEach(c => c.b.remove());
+    SD.mods.map((m, i) => [m, i])
+      .sort((a, b) => ((a[0].ord || 0) - (b[0].ord || 0)) || (a[1] - b[1]))
+      .forEach(x => addCircle(x[0]));
+    markActive(cur ? cur.m : null);
     layout();
   }
 
@@ -276,8 +299,7 @@
     fab = root.querySelector('.fab');
     stack = root.querySelector('.stack');
     panel = root.querySelector('.panel');
-    SD.mods.forEach(addCircle);
-    layout();
+    refreshCircles();
 
     // drag + tap on the main circle
     let sx, sy, ox, oy, moved = false;
@@ -839,12 +861,152 @@
   });
 })();
 
-// Speed Dial module: Travel Helper v0.5.1
+// Speed Dial module: Shortcuts v0.1.0
+// Your own page shortcuts. Each one is a circle with an emoji; tapping it just opens that Torn page.
+// The "+" circle at the end opens a small form to add one (emoji, name, page) and lists them for removal.
+// Only torn.com pages are accepted. Nothing is read from or clicked on the page.
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const LS = 'speedDial.shortcuts1';
+  const MAX = 8;
+  const QUICK = ['\u{1F3E0}', '\u{1F6D2}', '\u{1F3E6}', '\u{1F3B0}', '\u2694\uFE0F', '\u{1F3E5}', '\u{1F4BC}', '\u{1F4E6}', '\u{1F3AF}', '\u2B50'];
+  let list = SD.read(LS, []);
+  if (!Array.isArray(list)) list = [];
+  const save = () => SD.write(LS, list);
+
+  const sid = s => 'sc-' + s.id;
+  const reg = s => SD.register({ id: sid(s), label: s.n, emoji: s.e, href: s.u, ord: 500 });
+  list.forEach(reg);
+
+  // torn.com page only: "/bazaar.php", "torn.com/bazaar.php" or "https://www.torn.com/bazaar.php"
+  const fixUrl = raw => {
+    let u = String(raw || '').trim();
+    if (!u) return '';
+    if (u[0] === '/') return (u[1] === '/' || u[1] === '\\') ? '' : u;
+    if (/^(www\.)?torn\.com\//i.test(u)) u = 'https://' + u;
+    return /^https:\/\/(www\.)?torn\.com\//i.test(u) ? u : '';
+  };
+
+  // first emoji of the input (keeps skin tones and combined emoji in one piece)
+  let PICT;
+  try { PICT = new RegExp('\\p{Extended_Pictographic}', 'u'); } catch (e) { PICT = /[^\x00-\x7F]/; }
+  const firstChar = s => {
+    try {
+      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        const it = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s)[Symbol.iterator]().next();
+        return it.done ? '' : it.value.segment;
+      }
+    } catch (e) {}
+    return Array.from(s)[0] || '';
+  };
+  const emojiOf = raw => {
+    const s = String(raw || '').trim();
+    if (!s) return '\u2B50';
+    const g = firstChar(s);
+    return PICT.test(g) ? g : '';
+  };
+
+  const CSS = `
+    #sdial .scx .ttl{font-size:13px;margin:2px 2px 6px;color:#e6e6e6}
+    #sdial .scx .qk{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+    #sdial .scx .qk button{flex:0 0 auto;width:30px;height:30px;font-size:16px;padding:0}
+    #sdial .scx .rw{display:flex;gap:6px;margin-bottom:6px}
+    #sdial .scx input{min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:13px;padding:0 8px}
+    #sdial .scx .ie{flex:0 0 64px;text-align:center;font-size:16px}
+    #sdial .scx .in,#sdial .scx .iu{flex:1}
+    #sdial .scx button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 8px}
+    #sdial .scx button:active{background:#2e2e2e}
+    #sdial .scx .add{width:100%}
+    #sdial .scx .lst{margin-top:6px;max-height:30vh;overflow-y:auto;touch-action:pan-y}
+    #sdial .scx .it{display:flex;align-items:center;gap:8px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:#242424;margin-bottom:3px}
+    #sdial .scx .it .ix{font-size:16px}
+    #sdial .scx .it .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .scx .it .del{height:26px;width:30px;padding:0;color:#f1807a}
+  `;
+
+  function mount(ctx) {
+    SD.css('sd-shortcuts', CSS);
+    const el = ctx.el;
+    el.className = 'scx';
+    el.innerHTML =
+      '<div class="ttl">Add shortcut</div>' +
+      '<div class="qk"></div>' +
+      '<div class="rw"><input class="ie" maxlength="12" placeholder="Emoji" autocomplete="off"><input class="in" maxlength="20" placeholder="Name" autocomplete="off"></div>' +
+      '<div class="rw"><input class="iu" placeholder="/page.php?sid=..." autocomplete="off" autocapitalize="off" spellcheck="false"><button class="here">This page</button></div>' +
+      '<button class="add">Add</button>' +
+      '<div class="lst"></div>';
+    const qk = el.querySelector('.qk'), lst = el.querySelector('.lst');
+    const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
+
+    QUICK.forEach(e => {
+      const b = document.createElement('button');
+      b.textContent = e;
+      b.addEventListener('click', () => { inE.value = e; });
+      qk.appendChild(b);
+    });
+
+    // fill the form from the page you are on right now (address only, nothing else is read)
+    el.querySelector('.here').addEventListener('click', () => {
+      inU.value = location.pathname + location.search + location.hash;
+      if (!inN.value) inN.value = (document.title || '').replace(/\s*[|\u2013-]\s*TORN.*$/i, '').trim().slice(0, 20);
+    });
+
+    function renderList() {
+      lst.innerHTML = '';
+      list.forEach(s => {
+        const r = document.createElement('div');
+        r.className = 'it';
+        r.innerHTML = '<span class="ix"></span><span class="nm"></span><button class="del" aria-label="Delete">\u2715</button>';
+        r.querySelector('.ix').textContent = s.e;
+        r.querySelector('.nm').textContent = s.n;
+        r.querySelector('.del').addEventListener('click', () => {
+          list = list.filter(x => x.id !== s.id);
+          save();
+          SD.unregister(sid(s));
+          renderList();
+        });
+        lst.appendChild(r);
+      });
+    }
+
+    el.querySelector('.add').addEventListener('click', () => {
+      if (list.length >= MAX) { SD.toast('Maximum ' + MAX + ' shortcuts'); return; }
+      const e = emojiOf(inE.value), n = inN.value.trim().slice(0, 20), u = fixUrl(inU.value);
+      if (!e) { SD.toast('Emoji must be an emoji'); return; }
+      if (!n) { SD.toast('Enter a name'); return; }
+      if (!u) { SD.toast('Use a torn.com page'); return; }
+      const s = { id: Date.now().toString(36), e, n, u };
+      list.push(s);
+      save();
+      reg(s);
+      inE.value = inN.value = inU.value = '';
+      renderList();
+      SD.toast('Added ' + n);
+    });
+
+    renderList();
+  }
+
+  SD.register({
+    id: 'shortcuts-add',
+    label: 'Add shortcut',
+    width: 240,
+    ord: 1000,
+    // plus
+    icon: '<path d="M12 5v14M5 12h14"/>',
+    mount
+  });
+})();
+
+// Speed Dial module: Travel Helper v0.6.2
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
-// (YATA first, Prometheus as fallback). Tapping a country offers "Open travel agency": it opens Torn's travel page and
-// tries to pick that country for you (you still press Travel yourself). Nothing runs until the panel is opened,
-// except a tiny check on the travel page itself.
+// (YATA first, Prometheus as fallback). Tapping a country offers "Go to travel agency", which only opens
+// Torn's travel page (nothing on that page is read or clicked). Below level 15 the whole panel shows only a red notice.
+// Nothing runs until the panel is opened.
 (function () {
   'use strict';
   const SD = window.SpeedDial;
@@ -1061,77 +1223,14 @@
       const r = ((D.cd || {})[k] || 0) - e;
       if (r > 0 && r < secs) w.push(['info', l + ' cooldown ends in ' + SD.dur(r) + ' (while you are away)']);
     });
-    if (!w.length) w.push(['ok', 'No conflicts']);
     return w;
   }
   const warnHtml = w => w.map(x => '<div class="w ' + x[0] + '">' + SD.esc(x[1]) + '</div>').join('');
 
-  // ---------- open the travel agency and pick the country ----------
-  // Only navigates and selects. The real Travel / Continue buttons are never touched.
-  const PEND = 'travelHelper.go'; // sessionStorage: { n, k, t }
-  const onTravelPage = () => /[?&]sid=travel(&|$)/.test(location.href);
-  let picking = false;
-
-  function preselect() {
-    if (picking) return;
-    let p = null;
-    try { p = JSON.parse(sessionStorage.getItem(PEND)); } catch (e) {}
-    if (!p || Date.now() - p.t > 60000) { try { sessionStorage.removeItem(PEND); } catch (e) {} return; }
-    picking = true;
-    const names = p.k.concat([p.n.toLowerCase()]);
-    const norm = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    const SKIP = /\b(travel|continue|back|cancel|confirm)\b/;
-    // Torn names the map pin images after the country: mexico, cayman_islands, south_africa, uk ...
-    const img = p.n === 'United Kingdom' ? 'uk' : p.n.toLowerCase().replace(/\s+/g, '_');
-    const click = e => e.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    const find = () => {
-      // 1) desktop layout: map pins whose background image carries the country name
-      const pins = document.querySelectorAll('div[class*="pin___"]');
-      for (let i = 0; i < pins.length; i++) {
-        if ((pins[i].style.backgroundImage || '').toLowerCase().indexOf(img) > -1) return pins[i];
-      }
-      // 2) mobile layout: list buttons holding a span with the country name
-      const spans = document.querySelectorAll('span[class*="country___"]');
-      for (let i = 0; i < spans.length; i++) {
-        if (norm(spans[i].textContent) === p.n.toLowerCase()) {
-          const b = spans[i].closest('button');
-          if (b) return b;
-        }
-      }
-      // 3) fallback: any short button/link whose text is the country name
-      const els = document.querySelectorAll('button, a, [role="button"]');
-      for (let i = 0; i < els.length; i++) {
-        const e = els[i];
-        if (e.closest('#sdial')) continue;
-        const t = norm(e.textContent);
-        if (!t || t.length > 40 || SKIP.test(t)) continue;
-        if (names.some(n => t === n || t.indexOf(n + ' ') === 0)) return e;
-      }
-      return null;
-    };
-    const t0 = Date.now();
-    const iv = setInterval(() => {
-      const e = find();
-      if (e) {
-        clearInterval(iv); picking = false;
-        try { sessionStorage.removeItem(PEND); } catch (x) {}
-        click(e);
-        SD.toast(p.n + ' selected. Press Travel yourself.');
-      } else if (Date.now() - t0 > 12000) {
-        clearInterval(iv); picking = false;
-        try { sessionStorage.removeItem(PEND); } catch (x) {}
-        SD.toast("Couldn't find " + p.n + ' on the page. Pick it yourself.');
-      }
-    }, 400);
-  }
-
-  function goTravel(d) {
-    try { sessionStorage.setItem(PEND, JSON.stringify({ n: d.n, k: d.k, t: Date.now() })); } catch (e) {}
-    if (onTravelPage()) preselect();
-    else location.href = '/page.php?sid=travel';
-  }
-  // arrived on the travel page with a destination waiting
-  if (onTravelPage()) { try { if (sessionStorage.getItem(PEND)) setTimeout(preselect, 300); } catch (e) {} }
+  const TRAVEL_URL = '/page.php?sid=travel';
+  const MIN_LEVEL = 15;                        // Torn unlocks travelling at level 15
+  const level = () => { const D = SD.peek(); return D && D.level ? D.level : 0; };   // 0 = unknown, never blocks
+  const locked = () => { const l = level(); return l > 0 && l < MIN_LEVEL; };
 
   const CSS = `
     #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:#242424;line-height:1.4}
@@ -1149,12 +1248,9 @@
     #sdial .trv .row .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
     #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
     #sdial .trv .dt .sub{color:#8a8a8a;font-size:11px;margin-bottom:4px}
-    #sdial .trv .go{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;flex:none;margin-top:10px;height:40px;border-radius:10px;border:1px solid #5aa2ea;background:#2f6fb5;color:#fff;font-size:13px;font-weight:600;box-shadow:0 2px 0 #1d4a7c,0 3px 6px rgba(0,0,0,.35)}
-    #sdial .trv .go:active{background:#2a62a0;transform:translateY(1px);box-shadow:0 1px 0 #1d4a7c}
-    #sdial .trv .go svg{width:16px;height:16px;stroke:#fff}
-    #sdial .trv .go:disabled{opacity:.45;background:#2b2f36;border-color:#3a3a3a;box-shadow:none;color:#9a9a9a}
+    #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:30px;font-size:12px}
+    #sdial .trv .go:disabled{opacity:.4}
     #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:6px;font-size:12px}
-    #sdial .trv .w.ok{background:#1f3322;color:#a8d5ad}
     #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
     #sdial .trv .w.warn{background:#3a2f1a;color:#f0d9a0}
     #sdial .trv .w.bad{background:#3a1f1d;color:#f1b5b0}
@@ -1183,8 +1279,7 @@
     #sdial .trv .sk .l2{color:#8a8a8a;font-size:11px;margin-top:1px}
   `;
 
-  function mount(ctx) {
-    SD.css('sd-travel', CSS);
+  function build(ctx) {
     const el = ctx.el;
     el.className = 'trv';
     el.innerHTML =
@@ -1279,8 +1374,8 @@
         if (i === sel) {
           const box = document.createElement('div');
           box.className = 'dt';
-          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>Go to ' + SD.esc(d.n) + '</span></button>';
-          box.querySelector('.go').addEventListener('click', () => goTravel(d));
+          box.innerHTML = '<div class="dtx">' + detailHtml(d) + '</div><button class="go">Go to travel agency</button>';
+          box.querySelector('.go').addEventListener('click', () => { location.href = TRAVEL_URL; });
           list.appendChild(box);
           box.querySelector('.go').disabled = !!box.querySelector('.w.bad');
         }
@@ -1309,6 +1404,25 @@
       const D = SD.peek();
       if (D && mode() === 'flying' && D.left - elapsed() <= 0 && Date.now() - lastLoad > 15000) load(true);
     }, 1000);
+  }
+
+  // the circle stays tappable below level 15: the panel then shows only a red notice
+  function mount(ctx) {
+    SD.css('sd-travel', CSS);
+    const el = ctx.el;
+    el.className = 'trv';
+    const gate = () => {
+      if (!locked()) return false;
+      el.innerHTML = '<div class="w bad">Travel unlocks at level ' + MIN_LEVEL + ' (you are level ' + level() + ')</div>';
+      return true;
+    };
+    if (gate()) return;
+    if (SD.hasKey && !SD.peek()) {   // level not known yet: wait for the status check
+      el.textContent = 'Loading...';
+      SD.data(false).then(() => { if (ctx.alive && !gate()) build(ctx); });
+      return;
+    }
+    build(ctx);
   }
 
   SD.register({
