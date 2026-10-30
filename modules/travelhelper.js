@@ -1,4 +1,4 @@
-// Speed Dial module: Travel Helper v0.5.3
+// Speed Dial module: Travel Helper v0.5.4
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Tapping a country offers "Open travel agency": it opens Torn's travel page and
@@ -241,38 +241,85 @@
     const want = p.n.toLowerCase();
     const norm = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
     const mine = e => !e.closest('#sdial');
-    const root = () => document.getElementById('travel-root') || document;
-    // Torn's Travel Agency (React). The page says "Do you want to travel to <country> ..." once a country is really selected.
+    const isName = t => t === want || names.indexOf(t) > -1;
+    // The page says "Do you want to travel to <country> ..." once a country is really selected.
     const selected = () => {
       const t = norm(document.body.innerText);
       return names.some(n => t.indexOf('travel to ' + n) > -1 || t.indexOf('travel to the ' + n) > -1);
     };
-    // map layout: <label class="destinationLabel___"><input class="destinationRadio___" aria-label="Mexico - ..."> <div class="pin___">
-    const mapInputs = () => root().querySelectorAll('label[class*="destinationLabel___"] input[class*="destinationRadio___"]');
-    const findMap = () => {
-      const ins = mapInputs();
-      for (let i = 0; i < ins.length; i++) {
-        const c = norm((ins[i].getAttribute('aria-label') || '').split(' - ')[0]);
-        if (c === want || names.indexOf(c) > -1) return ins[i];
+    // 1) radio/pin/button that carries the country in aria-label, title, alt or value ("Mexico - ...")
+    const findByLabel = () => {
+      const els = document.querySelectorAll('[aria-label], [title], img[alt], input[value]');
+      for (let i = 0; i < els.length; i++) {
+        const e = els[i];
+        if (!mine(e)) continue;
+        const raw = e.getAttribute('aria-label') || e.getAttribute('title') || e.getAttribute('alt') || e.getAttribute('value') || '';
+        if (raw.length > 60) continue;
+        const t = norm(raw.split(' - ')[0]);
+        if (!isName(t)) continue;
+        if (e.tagName === 'INPUT') return e;
+        return e.closest('label, button, a, [role="button"], [class*="pin"]') || e;
       }
       return null;
     };
-    // list layout: <div class="destination___"><button><span class="country___">Mexico</span>
-    const listSpans = () => root().querySelectorAll('span[class*="country___"]');
-    const findList = () => {
-      const sp = listSpans();
+    // 2) list layout: a button/row whose own text is the country name
+    const findByText = () => {
+      const sp = document.querySelectorAll('span[class*="country"], button, a, li, [role="button"], [role="option"]');
       for (let i = 0; i < sp.length; i++) {
-        if (mine(sp[i]) && (norm(sp[i].textContent) === want || names.indexOf(norm(sp[i].textContent)) > -1)) {
-          return sp[i].closest('button') || sp[i];
-        }
+        const e = sp[i];
+        if (!mine(e)) continue;
+        const t = norm(e.textContent);
+        if (!t || t.length > 40 || /\b(travel|continue|back|cancel|confirm)\b/.test(t)) continue;
+        if (isName(t)) return e.closest('button, a, li, [role="button"], [role="option"]') || e;
+      }
+      return null;
+    };
+    // 3) the "Torn -> UAE" box: shows the chosen country and opens the list
+    const findTrigger = () => {
+      const all = DEST.map(d => d.k.concat([d.n.toLowerCase()])).reduce((x, y) => x.concat(y), []);
+      const els = document.querySelectorAll('button, [role="button"], [class*="select"], [class*="dropdown"], [class*="destination"]');
+      for (let i = 0; i < els.length; i++) {
+        const e = els[i];
+        if (!mine(e)) continue;
+        const t = norm(e.textContent);
+        if (t && t.length < 30 && all.indexOf(t) > -1) return e;
       }
       return null;
     };
     const press = e => {
-      if (e.tagName === 'INPUT' || typeof e.click === 'function' && e.tagName === 'BUTTON') { e.click(); return; }
+      if (e.tagName === 'INPUT' || e.tagName === 'BUTTON' || e.tagName === 'LABEL') { e.click(); return; }
       ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(t => {
         try { e.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })); } catch (x) {}
       });
+    };
+    // short outline of the destination area, copied to the clipboard when selection fails (for debugging)
+    const outline = () => {
+      let h = null;
+      document.querySelectorAll('*').forEach(e => { if (!h && !e.children.length && /select destination/i.test(e.textContent)) h = e; });
+      let box = h;
+      for (let i = 0; i < 3 && box && box.parentElement; i++) box = box.parentElement;
+      if (!box) return 'no destination area found';
+      const out = [];
+      const walk = (e, d) => {
+        if (out.length > 90 || d > 9) return;
+        const cls = String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className || '').split(/\s+/).slice(0, 2).join('.');
+        const at = ['aria-label', 'title', 'alt', 'value', 'role', 'type'].map(k => e.getAttribute && e.getAttribute(k) ? k + '=' + e.getAttribute(k).slice(0, 30) : '').filter(Boolean).join(' ');
+        const own = Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').slice(0, 24);
+        out.push(new Array(d + 1).join(' ') + e.tagName.toLowerCase() + (cls ? '.' + cls : '') + (at ? ' [' + at + ']' : '') + (own ? ' "' + own + '"' : ''));
+        Array.from(e.children).forEach(c => walk(c, d + 1));
+      };
+      walk(box, 0);
+      return out.join('\n');
+    };
+    const copy = txt => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).catch(() => {}); return; }
+      } catch (e) {}
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      } catch (e) {}
     };
     const finish = msg => {
       clearInterval(iv); picking = false;
@@ -280,16 +327,21 @@
       SD.toast(msg);
     };
     const t0 = Date.now();
-    let lastTry = 0;
+    let lastTry = 0, opened = false;
     const iv = setInterval(() => {
       const now = Date.now();
       if (selected()) return finish(p.n + ' selected. Press Travel yourself.');
       if (now - t0 > 14000) {
-        return finish("Couldn't select " + p.n + ' (map ' + mapInputs().length + ', list ' + listSpans().length + ', v0.5.3). Pick it yourself.');
+        copy(outline());
+        return finish("Couldn't select " + p.n + ' (v0.5.4). Page layout copied: paste it to Claude.');
       }
       if (now - lastTry < 1200) return;      // give the page time to react before trying again
-      const e = findMap() || findList();
-      if (e) { lastTry = now; press(e); }
+      const e = findByLabel() || findByText();
+      if (e) { lastTry = now; press(e); return; }
+      if (!opened && now - t0 > 3000) {       // nothing found yet: open the country list once
+        const tr = findTrigger();
+        if (tr) { opened = true; lastTry = now - 600; press(tr); }
+      }
     }, 400);
   }
 
