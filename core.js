@@ -1,4 +1,4 @@
-// Speed Dial core v0.3.1
+// Speed Dial core v0.3.2
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
 // A module only builds its UI, timers and API calls while its panel is open (lazy).
 (function () {
@@ -144,7 +144,11 @@
     #sdial .fab.blk{opacity:1;border-color:#e5534b;box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
     #sdial .mod{position:absolute;left:2px;width:36px;height:36px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
     #sdial .stack.show .mod{opacity:1;transform:scale(1);pointer-events:auto}
-    #sdial .mod.act{border-color:#4a8fd9}
+    #sdial{--st:#5a5a5a}
+    #sdial[data-st="away"]{--st:#4a8fd9}
+    #sdial[data-st="hosp"]{--st:#d9a441}
+    #sdial[data-st="blk"]{--st:#e5534b}
+    #sdial .mod.act{border-color:var(--st)}
     #sdial .mod:active{background:#2e2e2e}
     #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
     #sdial.r .lb{left:auto;right:40px}

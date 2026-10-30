@@ -1,4 +1,4 @@
-// Speed Dial module: Travel Helper v0.3.1
+// Speed Dial module: Travel Helper v0.4.0
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Nothing runs until the panel is opened.
@@ -109,6 +109,7 @@
   function setupStocks(ctx, el) {
     const btn = el.querySelector('.skb'), box = el.querySelector('.skbox'), panelEl = el.parentNode;
     box.innerHTML =
+      '<div class="skh"><button class="skback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><span>Stocks</span><button class="skr" aria-label="Refresh">' + SD.icons.refresh + '</button></div>' +
       '<div class="bar"><select class="sc"></select><button class="so" data-s="profit">Profit</button><button class="so" data-s="value">Value</button></div>' +
       '<div class="meta"></div><div class="skl"></div>';
     const sc = box.querySelector('.sc'), meta = box.querySelector('.meta'), skl = box.querySelector('.skl');
@@ -173,13 +174,17 @@
       if (ctx.alive) render();
     }
 
-    btn.addEventListener('click', () => {
-      open = !open;
-      box.style.display = open ? 'block' : 'none';
-      btn.classList.toggle('on', open);
-      el.classList.toggle('stk', open);
-      panelEl.style.width = open ? Math.min(300, window.innerWidth - 64) + 'px' : '230px';
-      if (open) loadStocks(false);
+    const setOpen = on => {
+      open = on;
+      el.classList.toggle('stk', on);
+      panelEl.style.width = on ? Math.min(300, window.innerWidth - 64) + 'px' : '230px';
+      if (on) loadStocks(false);
+    };
+    btn.addEventListener('click', () => setOpen(true));
+    box.querySelector('.skback').addEventListener('click', () => setOpen(false));
+    const skr = box.querySelector('.skr');
+    skr.addEventListener('click', () => {
+      SD.spin(skr, loadStocks(true)).then(() => { if (ctx.alive) SD.toast('Stocks updated'); });
     });
     sc.addEventListener('change', () => { S.sc = sc.value; save(); render(); });
     box.querySelectorAll('.so').forEach(b => b.addEventListener('click', () => { S.ss = b.dataset.s; save(); render(); }));
@@ -219,14 +224,14 @@
   const warnHtml = w => w.map(x => '<div class="w ' + x[0] + '">' + SD.esc(x[1]) + '</div>').join('');
 
   const CSS = `
-    #sdial .trv .stat{margin-bottom:6px;padding:8px 10px;border-radius:8px;background:#242424;line-height:1.4}
+    #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:#242424;line-height:1.4}
     #sdial .trv .stat b{color:#fff}
     #sdial .trv .opts,#sdial .trv .foot{display:flex;gap:6px;margin-bottom:6px}
     #sdial .trv .foot{margin:6px 0 0;padding-top:6px;border-top:1px solid #2c2c2c}
     #sdial .trv button{flex:1;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
     #sdial .trv button:active{background:#2e2e2e}
-    #sdial .trv .list{max-height:50vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .row{display:flex;align-items:center;height:38px;border-radius:8px;padding:0 10px;margin-bottom:3px;background:#242424;border-left:3px solid #4a8fd9}
+    #sdial .trv .list{max-height:30vh;overflow-y:auto;touch-action:pan-y}
+    #sdial .trv .row{display:flex;align-items:center;height:34px;border-radius:8px;padding:0 10px;margin-bottom:3px;background:#242424;box-shadow:inset 3px 0 0 var(--st)}
     #sdial .trv .row:active{background:#2e2e2e}
     #sdial .trv .row.sel{background:#2a3140}
     #sdial .trv .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -240,15 +245,18 @@
     #sdial .trv .w.warn{background:#3a2f1a;color:#f0d9a0}
     #sdial .trv .w.bad{background:#3a1f1d;color:#f1b5b0}
     #sdial .trv .foot .ico{flex:0 0 44px}
-    #sdial .trv .foot .skb.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
-    #sdial .trv .skbox{display:none;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
+    #sdial .trv .skbox{display:none}
+    #sdial .trv.stk .skbox{display:block}
+    #sdial .trv.stk .main{display:none}
+    #sdial .trv .skh{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px}
+    #sdial .trv .skh span{flex:1}
+    #sdial .trv .skh button{flex:0 0 36px;padding:0}
     #sdial .trv .skbox .bar{display:flex;gap:6px;margin-bottom:6px}
     #sdial .trv .skbox select{flex:1;min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 6px}
     #sdial .trv .skbox .so{flex:0 0 auto;padding:0 10px}
     #sdial .trv .skbox .so.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
     #sdial .trv .skbox .meta{color:#8a8a8a;font-size:11px;margin-bottom:5px;line-height:1.35}
-    #sdial .trv .skl{max-height:34vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv.stk .list{max-height:20vh}
+    #sdial .trv .skl{max-height:52vh;overflow-y:auto;touch-action:pan-y}
     #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #555}
     #sdial .trv .sk.up{border-left-color:#4a8f4e}
     #sdial .trv .sk.dn{border-left-color:#e5534b}
@@ -266,10 +274,10 @@
     const el = ctx.el;
     el.className = 'trv';
     el.innerHTML =
-      '<div class="stat"></div>' +
+      '<div class="main"><div class="stat"></div>' +
       '<div class="opts"><button class="m"></button><button class="bk"></button><button class="st"></button></div>' +
       '<div class="list"></div>' +
-      '<div class="foot"><button class="skb">Stocks</button><button class="sync ico" aria-label="Refresh">' + SD.icons.refresh + '</button></div>' +
+      '<div class="foot"><button class="skb">Stocks</button><button class="sync ico" aria-label="Refresh">' + SD.icons.refresh + '</button></div></div>' +
       '<div class="skbox"></div>';
     const statEl = el.querySelector('.stat');
     const list = el.querySelector('.list');
@@ -296,7 +304,7 @@
       if (!D) { statEl.textContent = 'Loading...'; return; }
       const m = mode(), e = elapsed(), now = Date.now();
       if (m === 'home') {
-        statEl.innerHTML = 'In Torn \u00b7 <b>' + SD.esc(D.state) + '</b><div class="w info" style="margin-top:6px">Tap a destination for the trip plan</div>';
+        statEl.innerHTML = 'In Torn \u00b7 <b>' + SD.esc(D.state) + '</b>';
         return;
       }
       if (m === 'flying') {
