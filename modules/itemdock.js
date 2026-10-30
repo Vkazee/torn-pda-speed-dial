@@ -192,6 +192,10 @@
     #sdial .idock .row.low .qty{color:#d9a441}
     #sdial .idock .row.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
     #sdial .idock .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .idock .row .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
+    #sdial .idock .row .grip svg{width:18px;height:18px;stroke:#8a8a8a}
+    #sdial .idock.edit .row .grip{display:flex}
+    #sdial .idock .row.drag .grip svg{stroke:#e6e6e6}
     #sdial .idock .row .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:#e5534b;font-size:18px;padding:0}
     #sdial .idock.edit .row .x{display:block}
     #sdial .idock .qty{margin-left:8px;color:#9a9a9a;font-size:12px;white-space:nowrap}
@@ -223,7 +227,7 @@
     const banner = el.querySelector('.banner');
     const cdEl = el.querySelector('.cd');
     const list = el.querySelector('.list');
-    let pendingItem = null, drag = null, lp = null, lpTimer = null, noClick = false;
+    let pendingItem = null, drag = null;
 
     // ----- list -----
     function fillList() {
@@ -235,7 +239,7 @@
       S.items.forEach((it, idx) => {
         const row = document.createElement('div');
         row.className = 'row';
-        row.innerHTML = '<span class="nm"></span><span class="qty"></span><button class="x" aria-label="Remove">\u00d7</button>';
+        row.innerHTML = '<span class=\"grip\" aria-label=\"Drag to reorder\"><svg viewBox=\"0 0 24 24\"><line x1=\"5\" y1=\"8\" x2=\"19\" y2=\"8\"/><line x1=\"5\" y1=\"12\" x2=\"19\" y2=\"12\"/><line x1=\"5\" y1=\"16\" x2=\"19\" y2=\"16\"/></svg></span><span class="nm"></span><span class="qty"></span><button class="x" aria-label="Remove">\u00d7</button>';
         const n = qtyOf(it);
         if (n !== null) {
           row.querySelector('.qty').textContent = n === 0 ? 'Out' : '\u00d7' + n;
@@ -250,7 +254,6 @@
           row.querySelector('.nm').appendChild(tag);
         }
         row.addEventListener('click', e => {
-          if (noClick) return;
           if (e.target.classList.contains('x')) {
             S.items.splice(idx, 1); save(); fillList();
           } else if (!el.classList.contains('edit')) {
@@ -264,32 +267,19 @@
       });
     }
 
-    // ----- long-press + drag to reorder -----
+    // ----- drag the grip handle (edit mode only) to reorder -----
     function bindDrag(row) {
-      row.style.touchAction = 'none';
-      row.addEventListener('pointerdown', e => {
-        if (e.target.closest('button') || e.button > 0) return;
-        clearTimeout(lpTimer);
-        lp = { row, x: e.clientX, y: e.clientY, id: e.pointerId };
-        lpTimer = setTimeout(() => startDrag(row), 400);
+      const grip = row.querySelector('.grip');
+      grip.addEventListener('pointerdown', e => {
+        if (e.button > 0 || !el.classList.contains('edit')) return;
+        e.preventDefault();
+        drag = { row, startY: e.clientY };
+        try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+        row.classList.add('drag');
       });
-      row.addEventListener('pointermove', e => {
-        if (drag && drag.row === row) return moveDrag(e);
-        if (lp && lp.row === row && Math.abs(e.clientX - lp.x) + Math.abs(e.clientY - lp.y) > 8) {
-          clearTimeout(lpTimer); lp = null;
-        }
-      });
-      row.addEventListener('pointerup', endDrag);
-      row.addEventListener('pointercancel', endDrag);
-    }
-
-    function startDrag(row) {
-      if (!lp || lp.row !== row) return;
-      drag = { row, startY: lp.y };
-      try { row.setPointerCapture(lp.id); } catch (e) {}
-      row.classList.add('drag');
-      try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) {}
-      lp = null;
+      grip.addEventListener('pointermove', e => { if (drag && drag.row === row) moveDrag(e); });
+      grip.addEventListener('pointerup', endDrag);
+      grip.addEventListener('pointercancel', endDrag);
     }
 
     function moveDrag(e) {
@@ -306,13 +296,10 @@
     }
 
     function endDrag() {
-      clearTimeout(lpTimer); lp = null;
       if (!drag) return;
       const order = Array.from(list.children).map(r => r._it).filter(Boolean);
       drag = null;
       if (order.length === S.items.length) { S.items = order; save(); }
-      noClick = true;
-      setTimeout(() => { noClick = false; }, 80);
       fillList();
     }
 
@@ -399,14 +386,14 @@
       }
     }, 1000);
 
-    return { unmount() { clearTimeout(lpTimer); ui = null; } };
+    return { unmount() { ui = null; } };
   }
 
   SD.register({
     id: 'itemdock',
     label: 'Item Dock',
     width: 200,
-    // crossbody (messenger) bag
+    // bag
     icon: '<path d="M5.6 8h12.8l1.5 10.6a2 2 0 0 1-2 2.4H6.1a2 2 0 0 1-2-2.4L5.6 8z"/><path d="M8.5 8V7a3.5 3.5 0 0 1 7 0v1"/>',
     mount
   });
