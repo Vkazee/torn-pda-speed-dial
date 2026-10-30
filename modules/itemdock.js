@@ -1,6 +1,6 @@
-// Speed Dial module: Item Dock v0.9.0
+// Speed Dial module: Item Dock v0.9.1
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
-// In Edit mode, drag the handle to reorder. Nothing runs until the panel is opened, except on
+// In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
 // Torn's own Items page, where item counts are read from the page (live, no API cache).
 (function () {
   'use strict';
@@ -219,6 +219,7 @@
     #sdial .idock .banner{display:none;margin-bottom:6px;padding:8px 10px;border-radius:8px;background:#3a2f1a;border:1px solid #6b5522;color:#f0d9a0;font-size:12px;line-height:1.35;text-align:center;white-space:pre-line}
     #sdial .idock .banner.blk{background:#3a1f1d;border-color:#6b2c28;color:#f1b5b0}
     #sdial .idock .banner.show{display:block}
+    #sdial .idock .list{max-height:48vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .idock.blocked .list{opacity:.45}
     #sdial .idock .cd{display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px}
     #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:#242424;border:1px solid #333;color:#cfcfcf;font-size:11px}
@@ -296,6 +297,8 @@
 
     // ----- list -----
     function fillList() {
+      if (drag) return;                 // a refresh must not wipe the row being dragged
+      const keep = list.scrollTop;      // rebuilding the list must not jump it back to the top
       list.innerHTML = '';
       if (!S.items.length) {
         list.innerHTML = '<div class="empty">No items yet.<br>Tap Add.</div>';
@@ -330,38 +333,58 @@
         bindDrag(row);
         list.appendChild(row);
       });
+      list.scrollTop = keep;
     }
 
-    // ----- drag the grip handle (edit mode only) to reorder -----
+    // ----- drag the grip handle (edit mode only) to reorder; the list scrolls itself near its top/bottom edge -----
     function bindDrag(row) {
       const grip = row.querySelector('.grip');
       grip.addEventListener('pointerdown', e => {
         if (e.button > 0 || !el.classList.contains('edit')) return;
         e.preventDefault();
-        drag = { row, startY: e.clientY };
+        drag = { row, startY: e.clientY, y: e.clientY, raf: 0 };
         try { grip.setPointerCapture(e.pointerId); } catch (err) {}
         row.classList.add('drag');
+        drag.raf = requestAnimationFrame(autoScroll);
       });
-      grip.addEventListener('pointermove', e => { if (drag && drag.row === row) moveDrag(e); });
+      grip.addEventListener('pointermove', e => { if (drag && drag.row === row) { drag.y = e.clientY; moveDrag(); } });
       grip.addEventListener('pointerup', endDrag);
       grip.addEventListener('pointercancel', endDrag);
     }
 
-    function moveDrag(e) {
+    function moveDrag() {
       const row = drag.row;
       const h = row.offsetHeight + 3;
-      let dy = e.clientY - drag.startY;
+      let dy = drag.y - drag.startY;
       while (dy > h / 2 && row.nextElementSibling) {
         list.insertBefore(row.nextElementSibling, row); drag.startY += h; dy -= h;
       }
       while (dy < -h / 2 && row.previousElementSibling) {
-        list.insertBefore(row, row.previousElementSibling); drag.startY -= h; dy += h;
+        list.insertBefore(row.previousElementSibling, row.nextSibling); drag.startY -= h; dy += h;   // move the neighbour, not the dragged row
       }
       row.style.transform = 'translateY(' + dy + 'px)';
     }
 
+    const EDGE = 44;   // px from the list's top/bottom edge where scrolling starts
+    function autoScroll() {
+      if (!drag) return;
+      if (!ctx.alive) { drag = null; return; }
+      const r = list.getBoundingClientRect();
+      let v = 0;
+      if (drag.y < r.top + EDGE) v = -(2 + 10 * Math.min(1, (r.top + EDGE - drag.y) / EDGE));
+      else if (drag.y > r.bottom - EDGE) v = 2 + 10 * Math.min(1, (drag.y - (r.bottom - EDGE)) / EDGE);
+      if (v) {
+        const before = list.scrollTop;
+        list.scrollTop = before + v;
+        const moved = list.scrollTop - before;
+        if (moved) { drag.startY -= moved; moveDrag(); }   // the row keeps following the finger
+      }
+      drag.raf = requestAnimationFrame(autoScroll);
+    }
+
     function endDrag() {
       if (!drag) return;
+      cancelAnimationFrame(drag.raf);
       const order = Array.from(list.children).map(r => r._it).filter(Boolean);
       drag = null;
       if (order.length === S.items.length) { S.items = order; save(); }
