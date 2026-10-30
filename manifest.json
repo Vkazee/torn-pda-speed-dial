@@ -3,6 +3,6 @@
     "core.js",
     "modules/itemdock.js",
     "modules/travelhelper.js",
-    "modules/customize.js"
+    "modules/settings.js"
   ]
 }

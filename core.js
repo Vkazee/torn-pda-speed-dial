@@ -1,7 +1,7 @@
 // Speed Dial core v0.5.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
-// The Customize module (pinned) lets you hide/show modules and drag them into your own order.
+// The Settings module (pinned) lets you hide/show modules and drag them into your own order.
 // A module only builds its UI, timers and API calls while its panel is open (lazy).
 (function () {
   'use strict';
@@ -127,7 +127,7 @@
   // ---------- module registry ----------
   // m = { id, label, icon (inner SVG markup, 24x24, stroke style) | emoji, width, mount(ctx) -> { unmount() }?, href?, ord? }
   // emoji replaces the SVG icon; href makes the circle a shortcut (no panel); ord sorts circles (default 0, same ord = order of registering)
-  // pinned: true keeps the circle last and always visible (used by Customize, so you can never lock yourself out)
+  // pinned: true keeps the circle last and always visible (used by Settings, so you can never lock yourself out)
   SD.register = m => {
     SD.mods.push(m);
     if (stack) refreshCircles();
@@ -145,7 +145,7 @@
     if (stack) refreshCircles();
   };
 
-  // ---------- menu layout: your order + hidden modules (edited in Customize) ----------
+  // ---------- menu layout: your order + hidden modules (edited in Settings) ----------
   let LY = null;
   const layout0 = () => {
     if (!LY) {

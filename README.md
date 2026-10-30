@@ -11,7 +11,7 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 | `core.js` | Core: main circle, module list, shared player data (1 API call), toast, storage |
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
-| `modules/customize.js` | Customize module (gear circle, always last): show/hide and reorder circles, plus adding your own emoji shortcuts |
+| `modules/settings.js` | Settings module (gear circle, always last): show/hide and reorder circles, plus adding your own emoji shortcuts |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
 | `build.sh` | Combines `core.js` + `modules/` into the bundle |
 
@@ -45,7 +45,7 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 ## Notes
 
 - Travel Helper: tap a country for flight times, the time you will be back, and warnings. "Go to travel agency" only opens Torn's travel page (nothing on the page is clicked or read). The button is disabled while you are in hospital or jail.
-- Customize (gear circle, always last, cannot be hidden):
+- Settings (gear circle, always last, cannot be hidden):
   - **Menu** page: every circle in your order. Tap the eye to hide or show one. Tap **Edit** to drag the handle (≡) to reorder; your own shortcuts also get a ✕ to delete. New modules appear at the bottom until you move them.
   - **Add shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
   - Your order and hidden list are saved under `speedDial.layout1`; saved shortcuts keep using `speedDial.shortcuts1`, so they carry over from the old Shortcuts module.
