@@ -7,11 +7,11 @@
 // @grant        none
 // ==/UserScript==
 
-// Speed Dial core v0.5.0
-// One floating circle. Tap it and one circle per module fans out. Tap a module circle to open its panel.
+// Speed Dial core v0.6.0
+// One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // The Settings module (pinned) lets you hide/show modules and drag them into your own order.
-// A module only builds its UI, timers and API calls while its panel is open (lazy).
+// A module only builds its UI, timers and API calls while its window is open (lazy).
 (function () {
   'use strict';
   if (window.SpeedDial) return;
@@ -92,7 +92,7 @@
   SD.data = function (force) {
     if (!SD.hasKey) return Promise.resolve(null);
     SD.peek();
-    if (!force && D && Date.now() - D.t < TTL) return Promise.resolve(D);
+    if (!force && D && Date.now() - D.t < TTL) { ring(); return Promise.resolve(D); }   // cache masih segar: tetap gambar outline
     if (inflight) return inflight;
     inflight = fetch('https://api.torn.com/user/?selections=basic,travel,cooldowns,bars&key=' + SD.key)
       .then(r => r.json())
@@ -145,7 +145,7 @@
     const i = SD.mods.findIndex(m => m.id === id);
     if (i < 0) return;
     const m = SD.mods[i];
-    if (cur && cur.m === m) { unmount(); state = 'menu'; }
+    closeWin(id);
     SD.mods.splice(i, 1);
     const ly = layout0();                       // forget a removed module in the saved layout
     ly.order = ly.order.filter(x => x !== id);
@@ -191,23 +191,26 @@
   };
 
   // ---------- hub UI ----------
-  let root, fab, stack, panel, P, state = 'closed', cur = null, timers = [];
+  let root, fab, stack, wrap, P, menuOpen = false, WP = null;
   const circles = [];
+  const wins = new Map();
+  const zorder = [];
+  const WIN = 'speedDial.win1';   // { moduleId: [x, y] }
+  const WM = 4;
 
   const CSS = `
-    #sdial{position:fixed;z-index:99998;font:13px/1.25 -apple-system,Roboto,sans-serif;touch-action:none;-webkit-tap-highlight-color:transparent}
+    #sdial{position:fixed;z-index:99998;font:13px/1.25 -apple-system,Roboto,sans-serif;-webkit-tap-highlight-color:transparent;--st:#5a5a5a}
     #sdial *{box-sizing:border-box}
     #sdial svg{width:20px;height:20px;stroke:#d0d0d0;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     @keyframes sdspin{to{transform:rotate(360deg)}}
     #sdial .spin svg{animation:sdspin .8s linear infinite}
-    #sdial .fab{position:relative;width:40px;height:40px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
+    #sdial .fab{position:relative;z-index:2000;touch-action:none;width:40px;height:40px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
     #sdial .fab.on{opacity:1;border-color:#5a5a5a}
     #sdial .fab.away{opacity:1;border-color:#4a8fd9;box-shadow:0 0 0 2px rgba(74,143,217,.3),0 2px 6px rgba(0,0,0,.4)}
     #sdial .fab.hosp{opacity:1;border-color:#d9a441;box-shadow:0 0 0 2px rgba(217,164,65,.3),0 2px 6px rgba(0,0,0,.4)}
     #sdial .fab.blk{opacity:1;border-color:#e5534b;box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
-    #sdial .mod{position:absolute;left:2px;width:36px;height:36px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
+    #sdial .mod{position:absolute;z-index:2000;left:2px;width:36px;height:36px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
     #sdial .stack.show .mod{opacity:1;transform:scale(1);pointer-events:auto}
-    #sdial{--st:#5a5a5a}
     #sdial[data-st="away"]{--st:#4a8fd9}
     #sdial[data-st="hosp"]{--st:#d9a441}
     #sdial[data-st="blk"]{--st:#e5534b}
@@ -217,11 +220,17 @@
     #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
     #sdial.r .lb{left:auto;right:40px}
     #sdial.pnl .lb{display:none}
-    #sdial .panel{position:absolute;display:none;background:#1c1c1c;border:1px solid #5a5a5a;border-radius:12px;padding:6px;box-shadow:0 6px 18px rgba(0,0,0,.5);color:#e6e6e6}
-    #sdial .panel.show{display:block}
-    #sdial[data-st="away"] .panel{border-color:#4a8fd9;box-shadow:0 0 0 2px rgba(74,143,217,.3),0 6px 18px rgba(0,0,0,.5)}
-    #sdial[data-st="hosp"] .panel{border-color:#d9a441;box-shadow:0 0 0 2px rgba(217,164,65,.3),0 6px 18px rgba(0,0,0,.5)}
-    #sdial[data-st="blk"] .panel{border-color:#e5534b;box-shadow:0 0 0 2px rgba(229,83,75,.35),0 6px 18px rgba(0,0,0,.5)}
+    #sdial .win{position:fixed;left:0;top:0;display:flex;flex-direction:column;overflow:hidden;background:#1c1c1c;border:1px solid var(--st);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.5);color:#e6e6e6;max-height:calc(100vh - 8px)}
+    #sdial .win.mv{box-shadow:0 10px 24px rgba(0,0,0,.6)}
+    #sdial[data-st="away"] .win{box-shadow:0 0 0 2px rgba(74,143,217,.3),0 6px 18px rgba(0,0,0,.5)}
+    #sdial[data-st="hosp"] .win{box-shadow:0 0 0 2px rgba(217,164,65,.3),0 6px 18px rgba(0,0,0,.5)}
+    #sdial[data-st="blk"] .win{box-shadow:0 0 0 2px rgba(229,83,75,.35),0 6px 18px rgba(0,0,0,.5)}
+    #sdial .win .tb{flex:0 0 30px;height:30px;display:flex;align-items:center;padding:0 0 0 10px;background:#242424;border-bottom:1px solid #2c2c2c;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+    #sdial .win.mv .tb{cursor:grabbing}
+    #sdial .win .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#cfcfcf;pointer-events:none}
+    #sdial .win .cl{flex:0 0 38px;width:38px;height:30px;border:0;background:none;color:#cfcfcf;font-size:14px;padding:0}
+    #sdial .win .cl:active{background:#2e2e2e}
+    #sdial .win .bd{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;padding:6px}
   `;
 
   function ring() {
@@ -233,7 +242,7 @@
     fab.classList.toggle('hosp', !!d && d.state === 'Hospital' && !d.abroad);
     fab.classList.toggle('away', !red && (m === 'flying' || m === 'abroad'));
     const hosp = !!d && d.state === 'Hospital' && !d.abroad, away = !red && (m === 'flying' || m === 'abroad');
-    root.dataset.st = red ? 'blk' : hosp ? 'hosp' : away ? 'away' : '';   // the panel outline follows the main circle
+    root.dataset.st = red ? 'blk' : hosp ? 'hosp' : away ? 'away' : '';   // the window outline follows the main circle
   }
 
   function layout() {
@@ -248,10 +257,6 @@
       const off = GAP * (i + 1);
       c.b.style.top = (2 + (down ? off : -off)) + 'px';
     });
-    panel.style.left = right ? 'auto' : '48px';
-    panel.style.right = right ? '48px' : 'auto';
-    panel.style.top = down ? '0' : 'auto';
-    panel.style.bottom = down ? 'auto' : '0';
   }
 
   function addCircle(m) {
@@ -273,55 +278,138 @@
     SD.ordered().filter(m => !SD.isHidden(m.id))
       .concat(SD.mods.filter(m => m.pinned))
       .forEach(addCircle);
-    markActive(cur ? cur.m : null);
+    markActive();
     layout();
   }
 
-  function markActive(m) {
-    circles.forEach(c => c.b.classList.toggle('act', c.m === m));
-    root.classList.toggle('pnl', !!m);
+  function markActive() {
+    circles.forEach(c => c.b.classList.toggle('act', wins.has(c.m.id)));
+    root.classList.toggle('pnl', wins.size > 0);
   }
 
-  // stop everything the open module started and throw its DOM away
-  function unmount() {
-    timers.forEach(t => (t[0] === 'i' ? clearInterval(t[1]) : clearTimeout(t[1])));
-    timers = [];
-    const inst = cur && cur.inst;
-    cur = null;
+  const winPos = () => WP || (WP = SD.read(WIN, {}) || {});
+  const clampN = (v, a, b) => Math.max(a, Math.min(v, b));
+
+  // show the window where it wants to be (px, py) but always fully on screen
+  function place(me) {
+    const el = me.win, ww = Math.min(me.w, innerWidth - 2 * WM);
+    el.style.width = ww + 'px';
+    el.style.maxHeight = (innerHeight - 2 * WM) + 'px';
+    const h = el.offsetHeight;
+    me.cx = clampN(me.px, WM, Math.max(WM, innerWidth - ww - WM));
+    me.cy = clampN(me.py, WM, Math.max(WM, innerHeight - h - WM));
+    el.style.left = me.cx + 'px';
+    el.style.top = me.cy + 'px';
+  }
+
+  function front(me) {
+    const i = zorder.indexOf(me);
+    if (i > -1 && i === zorder.length - 1) return;
+    if (i > -1) zorder.splice(i, 1);
+    zorder.push(me);
+    zorder.forEach((w, k) => { w.win.style.zIndex = k + 1; });
+  }
+
+  // stop everything the window's module started and throw its DOM away
+  function closeWin(id) {
+    const me = wins.get(id);
+    if (!me) return;
+    wins.delete(id);
+    const i = zorder.indexOf(me);
+    if (i > -1) zorder.splice(i, 1);
+    me.timers.forEach(t => (t[0] === 'i' ? clearInterval(t[1]) : clearTimeout(t[1])));
+    me.timers = [];
+    if (me.ro) me.ro.disconnect();
+    const inst = me.inst;
+    me.inst = null;
     if (inst && typeof inst.unmount === 'function') { try { inst.unmount(); } catch (e) {} }
-    panel.classList.remove('show');
-    panel.innerHTML = '';
+    me.win.remove();
+    if (root) markActive();
   }
 
-  function mountMod(m) {
-    unmount();
-    panel.style.width = (m.width || 220) + 'px';
-    const el = document.createElement('div');
-    panel.appendChild(el);
-    panel.classList.add('show');
-    const me = { m, inst: null };
-    cur = me;
-    const ctx = {
-      el,
-      get alive() { return cur === me; },
-      every: (fn, ms) => { const id = setInterval(fn, ms); timers.push(['i', id]); return id; },
-      after: (fn, ms) => { const id = setTimeout(fn, ms); timers.push(['t', id]); return id; }
+  // drag by the title bar only; a plain tap on the bar just raises the window
+  function bindWin(me) {
+    const el = me.win, tb = el.querySelector('.tb');
+    el.addEventListener('pointerdown', () => front(me), true);
+    el.querySelector('.cl').addEventListener('click', () => closeWin(me.m.id));
+    let g = null;
+    tb.addEventListener('pointerdown', e => {
+      if (e.button > 0 || e.target.closest('.cl')) return;
+      g = { sx: e.clientX, sy: e.clientY, ox: me.cx, oy: me.cy, moved: false };
+      try { tb.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    tb.addEventListener('pointermove', e => {
+      if (!g) return;
+      const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
+      if (!g.moved && Math.abs(dx) + Math.abs(dy) > 3) { g.moved = true; el.classList.add('mv'); }
+      if (!g.moved) return;
+      me.px = g.ox + dx;
+      me.py = g.oy + dy;
+      place(me);
+    });
+    const end = () => {
+      if (!g) return;
+      const moved = g.moved;
+      g = null;
+      el.classList.remove('mv');
+      if (!moved) return;
+      me.px = me.cx;
+      me.py = me.cy;
+      winPos()[me.m.id] = [Math.round(me.cx), Math.round(me.cy)];
+      SD.write(WIN, WP);
     };
-    try { me.inst = m.mount(ctx) || null; } catch (e) { el.textContent = 'Error: ' + e.message; }
+    tb.addEventListener('pointerup', end);
+    tb.addEventListener('pointercancel', end);
+  }
+
+  function openWin(m) {
+    const el = document.createElement('div');
+    el.className = 'win';
+    el.innerHTML = '<div class="tb"><span class="tt"></span><button class="cl" aria-label="Close">\u2715</button></div><div class="bd"><div></div></div>';
+    el.querySelector('.tt').textContent = m.label;
+    const inner = el.querySelector('.bd').firstChild;
+    const me = { m, win: el, w: m.width || 220, px: 0, py: 0, cx: 0, cy: 0, timers: [], inst: null, ro: null };
+    const sv = winPos()[m.id];
+    const saved = Array.isArray(sv) && isFinite(sv[0]) && isFinite(sv[1]);
+    me.px = saved ? +sv[0] : (P.x > innerWidth / 2 ? P.x - me.w - 8 : P.x + 48);
+    me.py = saved ? +sv[1] : P.y;
+    wins.set(m.id, me);
+    wrap.appendChild(el);
+    front(me);
+    bindWin(me);
+    markActive();
+    const ctx = {
+      el: inner,
+      get alive() { return wins.get(m.id) === me; },
+      every: (fn, ms) => { if (wins.get(m.id) !== me) return 0; const id = setInterval(fn, ms); me.timers.push(['i', id]); return id; },
+      after: (fn, ms) => { if (wins.get(m.id) !== me) return 0; const id = setTimeout(fn, ms); me.timers.push(['t', id]); return id; },
+      setWidth: w => { me.w = w; place(me); },
+      close: () => closeWin(m.id)
+    };
+    try { me.inst = m.mount(ctx) || null; } catch (e) { inner.textContent = 'Error: ' + e.message; }
+    if (wins.get(m.id) !== me) return;
+    place(me);
+    // two windows never start on exactly the same spot
+    for (let i = 0; i < 12 && Array.from(wins.values()).some(o => o !== me && Math.abs(o.cx - me.cx) < 10 && Math.abs(o.cy - me.cy) < 10); i++) {
+      me.px = me.cx + 24;
+      me.py = me.cy + 28;
+      if (me.px + el.offsetWidth > innerWidth - WM) me.px = WM;
+      if (me.py + el.offsetHeight > innerHeight - WM) me.py = WM;
+      place(me);
+    }
+    if (typeof ResizeObserver === 'function') {
+      me.ro = new ResizeObserver(() => { if (wins.get(m.id) === me) place(me); });
+      me.ro.observe(el);
+    }
   }
 
   function showMenu(on) {
+    menuOpen = on;
     stack.classList.toggle('show', on);
     fab.classList.toggle('on', on);
   }
-  function closeAll() { unmount(); markActive(null); showMenu(false); state = 'closed'; }
-  function openMenu() { layout(); showMenu(true); state = 'menu'; }
   function pick(m) {
-    if (cur && cur.m === m) { unmount(); markActive(null); state = 'menu'; return; }
-    layout();
-    mountMod(m);
-    markActive(m);
-    state = 'panel';
+    if (wins.has(m.id)) closeWin(m.id); else openWin(m);
   }
 
   SD.start = function (opts) {
@@ -337,11 +425,11 @@
     root.id = 'sdial';
     root.innerHTML =
       '<button class="fab" aria-label="Speed Dial"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></button>' +
-      '<div class="stack"></div><div class="panel"></div>';
+      '<div class="stack"></div><div class="wins"></div>';
     document.body.appendChild(root);
     fab = root.querySelector('.fab');
     stack = root.querySelector('.stack');
-    panel = root.querySelector('.panel');
+    wrap = root.querySelector('.wins');
     refreshCircles();
 
     // drag + tap on the main circle
@@ -361,16 +449,21 @@
       if (moved) {
         P.x = P.x < innerWidth / 2 ? 8 : innerWidth - 48; // snap to nearest edge
         layout(); SD.write(POS, P);
-      } else if (state === 'closed') openMenu(); else closeAll();
+      } else { layout(); showMenu(!menuOpen); }   // the windows stay open; only the circles fold away
     });
-    addEventListener('resize', layout);
+    const refit = () => { layout(); wins.forEach(place); };
+    addEventListener('resize', refit);
+    addEventListener('orientationchange', () => setTimeout(refit, 300));
 
-    // one light status check per page load, only to colour the main circle
+    // pakai status terakhir dari cache dulu supaya outline langsung muncul di tiap halaman,
+    // lalu satu pengecekan ringan per page load untuk menyegarkannya
+    SD.peek();
+    ring();
     SD.data(false);
   };
 })();
 
-// Speed Dial module: Item Dock v0.9.1
+// Speed Dial module: Item Dock v0.9.3
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
 // In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
 // Torn's own Items page, where item counts are read from the page (live, no API cache).
@@ -595,22 +688,23 @@
     #sdial .idock.blocked .list{opacity:.45}
     #sdial .idock .cd{display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px}
     #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:#242424;border:1px solid #333;color:#cfcfcf;font-size:11px}
-    #sdial .idock .row{display:flex;align-items:center;height:40px;border-radius:8px;color:#e6e6e6;padding:0 10px;border-left:3px solid #4a8f4e;margin-bottom:3px;background:#242424;user-select:none;-webkit-user-select:none}
-    #sdial .idock .row:active{background:#2e2e2e}
-    #sdial .idock .row.out{border-left-color:#e5534b;cursor:not-allowed}
-    #sdial .idock .row.out:active{background:#242424}
-    #sdial .idock .row.low{border-left-color:#d9a441}
-    #sdial .idock .row.low .qty{color:#d9a441}
-    #sdial .idock .row.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
-    #sdial .idock .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .idock .row .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
-    #sdial .idock .row .grip svg{width:18px;height:18px;stroke:#8a8a8a}
-    #sdial .idock.edit .row .grip{display:flex}
-    #sdial .idock .row.drag .grip svg{stroke:#e6e6e6}
-    #sdial .idock .row .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:#e5534b;font-size:18px;padding:0}
-    #sdial .idock.edit .row .x{display:block}
+    #sdial .idock .ir{display:flex;align-items:center;min-height:40px;box-sizing:border-box;padding:6px 10px;border-radius:8px;color:#e6e6e6;margin-bottom:3px;background:#242424;border-left:3px solid #4a8f4e;user-select:none;-webkit-user-select:none}
+    #sdial .idock .ir:active{background:#2e2e2e}
+    #sdial .idock .ir.out{border-left-color:#e5534b;cursor:not-allowed}
+    #sdial .idock .ir.out:active{background:#242424}
+    #sdial .idock .ir.low{border-left-color:#d9a441}
+    #sdial .idock .ir.fac{border-left-color:#4a8fd9}
+    #sdial .idock .ir.low .qty{color:#d9a441}
+    #sdial .idock .ir.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
+    #sdial .idock .ir .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .idock .ir .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
+    #sdial .idock .ir .grip svg{width:18px;height:18px;stroke:#8a8a8a}
+    #sdial .idock.edit .ir .grip{display:flex}
+    #sdial .idock .ir.drag .grip svg{stroke:#e6e6e6}
+    #sdial .idock .ir .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:#e5534b;font-size:18px;padding:0}
+    #sdial .idock.edit .ir .x{display:block}
     #sdial .idock .qty{margin-left:8px;color:#9a9a9a;font-size:12px;white-space:nowrap}
-    #sdial .idock .row.out .qty{color:#e5534b}
+    #sdial .idock .ir.out .qty{color:#e5534b}
     #sdial .idock .tag{margin-left:6px;padding:1px 6px;border-radius:6px;background:#2d3b52;color:#9bb8e0;font-size:10px}
     #sdial .idock.asking .list,#sdial .idock.asking .foot{display:none}
     #sdial .idock .confirm{display:none;padding:8px 6px 4px;text-align:center;color:#e6e6e6}
@@ -678,7 +772,7 @@
       }
       S.items.forEach((it, idx) => {
         const row = document.createElement('div');
-        row.className = 'row';
+        row.className = 'ir';
         row.innerHTML = '<span class=\"grip\" aria-label=\"Drag to reorder\"><svg viewBox=\"0 0 24 24\"><line x1=\"5\" y1=\"8\" x2=\"19\" y2=\"8\"/><line x1=\"5\" y1=\"12\" x2=\"19\" y2=\"12\"/><line x1=\"5\" y1=\"16\" x2=\"19\" y2=\"16\"/></svg></span><span class="nm"></span><span class="qty"></span><button class="x" aria-label="Remove">\u00d7</button>';
         const n = qtyOf(it);
         if (n !== null) {
@@ -688,6 +782,7 @@
         }
         row.querySelector('.nm').textContent = it.name;
         if (it.fac) {
+          row.classList.add('fac');
           const tag = document.createElement('span');
           tag.className = 'tag';
           tag.textContent = 'Faction';
@@ -1177,7 +1272,7 @@
   });
 })();
 
-// Speed Dial module: Travel Helper v0.6.2
+// Speed Dial module: Travel Helper v0.6.4
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Tapping a country offers "Go to travel agency", which only opens
@@ -1288,7 +1383,7 @@
 
   // builds the Stocks box inside the panel; returns { refresh(force) }
   function setupStocks(ctx, el) {
-    const btn = el.querySelector('.skb'), box = el.querySelector('.skbox'), panelEl = el.parentNode;
+    const btn = el.querySelector('.skb'), box = el.querySelector('.skbox');
     box.innerHTML =
       '<div class="skh"><button class="skback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><span>Stocks</span><button class="skr" aria-label="Refresh">' + SD.icons.refresh + '</button></div>' +
       '<div class="bar"><select class="sc"></select><button class="so" data-s="profit">Profit</button><button class="so" data-s="value">Value</button></div>' +
@@ -1358,7 +1453,7 @@
     const setOpen = on => {
       open = on;
       el.classList.toggle('stk', on);
-      panelEl.style.width = on ? Math.min(300, window.innerWidth - 64) + 'px' : '230px';
+      if (ctx.setWidth) ctx.setWidth(on ? 300 : 230);
       if (on) loadStocks(false);
     };
     btn.addEventListener('click', () => setOpen(true));
@@ -1416,12 +1511,12 @@
     #sdial .trv button{flex:1;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
     #sdial .trv button:active{background:#2e2e2e}
     #sdial .trv .list{max-height:30vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .row{display:flex;align-items:center;height:34px;border-radius:8px;padding:0 10px;margin-bottom:3px;background:#242424;box-shadow:inset 3px 0 0 var(--st)}
-    #sdial .trv .row:active{background:#2e2e2e}
-    #sdial .trv .row.sel{background:#2a3140}
-    #sdial .trv .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .trv .row .tm{color:#cfcfcf;font-size:12px;white-space:nowrap}
-    #sdial .trv .row .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
+    #sdial .trv .cr{display:flex;align-items:center;min-height:34px;box-sizing:border-box;padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid var(--st,#5a5a5a)}
+    #sdial .trv .cr:active{background:#2e2e2e}
+    #sdial .trv .cr.sel{background:#2a3140}
+    #sdial .trv .cr .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .trv .cr .tm{color:#cfcfcf;font-size:12px;white-space:nowrap}
+    #sdial .trv .cr .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
     #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
     #sdial .trv .dt .sub{color:#8a8a8a;font-size:11px;margin-bottom:4px}
     #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:30px;font-size:12px}
@@ -1542,7 +1637,7 @@
       list.innerHTML = '';
       DEST.forEach((d, i) => {
         const row = document.createElement('div');
-        row.className = 'row' + (i === sel ? ' sel' : '');
+        row.className = 'cr' + (i === sel ? ' sel' : '');
         const one = oneWay(d) * 60, rt = one * 2 + S.stay * 60;
         row.innerHTML = '<span class="nm">' + SD.esc(d.n) + '</span><span class="tm">' + SD.dur(one) + '<i>\u21c4 ' + SD.dur(rt) + '</i></span>';
         row.addEventListener('click', () => { sel = (sel === i ? -1 : i); renderList(); });

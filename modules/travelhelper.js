@@ -1,4 +1,4 @@
-// Speed Dial module: Travel Helper v0.6.3
+// Speed Dial module: Travel Helper v0.6.4
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
 // (YATA first, Prometheus as fallback). Tapping a country offers "Go to travel agency", which only opens
@@ -109,7 +109,7 @@
 
   // builds the Stocks box inside the panel; returns { refresh(force) }
   function setupStocks(ctx, el) {
-    const btn = el.querySelector('.skb'), box = el.querySelector('.skbox'), panelEl = el.parentNode;
+    const btn = el.querySelector('.skb'), box = el.querySelector('.skbox');
     box.innerHTML =
       '<div class="skh"><button class="skback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><span>Stocks</span><button class="skr" aria-label="Refresh">' + SD.icons.refresh + '</button></div>' +
       '<div class="bar"><select class="sc"></select><button class="so" data-s="profit">Profit</button><button class="so" data-s="value">Value</button></div>' +
@@ -179,7 +179,7 @@
     const setOpen = on => {
       open = on;
       el.classList.toggle('stk', on);
-      panelEl.style.width = on ? Math.min(300, window.innerWidth - 64) + 'px' : '230px';
+      if (ctx.setWidth) ctx.setWidth(on ? 300 : 230);
       if (on) loadStocks(false);
     };
     btn.addEventListener('click', () => setOpen(true));

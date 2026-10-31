@@ -1,6 +1,16 @@
 # torn-pda-speed-dial
 
-A single floating circle for Torn PDA. Tap the main circle, then one circle appears for each tool. Each tool **only runs when its panel is open**: no timers, API calls, or background rendering while closed.
+A single floating circle for Torn PDA. Tap the main circle, then one circle appears for each tool. Tap a tool's circle to open it in its own **floating window**. Each tool **only runs while its window is open**: no timers, API calls, or background rendering once it is closed.
+
+## Windows
+
+- Each window has a title bar (module name and ✕). Drag it by the title bar only; the content scrolls normally.
+- Several windows can be open at once. Tap a module circle again to close its window. Tap any window to bring it to the front.
+- ✕ closes the window and unmounts the module, so its timers stop.
+- Each window's position is remembered per module (`speedDial.win1`) and always kept fully on screen, also after rotating the phone or when a module changes its own width. Which windows are open is not remembered.
+- New windows start next to the main circle and are staggered, so two never sit exactly on top of each other.
+- Tapping the main circle only folds the module circles away; open windows stay.
+- The window outline follows the main circle's status colour.
 
 ## Folder Contents
 
@@ -8,7 +18,7 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 |---|---|
 | `speed-dial.loader.user.js` | The only script installed in PDA. Downloads everything listed in `manifest.json` from GitHub |
 | `manifest.json` | List of files the loader downloads, in order |
-| `core.js` | Core: main circle, module list, shared player data (1 API call), toast, storage |
+| `core.js` | Core: main circle, module list, floating windows, shared player data (1 API call), toast, storage |
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
 | `modules/settings.js` | Settings module (gear circle, always last): show/hide and reorder circles, plus adding your own emoji shortcuts |
@@ -28,9 +38,11 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 
 ## Adding a New Module
 
-1. Create `modules/name.js` that calls `SpeedDial.register({ id, label, icon, width, mount })`.
-   - `icon` is inner SVG markup for a 24x24 stroke icon. Use `emoji` instead for an emoji circle; `href` makes the circle open a page instead of a panel; `ord` sets the default order; `pinned: true` keeps it last and un-hideable. `SpeedDial.unregister(id)` removes one.
-   - `mount(ctx)` gets `ctx.el`, `ctx.every(fn, ms)`, `ctx.after(fn, ms)` and `ctx.alive`; timers are cleared automatically when the panel closes.
+1. Create `modules/name.js` that calls `SpeedDial.register({ id, label, icon, width, mount })`. `width` is the window's width in px (about 200-300 fits a phone).
+   - `icon` is inner SVG markup for a 24x24 stroke icon. Use `emoji` instead for an emoji circle; `href` makes the circle open a page instead of a window; `ord` sets the default order; `pinned: true` keeps it last and un-hideable. `SpeedDial.unregister(id)` removes one.
+   - `mount(ctx)` gets `ctx.el`, `ctx.every(fn, ms)`, `ctx.after(fn, ms)`, `ctx.alive`, `ctx.setWidth(px)` and `ctx.close()`; timers are cleared automatically when the window closes. `mount` may return `{ unmount() }`.
+   - `ctx.setWidth(px)` changes the window width (for example a wider secondary view); the core keeps the window on screen. Tall content is fine: the window is capped to the screen height and its body scrolls.
+   - Style your content under `#sdial` (for example `#sdial .mything{...}`); the window frame, title bar and padding come from the core.
 2. Add `"modules/name.js"` to `manifest.json` (after `core.js`).
 3. Push to GitHub. Nothing changes in PDA.
 4. Optional: run `./build.sh` to refresh the offline bundle.
