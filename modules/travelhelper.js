@@ -289,6 +289,7 @@
     const list = el.querySelector('.list');
     const bM = el.querySelector('.m'), bBk = el.querySelector('.bk'), bSt = el.querySelector('.st');
     let sel = -1;
+    const put = (e, h) => { if (e._h !== h) { e._h = h; e.innerHTML = h; } };   // skip identical writes (the clock ticks every second)
 
     const mode = () => SD.mode(SD.peek());
 
@@ -305,12 +306,12 @@
 
     function renderStat() {
       const D = SD.peek();
-      if (!SD.hasKey) { statEl.textContent = 'No API key available.'; return; }
-      if (SD.error() && !D) { statEl.textContent = SD.error(); return; }
-      if (!D) { statEl.textContent = 'Loading...'; return; }
+      if (!SD.hasKey) { statEl._h = null; statEl.textContent = 'No API key available.'; return; }
+      if (SD.error() && !D) { statEl._h = null; statEl.textContent = SD.error(); return; }
+      if (!D) { statEl._h = null; statEl.textContent = 'Loading...'; return; }
       const m = mode(), e = elapsed(), now = Date.now();
       if (m === 'home') {
-        statEl.innerHTML = 'In Torn \u00b7 <b>' + SD.esc(D.state) + '</b>';
+        put(statEl, 'In Torn \u00b7 <b>' + SD.esc(D.state) + '</b>');
         return;
       }
       if (m === 'flying') {
@@ -326,7 +327,7 @@
             html += '<br>Back in Torn \u2248 <b>' + SD.hhmm(now + secs * 1000) + '</b>';
           }
         }
-        statEl.innerHTML = html + warnHtml(warns(secs, false));
+        put(statEl, html + warnHtml(warns(secs, false)));
         return;
       }
       // abroad
@@ -337,7 +338,7 @@
         secs = oneWay(d) * 60;
         html += '<br>Return flight <b>' + SD.dur(secs) + '</b> \u00b7 back \u2248 <b>' + SD.hhmm(now + secs * 1000) + '</b>';
       }
-      statEl.innerHTML = html + warnHtml(warns(secs, false));
+      put(statEl, html + warnHtml(warns(secs, false)));
     }
 
     function detailHtml(d) {
@@ -351,7 +352,7 @@
     function renderDetail() {
       const x = list.querySelector('.dtx');
       if (!x || sel < 0) return;
-      x.innerHTML = detailHtml(DEST[sel]);
+      put(x, detailHtml(DEST[sel]));
       const go = list.querySelector('.go');
       if (go) go.disabled = !!x.querySelector('.w.bad');
     }

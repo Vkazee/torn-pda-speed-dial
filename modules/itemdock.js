@@ -1,4 +1,4 @@
-// Speed Dial module: Item Dock v0.9.3
+// Speed Dial module: Item Dock v0.9.4
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
 // In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
 // Torn's own Items page, where item counts are read from the page (live, no API cache).
@@ -421,7 +421,7 @@
         if (s > 0) txt += ' \u00b7 ' + SD.durS(s) + ' left';
       }
       if (blk) txt += "\nItems can't be used right now";
-      banner.textContent = txt;
+      if (banner.textContent !== txt) banner.textContent = txt;
       banner.classList.add('show');
       banner.classList.toggle('blk', blk);
     }
@@ -432,6 +432,8 @@
         const s = ((d.cd || {})[k] || 0) - el2;
         return s > 0 ? '<span class="chip">' + l + ' ' + SD.durS(s) + '</span>' : '';
       }).join('');
+      if (cdEl._h === parts) return;
+      cdEl._h = parts;
       cdEl.innerHTML = parts;
       cdEl.style.display = parts ? 'flex' : 'none';
     }

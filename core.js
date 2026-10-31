@@ -1,4 +1,4 @@
-// Speed Dial core v0.6.0
+// Speed Dial core v0.6.1
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // The Settings module (pinned) lets you hide/show modules and drag them into your own order.
@@ -212,7 +212,7 @@
     #sdial.r .lb{left:auto;right:40px}
     #sdial.pnl .lb{display:none}
     #sdial .win{position:fixed;left:0;top:0;display:flex;flex-direction:column;overflow:hidden;background:#1c1c1c;border:1px solid var(--st);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.5);color:#e6e6e6;max-height:calc(100vh - 8px)}
-    #sdial .win.mv{box-shadow:0 10px 24px rgba(0,0,0,.6)}
+    #sdial .win.mv{will-change:transform}
     #sdial[data-st="away"] .win{box-shadow:0 0 0 2px rgba(74,143,217,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="hosp"] .win{box-shadow:0 0 0 2px rgba(217,164,65,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="blk"] .win{box-shadow:0 0 0 2px rgba(229,83,75,.35),0 6px 18px rgba(0,0,0,.5)}
@@ -281,16 +281,17 @@
   const winPos = () => WP || (WP = SD.read(WIN, {}) || {});
   const clampN = (v, a, b) => Math.max(a, Math.min(v, b));
 
-  // show the window where it wants to be (px, py) but always fully on screen
-  function place(me) {
+  // show the window where it wants to be (px, py) but always fully on screen; h = known height (skips the layout read while dragging)
+  function place(me, h) {
     const el = me.win, ww = Math.min(me.w, innerWidth - 2 * WM);
-    el.style.width = ww + 'px';
-    el.style.maxHeight = (innerHeight - 2 * WM) + 'px';
-    const h = el.offsetHeight;
-    me.cx = clampN(me.px, WM, Math.max(WM, innerWidth - ww - WM));
-    me.cy = clampN(me.py, WM, Math.max(WM, innerHeight - h - WM));
-    el.style.left = me.cx + 'px';
-    el.style.top = me.cy + 'px';
+    if (h === undefined) {
+      el.style.width = ww + 'px';
+      el.style.maxHeight = (innerHeight - 2 * WM) + 'px';
+      h = el.offsetHeight;
+    }
+    me.cx = Math.round(clampN(me.px, WM, Math.max(WM, innerWidth - ww - WM)));
+    me.cy = Math.round(clampN(me.py, WM, Math.max(WM, innerHeight - h - WM)));
+    el.style.transform = 'translate3d(' + me.cx + 'px,' + me.cy + 'px,0)';
   }
 
   function front(me) {
@@ -326,7 +327,7 @@
     let g = null;
     tb.addEventListener('pointerdown', e => {
       if (e.button > 0 || e.target.closest('.cl')) return;
-      g = { sx: e.clientX, sy: e.clientY, ox: me.cx, oy: me.cy, moved: false };
+      g = { sx: e.clientX, sy: e.clientY, ox: me.cx, oy: me.cy, h: el.offsetHeight, nx: me.cx, ny: me.cy, raf: 0, moved: false };
       try { tb.setPointerCapture(e.pointerId); } catch (err) {}
     });
     tb.addEventListener('pointermove', e => {
@@ -334,19 +335,25 @@
       const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
       if (!g.moved && Math.abs(dx) + Math.abs(dy) > 3) { g.moved = true; el.classList.add('mv'); }
       if (!g.moved) return;
-      me.px = g.ox + dx;
-      me.py = g.oy + dy;
-      place(me);
+      g.nx = g.ox + dx;
+      g.ny = g.oy + dy;
+      if (g.raf) return;
+      const gg = g;   // one move per frame, no layout read
+      g.raf = requestAnimationFrame(() => { gg.raf = 0; me.px = gg.nx; me.py = gg.ny; place(me, gg.h); });
     });
     const end = () => {
       if (!g) return;
-      const moved = g.moved;
+      const gg = g;
       g = null;
+      cancelAnimationFrame(gg.raf);
       el.classList.remove('mv');
-      if (!moved) return;
+      if (!gg.moved) return;
+      me.px = gg.nx;
+      me.py = gg.ny;
+      place(me, gg.h);
       me.px = me.cx;
       me.py = me.cy;
-      winPos()[me.m.id] = [Math.round(me.cx), Math.round(me.cy)];
+      winPos()[me.m.id] = [me.cx, me.cy];
       SD.write(WIN, WP);
     };
     tb.addEventListener('pointerup', end);
@@ -418,6 +425,7 @@
       '<button class="fab" aria-label="Speed Dial"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></button>' +
       '<div class="stack"></div><div class="wins"></div>';
     document.body.appendChild(root);
+    ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => root.addEventListener(t, e => e.stopPropagation(), { passive: true }));   // Torn's own swipe handlers never see touches on our circle or windows
     fab = root.querySelector('.fab');
     stack = root.querySelector('.stack');
     wrap = root.querySelector('.wins');
@@ -442,12 +450,12 @@
         layout(); SD.write(POS, P);
       } else { layout(); showMenu(!menuOpen); }   // the windows stay open; only the circles fold away
     });
-    const refit = () => { layout(); wins.forEach(place); };
+    const refit = () => { layout(); wins.forEach(w => place(w)); };
     addEventListener('resize', refit);
     addEventListener('orientationchange', () => setTimeout(refit, 300));
 
-    // use the last status from the cache first so the outline appears immediately on every page,
-    // then perform one lightweight check per page load to refresh it
+    // pakai status terakhir dari cache dulu supaya outline langsung muncul di tiap halaman,
+    // lalu satu pengecekan ringan per page load untuk menyegarkannya
     SD.peek();
     ring();
     SD.data(false);

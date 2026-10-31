@@ -7,7 +7,7 @@
 // @grant        none
 // ==/UserScript==
 
-// Speed Dial core v0.6.0
+// Speed Dial core v0.6.1
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // The Settings module (pinned) lets you hide/show modules and drag them into your own order.
@@ -221,7 +221,7 @@
     #sdial.r .lb{left:auto;right:40px}
     #sdial.pnl .lb{display:none}
     #sdial .win{position:fixed;left:0;top:0;display:flex;flex-direction:column;overflow:hidden;background:#1c1c1c;border:1px solid var(--st);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.5);color:#e6e6e6;max-height:calc(100vh - 8px)}
-    #sdial .win.mv{box-shadow:0 10px 24px rgba(0,0,0,.6)}
+    #sdial .win.mv{will-change:transform}
     #sdial[data-st="away"] .win{box-shadow:0 0 0 2px rgba(74,143,217,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="hosp"] .win{box-shadow:0 0 0 2px rgba(217,164,65,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="blk"] .win{box-shadow:0 0 0 2px rgba(229,83,75,.35),0 6px 18px rgba(0,0,0,.5)}
@@ -290,16 +290,17 @@
   const winPos = () => WP || (WP = SD.read(WIN, {}) || {});
   const clampN = (v, a, b) => Math.max(a, Math.min(v, b));
 
-  // show the window where it wants to be (px, py) but always fully on screen
-  function place(me) {
+  // show the window where it wants to be (px, py) but always fully on screen; h = known height (skips the layout read while dragging)
+  function place(me, h) {
     const el = me.win, ww = Math.min(me.w, innerWidth - 2 * WM);
-    el.style.width = ww + 'px';
-    el.style.maxHeight = (innerHeight - 2 * WM) + 'px';
-    const h = el.offsetHeight;
-    me.cx = clampN(me.px, WM, Math.max(WM, innerWidth - ww - WM));
-    me.cy = clampN(me.py, WM, Math.max(WM, innerHeight - h - WM));
-    el.style.left = me.cx + 'px';
-    el.style.top = me.cy + 'px';
+    if (h === undefined) {
+      el.style.width = ww + 'px';
+      el.style.maxHeight = (innerHeight - 2 * WM) + 'px';
+      h = el.offsetHeight;
+    }
+    me.cx = Math.round(clampN(me.px, WM, Math.max(WM, innerWidth - ww - WM)));
+    me.cy = Math.round(clampN(me.py, WM, Math.max(WM, innerHeight - h - WM)));
+    el.style.transform = 'translate3d(' + me.cx + 'px,' + me.cy + 'px,0)';
   }
 
   function front(me) {
@@ -335,7 +336,7 @@
     let g = null;
     tb.addEventListener('pointerdown', e => {
       if (e.button > 0 || e.target.closest('.cl')) return;
-      g = { sx: e.clientX, sy: e.clientY, ox: me.cx, oy: me.cy, moved: false };
+      g = { sx: e.clientX, sy: e.clientY, ox: me.cx, oy: me.cy, h: el.offsetHeight, nx: me.cx, ny: me.cy, raf: 0, moved: false };
       try { tb.setPointerCapture(e.pointerId); } catch (err) {}
     });
     tb.addEventListener('pointermove', e => {
@@ -343,19 +344,25 @@
       const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
       if (!g.moved && Math.abs(dx) + Math.abs(dy) > 3) { g.moved = true; el.classList.add('mv'); }
       if (!g.moved) return;
-      me.px = g.ox + dx;
-      me.py = g.oy + dy;
-      place(me);
+      g.nx = g.ox + dx;
+      g.ny = g.oy + dy;
+      if (g.raf) return;
+      const gg = g;   // one move per frame, no layout read
+      g.raf = requestAnimationFrame(() => { gg.raf = 0; me.px = gg.nx; me.py = gg.ny; place(me, gg.h); });
     });
     const end = () => {
       if (!g) return;
-      const moved = g.moved;
+      const gg = g;
       g = null;
+      cancelAnimationFrame(gg.raf);
       el.classList.remove('mv');
-      if (!moved) return;
+      if (!gg.moved) return;
+      me.px = gg.nx;
+      me.py = gg.ny;
+      place(me, gg.h);
       me.px = me.cx;
       me.py = me.cy;
-      winPos()[me.m.id] = [Math.round(me.cx), Math.round(me.cy)];
+      winPos()[me.m.id] = [me.cx, me.cy];
       SD.write(WIN, WP);
     };
     tb.addEventListener('pointerup', end);
@@ -427,6 +434,7 @@
       '<button class="fab" aria-label="Speed Dial"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></button>' +
       '<div class="stack"></div><div class="wins"></div>';
     document.body.appendChild(root);
+    ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => root.addEventListener(t, e => e.stopPropagation(), { passive: true }));   // Torn's own swipe handlers never see touches on our circle or windows
     fab = root.querySelector('.fab');
     stack = root.querySelector('.stack');
     wrap = root.querySelector('.wins');
@@ -451,7 +459,7 @@
         layout(); SD.write(POS, P);
       } else { layout(); showMenu(!menuOpen); }   // the windows stay open; only the circles fold away
     });
-    const refit = () => { layout(); wins.forEach(place); };
+    const refit = () => { layout(); wins.forEach(w => place(w)); };
     addEventListener('resize', refit);
     addEventListener('orientationchange', () => setTimeout(refit, 300));
 
@@ -463,7 +471,7 @@
   };
 })();
 
-// Speed Dial module: Item Dock v0.9.3
+// Speed Dial module: Item Dock v0.9.4
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
 // In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
 // Torn's own Items page, where item counts are read from the page (live, no API cache).
@@ -886,7 +894,7 @@
         if (s > 0) txt += ' \u00b7 ' + SD.durS(s) + ' left';
       }
       if (blk) txt += "\nItems can't be used right now";
-      banner.textContent = txt;
+      if (banner.textContent !== txt) banner.textContent = txt;
       banner.classList.add('show');
       banner.classList.toggle('blk', blk);
     }
@@ -897,6 +905,8 @@
         const s = ((d.cd || {})[k] || 0) - el2;
         return s > 0 ? '<span class="chip">' + l + ' ' + SD.durS(s) + '</span>' : '';
       }).join('');
+      if (cdEl._h === parts) return;
+      cdEl._h = parts;
       cdEl.innerHTML = parts;
       cdEl.style.display = parts ? 'flex' : 'none';
     }
@@ -1563,6 +1573,7 @@
     const list = el.querySelector('.list');
     const bM = el.querySelector('.m'), bBk = el.querySelector('.bk'), bSt = el.querySelector('.st');
     let sel = -1;
+    const put = (e, h) => { if (e._h !== h) { e._h = h; e.innerHTML = h; } };   // skip identical writes (the clock ticks every second)
 
     const mode = () => SD.mode(SD.peek());
 
@@ -1579,12 +1590,12 @@
 
     function renderStat() {
       const D = SD.peek();
-      if (!SD.hasKey) { statEl.textContent = 'No API key available.'; return; }
-      if (SD.error() && !D) { statEl.textContent = SD.error(); return; }
-      if (!D) { statEl.textContent = 'Loading...'; return; }
+      if (!SD.hasKey) { statEl._h = null; statEl.textContent = 'No API key available.'; return; }
+      if (SD.error() && !D) { statEl._h = null; statEl.textContent = SD.error(); return; }
+      if (!D) { statEl._h = null; statEl.textContent = 'Loading...'; return; }
       const m = mode(), e = elapsed(), now = Date.now();
       if (m === 'home') {
-        statEl.innerHTML = 'In Torn \u00b7 <b>' + SD.esc(D.state) + '</b>';
+        put(statEl, 'In Torn \u00b7 <b>' + SD.esc(D.state) + '</b>');
         return;
       }
       if (m === 'flying') {
@@ -1600,7 +1611,7 @@
             html += '<br>Back in Torn \u2248 <b>' + SD.hhmm(now + secs * 1000) + '</b>';
           }
         }
-        statEl.innerHTML = html + warnHtml(warns(secs, false));
+        put(statEl, html + warnHtml(warns(secs, false)));
         return;
       }
       // abroad
@@ -1611,7 +1622,7 @@
         secs = oneWay(d) * 60;
         html += '<br>Return flight <b>' + SD.dur(secs) + '</b> \u00b7 back \u2248 <b>' + SD.hhmm(now + secs * 1000) + '</b>';
       }
-      statEl.innerHTML = html + warnHtml(warns(secs, false));
+      put(statEl, html + warnHtml(warns(secs, false)));
     }
 
     function detailHtml(d) {
@@ -1625,7 +1636,7 @@
     function renderDetail() {
       const x = list.querySelector('.dtx');
       if (!x || sel < 0) return;
-      x.innerHTML = detailHtml(DEST[sel]);
+      put(x, detailHtml(DEST[sel]));
       const go = list.querySelector('.go');
       if (go) go.disabled = !!x.querySelector('.w.bad');
     }
