@@ -7,7 +7,7 @@
 // @grant        none
 // ==/UserScript==
 
-// Speed Dial core v0.6.2
+// Speed Dial core v0.6.3
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // The Settings module (pinned) lets you hide/show modules and drag them into your own order.
@@ -16,7 +16,7 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.6.2' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.6.3' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -436,7 +436,7 @@
     document.body.appendChild(root);
     // Torn's own swipe handlers (the sidebar that follows your finger) must never see touches on our circle or windows:
     // touch events are cut off first thing in the capture phase, pointer events as soon as our own handlers have run
-    ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => addEventListener(t, e => { if (root.contains(e.target)) e.stopPropagation(); }, { capture: true, passive: true }));
+    ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => addEventListener(t, e => { if (root.contains(e.target)) e.stopImmediatePropagation(); }, { capture: true, passive: true }));
     ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach(t => root.addEventListener(t, e => e.stopPropagation()));
     fab = root.querySelector('.fab');
     stack = root.querySelector('.stack');
