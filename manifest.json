@@ -3,6 +3,7 @@
     "core.js",
     "modules/itemdock.js",
     "modules/travelhelper.js",
-    "modules/settings.js"
+    "modules/settings.js",
+    "features/gymguide.js"
   ]
 }

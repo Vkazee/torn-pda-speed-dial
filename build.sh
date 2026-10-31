@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds dist/speed-dial.bundle.user.js (single file, no hosting needed)
-# from core.js + every file in modules/.
+# from core.js + every file in modules/ and features/.
 cd "$(dirname "$0")" || exit 1
 mkdir -p dist
 {
@@ -8,8 +8,8 @@ cat <<'HEAD'
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.4.0
-// @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open.
+// @version      0.5.0
+// @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
 // @grant        none
@@ -38,7 +38,7 @@ cat <<'GUARD'
 
 GUARD
 cat core.js
-for f in modules/*.js; do
+for f in modules/*.js features/*.js; do
   echo
   cat "$f"
 done

@@ -22,9 +22,10 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 | `core.js` | Core: main circle, module list, floating windows, shared player data (1 API call), toast, storage |
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
-| `modules/settings.js` | Settings module (gear circle, always last): show/hide and reorder circles, plus adding your own emoji shortcuts |
+| `modules/settings.js` | Settings module (gear circle, always last): show/hide and reorder circles, switch page features on/off, and add your own emoji shortcuts |
+| `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
-| `build.sh` | Combines `core.js` + `modules/` into the bundle |
+| `build.sh` | Combines `core.js` + `modules/` + `features/` into the bundle |
 
 ## Install
 
@@ -48,6 +49,19 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 3. Push to GitHub. Nothing changes in PDA.
 4. Optional: run `./build.sh` to refresh the offline bundle.
 
+## Page Features (outside the circles)
+
+A **feature** runs on a Torn page itself instead of inside a window (for example Gym Guide adds a panel under the gym icons). Every feature has an on/off switch in **Settings > Features**; tap the **!** next to it for a short explanation. Features are **off by default** (`def: true` makes one start on). A feature that is off runs nothing: no timer, no style, no element on the page. Switching it off removes everything it added, without a reload.
+
+1. Create `features/name.js` that calls `SpeedDial.feature({ id, label, info, where, match, start })`.
+   - `info` is the text behind the **!**; `where` is a human-readable page name shown under it.
+   - `match` decides on which page it may run: a RegExp tested on `location.pathname` (`/^\/gym\.php/`), a function `(location) => boolean`, a path prefix string, or leave it out for every page.
+   - `start(ctx)` builds whatever it needs and returns `{ stop() }`. `ctx.every(fn, ms)`, `ctx.after(fn, ms)`, `ctx.css(text)` and `ctx.on(target, type, fn)` are tracked and undone by the core when the feature stops; `stop()` only has to remove the elements the feature inserted into the page. `start` may `throw new Error('...')` to refuse; the message is shown as a toast.
+2. Add `"features/name.js"` to `manifest.json` (after `core.js`).
+3. Push to GitHub. It appears in Settings > Features by itself.
+
+Features start when the page loads. A feature switched on while you are on another page starts the next time you open its page. The old standalone Gym Guide userscript must be removed from PDA (the feature refuses to start while it is installed).
+
 ## Troubleshooting
 
 - **Red box "Speed Dial: ..."**: the message names the failing file. Open its raw URL in a browser (repo public, correct branch and path).
@@ -60,7 +74,8 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 - Travel Helper: tap a country for flight times, the time you will be back, and warnings. "Go to travel agency" only opens Torn's travel page (nothing on the page is clicked or read). The button is disabled while you are in hospital or jail.
 - Settings (gear circle, always last, cannot be hidden):
   - **Menu** page: every circle in your order. Tap the eye to hide or show one. Tap **Edit** to drag the handle (≡) to reorder; your own shortcuts also get a ✕ to delete. New modules appear at the bottom until you move them.
-  - **Add shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
+  - **Features** page: a switch per page feature, and a **!** button that opens its explanation.
+  - **Shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
   - Your order and hidden list are saved under `speedDial.layout1`; saved shortcuts keep using `speedDial.shortcuts1`, so they carry over from the old Shortcuts module.
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
 - Main circle colours: blue = abroad or traveling, yellow = hospital, red = jail, federal, or hospital abroad. Status is checked once per page load.

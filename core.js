@@ -1,13 +1,14 @@
-// Speed Dial core v0.6.7
+// Speed Dial core v0.7.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // The Settings module (pinned) lets you hide/show modules and drag them into your own order.
 // A module only builds its UI, timers and API calls while its window is open (lazy).
+// A feature (SD.feature) runs on a Torn page itself, outside the circles. It only runs while it is switched on in Settings and the page matches.
 (function () {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.6.7' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.7.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -179,6 +180,84 @@
     };
     SD.write(LAY, LY);
     if (stack) refreshCircles();
+  };
+
+  // ---------- page features: things that run ON a Torn page, outside the circles ----------
+  // f = { id, label, info (short explanation shown behind the "!" in Settings), where (page name, for humans),
+  //       match (RegExp on location.pathname | function(location) | string path prefix | omitted = every page),
+  //       def (true = on until the user switches it off; default off), start(ctx) -> { stop() } }
+  // ctx = { alive, every(fn, ms), after(fn, ms), css(text), on(target, type, fn, opts) }  - all of these are undone when the feature stops.
+  // start() may throw to refuse (for example when an old standalone copy is still running); the message is shown as a toast.
+  const FK = 'speedDial.features1';   // { id: true | false }
+  const fon = new Map();              // running features: id -> { timers, styles, ons, inst }
+  let FS = null;
+  const fstate = () => FS || (FS = SD.read(FK, {}) || {});
+  SD.features = [];
+  const fget = id => SD.features.find(f => f.id === id);
+
+  SD.featureOn = id => {
+    const v = fstate()[id], f = fget(id);
+    return typeof v === 'boolean' ? v : !!(f && f.def);
+  };
+  SD.featureFits = id => {
+    const f = fget(id);
+    if (!f) return false;
+    const m = f.match;
+    try {
+      if (!m) return true;
+      if (typeof m === 'function') return !!m(location);
+      if (typeof m.test === 'function') return m.test(location.pathname);   // RegExp
+      return location.pathname.indexOf(String(m)) === 0;
+    } catch (e) { return false; }
+  };
+  SD.featureActive = id => fon.has(id);
+
+  function fstop(id) {
+    const me = fon.get(id);
+    if (!me) return;
+    fon.delete(id);
+    me.timers.forEach(t => (t[0] === 'i' ? clearInterval(t[1]) : clearTimeout(t[1])));
+    me.ons.forEach(o => { try { o[0].removeEventListener(o[1], o[2], o[3]); } catch (e) {} });
+    const inst = me.inst;
+    me.inst = null;
+    if (inst && typeof inst.stop === 'function') { try { inst.stop(); } catch (e) {} }
+    me.styles.forEach(st => st.remove());
+  }
+
+  function fstart(f) {
+    const me = { timers: [], styles: [], ons: [], inst: null };
+    fon.set(f.id, me);
+    const ok = () => fon.get(f.id) === me;
+    const ctx = {
+      get alive() { return ok(); },
+      every: (fn, ms) => { if (!ok()) return 0; const id = setInterval(fn, ms); me.timers.push(['i', id]); return id; },
+      after: (fn, ms) => { if (!ok()) return 0; const id = setTimeout(fn, ms); me.timers.push(['t', id]); return id; },
+      css: text => { const st = document.createElement('style'); st.textContent = text; document.head.appendChild(st); me.styles.push(st); return st; },
+      on: (t, type, fn, o) => { t.addEventListener(type, fn, o); me.ons.push([t, type, fn, o]); }
+    };
+    try { me.inst = f.start(ctx) || null; }
+    catch (e) { fstop(f.id); SD.toast(f.label + ': ' + (e && e.message || 'could not start')); }
+  }
+
+  // start or stop one feature so it matches "switched on AND on the right page"
+  function fsync(f) {
+    const want = SD.featureOn(f.id) && SD.featureFits(f.id);
+    const run = fon.has(f.id);
+    if (want && !run) fstart(f);
+    else if (!want && run) fstop(f.id);
+  }
+
+  SD.feature = f => {
+    if (!f || !f.id || typeof f.start !== 'function' || fget(f.id)) return;
+    SD.features.push(f);
+    if (SD.started) fsync(f);
+  };
+  SD.setFeature = (id, on) => {
+    const f = fget(id);
+    if (!f) return;
+    fstate()[id] = !!on;
+    SD.write(FK, FS);
+    fsync(f);
   };
 
   // ---------- hub UI ----------
@@ -459,5 +538,7 @@
     SD.peek();
     ring();
     SD.data(false);
+
+    SD.features.forEach(fsync);   // switched-on features whose page matches start now
   };
 })();

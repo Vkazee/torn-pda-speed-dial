@@ -1,8 +1,10 @@
-// Speed Dial module: Settings v0.3.2
-// The pinned gear circle (always last, cannot be hidden). Two pages:
+// Speed Dial module: Settings v0.4.0
+// The pinned gear circle (always last, cannot be hidden). Three pages:
 //   Menu          - every module in your order. Eye = show/hide the circle. Edit mode: drag the handle to reorder,
 //                   and remove your own shortcuts.
-//   Add shortcut  - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
+//   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
+//                   The "!" next to a feature opens a short explanation.
+//   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
 // Nothing is read from or clicked on the page. Only torn.com pages are accepted.
 (function () {
   'use strict';
@@ -82,6 +84,20 @@
     #sdial .cz .it .btn svg{width:16px;height:16px}
     #sdial .cz .it .del{display:none;color:#f1807a}
     #sdial .cz.edit .it.cu .del{display:flex}
+    #sdial .cz .fl{max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
+    #sdial .cz .fe{padding:10px 4px;color:#8a8a8a;font-size:12px;text-align:center}
+    #sdial .cz .fw{border-radius:8px;background:#242424;margin-bottom:3px}
+    #sdial .cz .fr{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 10px}
+    #sdial .cz .fr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .cz .fr .inf{flex:0 0 auto;width:26px;height:26px;padding:0;border-radius:50%;border:1px solid #4a4a4a;background:none;color:#9a9a9a;font-size:13px;font-weight:700;line-height:1}
+    #sdial .cz .fw.open .fr .inf{background:#383838;border-color:#8a8a8a;color:#e6e6e6}
+    #sdial .cz .fr .sw{flex:0 0 auto;position:relative;width:40px;height:24px;padding:0;border-radius:12px;border:1px solid #444;background:#1a1a1a;transition:background .12s,border-color .12s}
+    #sdial .cz .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
+    #sdial .cz .fr .sw.on{background:#25360f;border-color:#85b200}
+    #sdial .cz .fr .sw.on i{transform:translateX(16px);background:#85b200}
+    #sdial .cz .fi{display:none;padding:0 10px 10px;font-size:12px;line-height:1.45;color:#aaa}
+    #sdial .cz .fw.open .fi{display:block}
+    #sdial .cz .fi .fp{margin-top:5px;font-size:11px;color:#7d7d7d}
   `;
 
   function mount(ctx) {
@@ -89,15 +105,16 @@
     const el = ctx.el;
     el.className = 'cz';
     el.innerHTML =
-      '<div class="tabs"><button class="tb on" data-p="pm">Menu</button><button class="tb" data-p="pa">Add shortcut</button></div>' +
+      '<div class="tabs"><button class="tb on" data-p="pm">Menu</button><button class="tb" data-p="pf">Features</button><button class="tb" data-p="pa">Shortcut</button></div>' +
       '<div class="pg pm on"><div class="lst"></div><button class="edit">Edit</button></div>' +
+      '<div class="pg pf"><div class="fl"></div></div>' +
       '<div class="pg pa">' +
         '<div class="qk"></div>' +
         '<div class="rw"><input class="ie" maxlength="12" placeholder="Emoji" autocomplete="off"><input class="in" maxlength="20" placeholder="Name" autocomplete="off"></div>' +
         '<div class="rw"><input class="iu" placeholder="/page.php?sid=..." autocomplete="off" autocapitalize="off" spellcheck="false"><button class="here">This page</button></div>' +
         '<button class="add">Add</button>' +
       '</div>';
-    const qk = el.querySelector('.qk'), lst = el.querySelector('.lst');
+    const qk = el.querySelector('.qk'), lst = el.querySelector('.lst'), fl = el.querySelector('.fl');
     const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
     let drag = null;
 
@@ -106,7 +123,45 @@
       el.querySelectorAll('.tb').forEach(x => x.classList.toggle('on', x === b));
       el.querySelectorAll('.pg').forEach(p => p.classList.toggle('on', p.classList.contains(b.dataset.p)));
       if (b.dataset.p === 'pm') renderList();
+      if (b.dataset.p === 'pf') renderFeat();
     }));
+
+    // ----- features page: on/off per feature, "!" opens the short explanation -----
+    function renderFeat() {
+      fl.innerHTML = '';
+      if (!SD.features.length) {
+        const e = document.createElement('div');
+        e.className = 'fe';
+        e.textContent = 'No features installed yet.';
+        fl.appendChild(e);
+        return;
+      }
+      SD.features.forEach(f => {
+        const w = document.createElement('div');
+        w.className = 'fw';
+        w.innerHTML = '<div class="fr"><span class="nm"></span><button class="inf" aria-label="About this feature">!</button>' +
+          '<button class="sw" role="switch"><i></i></button></div><div class="fi"><div class="ft"></div><div class="fp"></div></div>';
+        w.querySelector('.nm').textContent = f.label;
+        w.querySelector('.ft').textContent = f.info || '';
+        const fp = w.querySelector('.fp');
+        if (f.where) fp.textContent = 'Runs on: ' + f.where; else fp.remove();
+        const sw = w.querySelector('.sw');
+        const paint = () => {
+          const on = SD.featureOn(f.id);
+          sw.classList.toggle('on', on);
+          sw.setAttribute('aria-checked', on ? 'true' : 'false');
+        };
+        paint();
+        w.querySelector('.inf').addEventListener('click', () => w.classList.toggle('open'));
+        sw.addEventListener('click', () => {
+          const now = !SD.featureOn(f.id);
+          SD.setFeature(f.id, now);
+          paint();
+          if (now && !SD.featureFits(f.id) && f.where) SD.toast(f.label + ' is on. It starts on: ' + f.where);
+        });
+        fl.appendChild(w);
+      });
+    }
 
     // ----- add shortcut page -----
     QUICK.forEach(e => {
