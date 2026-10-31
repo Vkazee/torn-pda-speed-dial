@@ -11,6 +11,7 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 - New windows start next to the main circle and are staggered, so two never sit exactly on top of each other.
 - Tapping the main circle only folds the module circles away; open windows stay.
 - The window outline follows the main circle's status colour.
+- Touches on the circles and windows are hidden from Torn's own swipe handlers, so dragging does not pull Torn's sidebar open. The Settings window shows the loaded Speed Dial version, to check which files are really running.
 
 ## Folder Contents
 

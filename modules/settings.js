@@ -1,4 +1,4 @@
-// Speed Dial module: Settings v0.3.0
+// Speed Dial module: Settings v0.3.1
 // The pinned gear circle (always last, cannot be hidden). Two pages:
 //   Menu          - every module in your order. Eye = show/hide the circle. Edit mode: drag the handle to reorder,
 //                   and remove your own shortcuts.
@@ -90,7 +90,7 @@
     const el = ctx.el;
     el.className = 'cz';
     el.innerHTML =
-      '<div class="ttl">Settings</div>' +
+      '<div class="ttl">Settings <span style="color:#6a6a6a">v' + SD.esc(SD.ver || '?') + '</span></div>' +
       '<div class="tabs"><button class="tb on" data-p="pm">Menu</button><button class="tb" data-p="pa">Add shortcut</button></div>' +
       '<div class="pg pm on"><div class="lst"></div><button class="edit">Edit</button></div>' +
       '<div class="pg pa">' +
