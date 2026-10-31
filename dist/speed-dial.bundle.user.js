@@ -27,7 +27,7 @@
 
 })();
 
-// Speed Dial core v0.6.5
+// Speed Dial core v0.6.6
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // The Settings module (pinned) lets you hide/show modules and drag them into your own order.
@@ -36,7 +36,7 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.6.5' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.6.6' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -454,16 +454,7 @@
       '<button class="fab" aria-label="Speed Dial"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></button>' +
       '<div class="stack"></div><div class="wins"></div>';
     document.body.appendChild(root);
-    // Torn's own swipe handlers (the sidebar that follows your finger) must never see touches on our circle or windows:
-    // touch events are cut off first thing in the capture phase, pointer events as soon as our own handlers have run
-    // a gesture that starts on our UI stays ours until the last finger lifts, even if the element under it is re-rendered or removed
-    let own = false;
-    ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => addEventListener(t, e => {
-      if (t === 'touchstart') own = (e.touches.length > 1 && own) || root.contains(e.target);
-      if (own) e.stopImmediatePropagation();
-      if ((t === 'touchend' || t === 'touchcancel') && e.touches.length === 0) own = false;
-    }, { capture: true, passive: true }));
-    ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach(t => root.addEventListener(t, e => e.stopPropagation()));
+    // Torn's swipe handlers are kept away from our touches by the guard at the top of the loader/bundle (document-start)
     fab = root.querySelector('.fab');
     stack = root.querySelector('.stack');
     wrap = root.querySelector('.wins');
