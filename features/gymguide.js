@@ -379,7 +379,7 @@
     id: 'gymguide',
     label: 'Gym Guide',
     where: 'Gym page',
-    info: 'Highlights the gym tile to train next (Baldr or Hank ratio) and adds a stat progress panel and gym access check under the gym icons. It only reads the stats already shown on the page. No API calls. Ratio, high stat and war mode are set in the panel on the Gym page.',
+    info: 'Highlights the best gym to train next.',
     match: /^\/gym\.php/,
     start
   });

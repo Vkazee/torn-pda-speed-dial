@@ -51,10 +51,10 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 
 ## Page Features (outside the circles)
 
-A **feature** runs on a Torn page itself instead of inside a window (for example Gym Guide adds a panel under the gym icons). Every feature has an on/off switch in **Settings > Features**; tap the **!** next to it for a short explanation. Features are **off by default** (`def: true` makes one start on). A feature that is off runs nothing: no timer, no style, no element on the page. Switching it off removes everything it added, without a reload.
+A **feature** runs on a Torn page itself instead of inside a window (for example Gym Guide adds a panel under the gym icons). Every feature has an on/off switch in **Settings > Features**; tap the **!** next to it for a small pop-up with a one-line explanation and the page it runs on. Features are **off by default** (`def: true` makes one start on). A feature that is off runs nothing: no timer, no style, no element on the page. Switching it off removes everything it added, without a reload.
 
 1. Create `features/name.js` that calls `SpeedDial.feature({ id, label, info, where, match, start })`.
-   - `info` is the text behind the **!**; `where` is a human-readable page name shown under it.
+   - `info` is the one-line text in the **!** pop-up (keep it short, a few words); `where` is the human-readable page name shown as "Runs on".
    - `match` decides on which page it may run: a RegExp tested on `location.pathname` (`/^\/gym\.php/`), a function `(location) => boolean`, a path prefix string, or leave it out for every page.
    - `start(ctx)` builds whatever it needs and returns `{ stop() }`. `ctx.every(fn, ms)`, `ctx.after(fn, ms)`, `ctx.css(text)` and `ctx.on(target, type, fn)` are tracked and undone by the core when the feature stops; `stop()` only has to remove the elements the feature inserted into the page. `start` may `throw new Error('...')` to refuse; the message is shown as a toast.
 2. Add `"features/name.js"` to `manifest.json` (after `core.js`).
@@ -74,7 +74,7 @@ Features start when the page loads. A feature switched on while you are on anoth
 - Travel Helper: tap a country for flight times, the time you will be back, and warnings. "Go to travel agency" only opens Torn's travel page (nothing on the page is clicked or read). The button is disabled while you are in hospital or jail.
 - Settings (gear circle, always last, cannot be hidden):
   - **Menu** page: every circle in your order. Tap the eye to hide or show one. Tap **Edit** to drag the handle (≡) to reorder; your own shortcuts also get a ✕ to delete. New modules appear at the bottom until you move them.
-  - **Features** page: a switch per page feature, and a **!** button that opens its explanation.
+  - **Features** page: a switch per page feature, and a **!** button that opens a pop-up with its one-line explanation.
   - **Shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
   - Your order and hidden list are saved under `speedDial.layout1`; saved shortcuts keep using `speedDial.shortcuts1`, so they carry over from the old Shortcuts module.
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.

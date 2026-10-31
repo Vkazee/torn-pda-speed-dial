@@ -3,7 +3,7 @@
 //   Menu          - every module in your order. Eye = show/hide the circle. Edit mode: drag the handle to reorder,
 //                   and remove your own shortcuts.
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
-//                   The "!" next to a feature opens a short explanation.
+//                   The "!" next to a feature opens a small pop-up with a one-line explanation.
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
 // Nothing is read from or clicked on the page. Only torn.com pages are accepted.
 (function () {
@@ -90,14 +90,19 @@
     #sdial .cz .fr{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 10px}
     #sdial .cz .fr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .cz .fr .inf{flex:0 0 auto;width:26px;height:26px;padding:0;border-radius:50%;border:1px solid #4a4a4a;background:none;color:#9a9a9a;font-size:13px;font-weight:700;line-height:1}
-    #sdial .cz .fw.open .fr .inf{background:#383838;border-color:#8a8a8a;color:#e6e6e6}
+    #sdial .cz .fr .inf:active{background:#383838;border-color:#8a8a8a;color:#e6e6e6}
     #sdial .cz .fr .sw{flex:0 0 auto;position:relative;width:40px;height:24px;padding:0;border-radius:12px;border:1px solid #444;background:#1a1a1a;transition:background .12s,border-color .12s}
     #sdial .cz .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
     #sdial .cz .fr .sw.on{background:#25360f;border-color:#85b200}
     #sdial .cz .fr .sw.on i{transform:translateX(16px);background:#85b200}
-    #sdial .cz .fi{display:none;padding:0 10px 10px;font-size:12px;line-height:1.45;color:#aaa}
-    #sdial .cz .fw.open .fi{display:block}
-    #sdial .cz .fi .fp{margin-top:5px;font-size:11px;color:#7d7d7d}
+    #sdial .sdtip{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.5)}
+    #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .sdtip .th{font-size:13px;font-weight:700}
+    #sdial .sdtip .tx{margin-top:4px;font-size:12px;line-height:1.4;color:#bdbdbd}
+    #sdial .sdtip .tp{margin-top:8px;padding-top:8px;border-top:1px solid #2c2c2c;font-size:12px;color:#9a9a9a}
+    #sdial .sdtip .tp b{font-weight:400;color:#e6e6e6}
+    #sdial .sdtip .tk{width:100%;height:32px;margin-top:10px;padding:0 8px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px}
+    #sdial .sdtip .tk:active{background:#2e2e2e}
   `;
 
   function mount(ctx) {
@@ -120,14 +125,33 @@
 
     // ----- pages -----
     el.querySelectorAll('.tb').forEach(b => b.addEventListener('click', () => {
+      closeTip();
       el.querySelectorAll('.tb').forEach(x => x.classList.toggle('on', x === b));
       el.querySelectorAll('.pg').forEach(p => p.classList.toggle('on', p.classList.contains(b.dataset.p)));
       if (b.dataset.p === 'pm') renderList();
       if (b.dataset.p === 'pf') renderFeat();
     }));
 
-    // ----- features page: on/off per feature, "!" opens the short explanation -----
+    // ----- features page: on/off per feature, "!" opens a small pop-up -----
+    let tip = null;
+    function closeTip() { if (tip) { tip.remove(); tip = null; } }
+    // lives in #sdial (not inside the window, which clips and moves), so it is centred on the screen
+    function openTip(f) {
+      closeTip();
+      const t = document.createElement('div');
+      t.className = 'sdtip';
+      t.innerHTML = '<div class="tc" role="dialog"><div class="th"></div><div class="tx"></div><div class="tp"><b>Runs on:</b> <span></span></div><button class="tk">OK</button></div>';
+      t.querySelector('.th').textContent = f.label;
+      t.querySelector('.tx').textContent = f.info || '';
+      const tp = t.querySelector('.tp');
+      if (f.where) tp.querySelector('span').textContent = f.where; else tp.remove();
+      t.addEventListener('click', e => { if (e.target === t || e.target.closest('.tk')) closeTip(); });
+      (document.getElementById('sdial') || document.body).appendChild(t);
+      tip = t;
+    }
+
     function renderFeat() {
+      closeTip();
       fl.innerHTML = '';
       if (!SD.features.length) {
         const e = document.createElement('div');
@@ -140,11 +164,8 @@
         const w = document.createElement('div');
         w.className = 'fw';
         w.innerHTML = '<div class="fr"><span class="nm"></span><button class="inf" aria-label="About this feature">!</button>' +
-          '<button class="sw" role="switch"><i></i></button></div><div class="fi"><div class="ft"></div><div class="fp"></div></div>';
+          '<button class="sw" role="switch"><i></i></button></div>';
         w.querySelector('.nm').textContent = f.label;
-        w.querySelector('.ft').textContent = f.info || '';
-        const fp = w.querySelector('.fp');
-        if (f.where) fp.textContent = 'Runs on: ' + f.where; else fp.remove();
         const sw = w.querySelector('.sw');
         const paint = () => {
           const on = SD.featureOn(f.id);
@@ -152,7 +173,7 @@
           sw.setAttribute('aria-checked', on ? 'true' : 'false');
         };
         paint();
-        w.querySelector('.inf').addEventListener('click', () => w.classList.toggle('open'));
+        w.querySelector('.inf').addEventListener('click', () => openTip(f));
         sw.addEventListener('click', () => {
           const now = !SD.featureOn(f.id);
           SD.setFeature(f.id, now);
@@ -288,6 +309,7 @@
     });
 
     renderList();
+    return { unmount: closeTip };
   }
 
   SD.register({
