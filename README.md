@@ -11,13 +11,12 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 - New windows start next to the main circle and are staggered, so two never sit exactly on top of each other.
 - Tapping the main circle only folds the module circles away; open windows stay.
 - The window outline follows the main circle's status colour.
-- Touches on the circles and windows are hidden from Torn's own swipe handlers, so dragging does not pull Torn's sidebar open. For this to work against handlers that Torn registers early, also install `speed-dial.guard.user.js` in PDA and set its injection time to **Start** (it only blocks touches that begin inside Speed Dial). The Settings window shows the loaded Speed Dial version, to check which files are really running.
+- Touches on the circles and windows are hidden from Torn's own swipe handlers, so dragging does not pull Torn's sidebar open. The loader (and the bundle) is injected at document start so this guard is registered before Torn's own scripts; if it ever runs late, set its injection time to **Start** in PDA.
 
 ## Folder Contents
 
 | File | Function |
 |---|---|
-| `speed-dial.guard.user.js` | Tiny second script, injected at document start, that stops Torn's swipe handlers from seeing touches on Speed Dial |
 | `speed-dial.loader.user.js` | The only script installed in PDA. Downloads everything listed in `manifest.json` from GitHub |
 | `manifest.json` | List of files the loader downloads, in order |
 | `core.js` | Core: main circle, module list, floating windows, shared player data (1 API call), toast, storage |
