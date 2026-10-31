@@ -99,8 +99,8 @@
     #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
     #sdial .sdtip .th{font-size:13px;font-weight:700}
     #sdial .sdtip .tx{margin-top:4px;font-size:12px;line-height:1.4;color:#bdbdbd}
-    #sdial .sdtip .tp{margin-top:8px;padding-top:8px;border-top:1px solid #2c2c2c;font-size:12px;color:#9a9a9a}
-    #sdial .sdtip .tp b{font-weight:400;color:#e6e6e6}
+    #sdial .sdtip .tp{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#6fa3dc}
+    #sdial .sdtip .tp svg{flex:0 0 auto;width:16px;height:16px;stroke:#6fa3dc}
     #sdial .sdtip .tk{width:100%;height:32px;margin-top:10px;padding:0 8px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px}
     #sdial .sdtip .tk:active{background:#2e2e2e}
   `;
@@ -140,7 +140,7 @@
       closeTip();
       const t = document.createElement('div');
       t.className = 'sdtip';
-      t.innerHTML = '<div class="tc" role="dialog"><div class="th"></div><div class="tx"></div><div class="tp"><b>Runs on:</b> <span></span></div><button class="tk">OK</button></div>';
+      t.innerHTML = '<div class="tc" role="dialog"><div class="th"></div><div class="tx"></div><div class="tp"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.2a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.8" r="2.5"/></svg><span></span></div><button class="tk">OK</button></div>';
       t.querySelector('.th').textContent = f.label;
       t.querySelector('.tx').textContent = f.info || '';
       const tp = t.querySelector('.tp');

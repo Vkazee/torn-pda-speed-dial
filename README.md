@@ -51,10 +51,10 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 
 ## Page Features (outside the circles)
 
-A **feature** runs on a Torn page itself instead of inside a window (for example Gym Guide adds a panel under the gym icons). Every feature has an on/off switch in **Settings > Features**; tap the **!** next to it for a small pop-up with a one-line explanation and the page it runs on. Features are **off by default** (`def: true` makes one start on). A feature that is off runs nothing: no timer, no style, no element on the page. Switching it off removes everything it added, without a reload.
+A **feature** runs on a Torn page itself instead of inside a window (for example Gym Guide adds a panel under the gym icons). Every feature has an on/off switch in **Settings > Features**; tap the **!** next to it for a small pop-up with the feature name, a short description and the page it runs on (pin icon, blue). Features are **off by default** (`def: true` makes one start on). A feature that is off runs nothing: no timer, no style, no element on the page. Switching it off removes everything it added, without a reload.
 
 1. Create `features/name.js` that calls `SpeedDial.feature({ id, label, info, where, match, start })`.
-   - `info` is the one-line text in the **!** pop-up (keep it short, a few words); `where` is the human-readable page name shown as "Runs on".
+   - `info` is the one-line text in the **!** pop-up (keep it short, a few words); `where` is the page name shown with a pin icon in blue under the description (for example `Gym`).
    - `match` decides on which page it may run: a RegExp tested on `location.pathname` (`/^\/gym\.php/`), a function `(location) => boolean`, a path prefix string, or leave it out for every page.
    - `start(ctx)` builds whatever it needs and returns `{ stop() }`. `ctx.every(fn, ms)`, `ctx.after(fn, ms)`, `ctx.css(text)` and `ctx.on(target, type, fn)` are tracked and undone by the core when the feature stops; `stop()` only has to remove the elements the feature inserted into the page. `start` may `throw new Error('...')` to refuse; the message is shown as a toast.
 2. Add `"features/name.js"` to `manifest.json` (after `core.js`).
