@@ -1,7 +1,7 @@
-// Speed Dial module: Targets v0.4.0
+// Speed Dial module: Targets v0.5.0
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
-// anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Default (as added), A-Z, or Okay first.
-// Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, ...).
+// anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
+// Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
 // From 15 targets on, the list switches to pages (15 per page, arrows with "page / total" in the middle) instead of scrolling,
@@ -33,6 +33,7 @@
     const s = j.status || {};
     return {
       name: String(j.name || ('#' + id)),
+      lv: typeof j.level === 'number' ? j.level : 0,
       st: { state: s.state || 'Okay', desc: strip(s.description), det: strip(s.details), until: s.until || 0, t: Date.now() }
     };
   }
@@ -115,6 +116,7 @@
     #sdial .tg .who{flex:1;min-width:0}
     #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e6e6e6;text-decoration:none;font-size:13px}
     #sdial .tg .id{display:block;color:#6b6b6b;font-size:11px;margin-top:1px}
+    #sdial .tg .id em{font-style:normal;color:#9a9a9a;margin-left:8px}
     #sdial .tg .sx{flex:0 0 auto;text-align:right;max-width:46%}
     #sdial .tg .sl{display:block;font-weight:600;font-size:12px;color:var(--c)}
     #sdial .tg .cd{display:block;color:#cfcfcf;font-size:11px;margin-top:1px;min-height:13px}
@@ -143,7 +145,6 @@
     #sdial .tgpop .op.on{border-color:#4a8fd9;background:#2a3140}
     #sdial .tgpop .op.on i{border-color:#4a8fd9;background:radial-gradient(circle,#4a8fd9 0 40%,transparent 45%)}
     #sdial .tgpop .op span{flex:1}
-    #sdial .tgpop .op small{color:#8a8a8a;font-size:11px}
     #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid #333;background:none;color:#cfcfcf;font-size:13px}
     #sdial .tgpop .cx:active{background:#2e2e2e}
   `;
@@ -151,7 +152,7 @@
   const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
   const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
   const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
-  const SORTS = [['def', 'Default', 'as added'], ['name', 'A-Z', 'by name'], ['okay', 'Okay first', 'then shortest cooldown']];
+  const SORTS = [['def', 'Sort by Default'], ['name', 'Sort by A-Z'], ['okay', 'Sort by Time']];
 
   function mount(ctx) {
     SD.css('sd-targets', CSS);
@@ -203,7 +204,7 @@
         const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
         return '<div class="tr" data-id="' + t.id + '" style="--c:' + v.color + '">' +
           '<div class="r1">' +
-            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']</span></div>' +
+            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
             '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
             '<button class="rm" aria-label="Remove">\u2715</button>' +
           '</div>' +
@@ -269,11 +270,11 @@
       busy = true; goB.disabled = true;
       try {
         const r = await pull(id);
-        S.list.push({ id, name: r.name, st: r.st });
+        S.list.push({ id, name: r.name, lv: r.lv, st: r.st });
         save();
         if (ctx.alive) {
           if (sortKey() === 'def') page = pages() - 1;   // show the new one at the end
-          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: 0 }];   // typed an ID: show it as added
+          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: r.lv }];   // typed an ID: show it as added
           inp.value = '';
           renderRes();
         }
@@ -330,6 +331,7 @@
             try {
               const r = await pull(t.id);
               t.name = r.name;
+              if (r.lv) t.lv = r.lv;
               t.st = r.st;
             } catch (e) { failed++; last = e.message; }   // keep the old status when one request fails
           }));
@@ -351,8 +353,8 @@
       closePop();
       const t = document.createElement('div');
       t.className = 'tgpop';
-      t.innerHTML = '<div class="tc" role="dialog"><div class="th">Sort targets</div>' +
-        SORTS.map(x => '<button class="op' + (x[0] === sortKey() ? ' on' : '') + '" data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span><small>' + x[2] + '</small></button>').join('') +
+      t.innerHTML = '<div class="tc" role="dialog"><div class="th">Sort</div>' +
+        SORTS.map(x => '<button class="op' + (x[0] === sortKey() ? ' on' : '') + '" data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span></button>').join('') +
         '<button class="cx">Cancel</button></div>';
       t.addEventListener('click', e => {
         const op = e.target.closest('.op');
