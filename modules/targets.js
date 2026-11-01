@@ -1,4 +1,4 @@
-// Speed Dial module: Targets v0.2.0
+// Speed Dial module: Targets v0.2.1
 // Save players by ID or by name (one box: digits / profile link = ID, anything else = name search with a pick list).
 // Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
@@ -37,11 +37,14 @@
   }
 
   // ---- name search (Torn API v2 user/search, flagged Unstable by Torn) ----
-  // The filter syntax for names is the one thing here that could not be checked against the docs, so the tries live in this list:
-  // each is built from the typed name; the first one that returns players wins. Edit here if Torn changes it.
+  // The name filter syntax could not be checked against Torn's docs, and a wrong one is NOT an error: the API just ignores it
+  // and returns unrelated players. So every result is checked against what you typed, and a try only counts when it gives matches.
+  // Each try = the query string part for the typed name. The first one that works is remembered (S.nt) and used first next time.
   const NAME_TRIES = [
-    q => 'name:=:' + q,
-    q => 'name:like:' + q
+    q => 'filters=' + encodeURIComponent('name:=:' + q),
+    q => 'filters=' + encodeURIComponent('name:like:' + q),
+    q => 'filters=' + encodeURIComponent('name:contains:' + q),
+    q => 'name=' + encodeURIComponent(q)
   ];
   const arr = j => {   // first list of objects in the response, whatever the key is called
     if (Array.isArray(j)) return j;
@@ -55,16 +58,23 @@
     return [];
   };
   async function findName(q) {
-    let err = null, ok = false;
-    for (const t of NAME_TRIES) {
+    const low = q.toLowerCase();
+    const order = NAME_TRIES.map((t, i) => i);
+    if (typeof S.nt === 'number' && S.nt >= 0 && S.nt < order.length) order.unshift(order.splice(S.nt, 1)[0]);
+    let err = null, ok = false, empty = false, junk = false;
+    for (const i of order) {
       try {
-        const j = await SD.api('https://api.torn.com/v2/user/search?limit=10&filters=' + encodeURIComponent(t(q)));
+        const j = await SD.api('https://api.torn.com/v2/user/search?' + NAME_TRIES[i](q));
         ok = true;
-        const out = arr(j).map(o => ({ id: +(o.id || o.player_id || o.user_id || 0), name: String(o.name || ''), level: o.level || 0 })).filter(o => o.id && o.name);
-        if (out.length) return out;
+        const all = arr(j).map(o => ({ id: +(o.id || o.player_id || o.user_id || 0), name: String(o.name || ''), level: o.level || 0 })).filter(o => o.id && o.name);
+        const hit = all.filter(o => o.name.toLowerCase().indexOf(low) > -1).slice(0, 15);
+        if (hit.length) { if (S.nt !== i) { S.nt = i; save(); } return hit; }
+        if (all.length) junk = true; else empty = true;   // unrelated players = filter ignored; nobody = filter works
       } catch (e) { err = e; }
     }
     if (!ok) throw err || new Error('search failed');
+    if (empty) return [];
+    if (junk) throw new Error('the API ignored the name filter');
     return [];
   }
 
@@ -205,7 +215,7 @@
       busy = true; addB.disabled = true;
       let res = null;
       try { res = await findName(name); }
-      catch (e) { SD.toast('Name search failed (' + e.message + '). Use the player ID instead.'); }
+      catch (e) { SD.toast('Name search not working (' + e.message + '). Use the player ID instead.'); }
       busy = false;
       if (!ctx.alive) return;
       addB.disabled = false;
