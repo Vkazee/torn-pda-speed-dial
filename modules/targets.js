@@ -1,6 +1,6 @@
-// Speed Dial module: Targets v0.3.0
+// Speed Dial module: Targets v0.4.0
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
-// anything else = name search with a pick list. Filter picks the order: Default (as added), A-Z, or Okay first.
+// anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Default (as added), A-Z, or Okay first.
 // Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
@@ -109,10 +109,6 @@
     #sdial .tg .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
     #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .tg .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
-    #sdial .tg .fl{display:none;gap:6px;margin-bottom:6px}
-    #sdial .tg.fo .fl{display:flex}
-    #sdial .tg .fl button{flex:1;height:30px;padding:0}
-    #sdial .tg .fl button.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
     #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
     #sdial .tg .tr:active{background:#2e2e2e}
     #sdial .tg .r1{display:flex;align-items:center;gap:8px}
@@ -135,15 +131,27 @@
     #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
     #sdial .tg.ed .foot .edit{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
     #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
-    #sdial .tg .foot .fb.act,#sdial .tg.fo .foot .fb{background:#2a3140;border-color:#4a8fd9}
+    #sdial .tg .foot .fb.act{background:#2a3140;border-color:#4a8fd9}
     #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
     #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
+    #sdial .tgpop{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
+    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .tgpop .th{padding:2px 4px 8px;font-size:14px;font-weight:700}
+    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:44px;margin-top:4px;padding:0 12px;border-radius:10px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:14px;text-align:left}
+    #sdial .tgpop .op:active{background:#2e2e2e}
+    #sdial .tgpop .op i{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid #5a5a5a}
+    #sdial .tgpop .op.on{border-color:#4a8fd9;background:#2a3140}
+    #sdial .tgpop .op.on i{border-color:#4a8fd9;background:radial-gradient(circle,#4a8fd9 0 40%,transparent 45%)}
+    #sdial .tgpop .op span{flex:1}
+    #sdial .tgpop .op small{color:#8a8a8a;font-size:11px}
+    #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid #333;background:none;color:#cfcfcf;font-size:13px}
+    #sdial .tgpop .cx:active{background:#2e2e2e}
   `;
 
   const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
   const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
   const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
-  const SORTS = [['def', 'Default'], ['name', 'A-Z'], ['okay', 'Okay first']];
+  const SORTS = [['def', 'Default', 'as added'], ['name', 'A-Z', 'by name'], ['okay', 'Okay first', 'then shortest cooldown']];
 
   function mount(ctx) {
     SD.css('sd-targets', CSS);
@@ -156,7 +164,6 @@
           '<div class="res"></div>' +
         '</div>' +
         '<div class="main">' +
-          '<div class="fl">' + SORTS.map(x => '<button data-s="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>' +
           '<div class="lst"></div>' +
           '<div class="pg"><button class="pp" aria-label="Previous page">' + ARROW_L + '</button><span class="pn"></span><button class="pnx" aria-label="Next page">' + ARROW_R + '</button></div>' +
           '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="fb" aria-label="Sort">' + FUNNEL + '</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
@@ -188,7 +195,6 @@
       if (page < 0) page = 0;
       root.classList.toggle('pgd', paged());
       fb.classList.toggle('act', sortKey() !== 'def');
-      el.querySelectorAll('.fl button').forEach(b => b.classList.toggle('on', b.dataset.s === sortKey()));
       if (!SD.hasKey) { lst.innerHTML = '<div class="em">No API key available.</div>'; return; }
       if (!S.list.length) { lst.innerHTML = '<div class="em">No targets yet.<br>Tap Add.</div>'; return; }
       const keep = lst.scrollTop;
@@ -244,7 +250,6 @@
 
     function openAdd() {
       if (!SD.hasKey) return SD.toast('No API key available');
-      root.classList.remove('fo');
       root.classList.add('adding');
       found = [];
       inp.value = '';
@@ -339,20 +344,32 @@
       SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
     }
 
+    // ---- sort pop-up: lives in #sdial (not inside the window, which clips and moves), so it dims the whole screen ----
+    let pop = null;
+    function closePop() { if (pop) { pop.remove(); pop = null; } }
+    function openPop() {
+      closePop();
+      const t = document.createElement('div');
+      t.className = 'tgpop';
+      t.innerHTML = '<div class="tc" role="dialog"><div class="th">Sort targets</div>' +
+        SORTS.map(x => '<button class="op' + (x[0] === sortKey() ? ' on' : '') + '" data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span><small>' + x[2] + '</small></button>').join('') +
+        '<button class="cx">Cancel</button></div>';
+      t.addEventListener('click', e => {
+        const op = e.target.closest('.op');
+        if (op) { S.sort = op.dataset.s; save(); page = 0; closePop(); render(); return; }
+        if (e.target === t || e.target.closest('.cx')) closePop();
+      });
+      (document.getElementById('sdial') || document.body).appendChild(t);
+      pop = t;
+    }
+
     // ---- events ----
     q('.add').addEventListener('click', openAdd);
     q('.back').addEventListener('click', closeAdd);
     goB.addEventListener('click', go);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     rf.addEventListener('click', refresh);
-    fb.addEventListener('click', () => root.classList.toggle('fo'));
-    el.querySelectorAll('.fl button').forEach(b => b.addEventListener('click', () => {
-      S.sort = b.dataset.s;
-      save();
-      page = 0;
-      root.classList.remove('fo');
-      render();
-    }));
+    fb.addEventListener('click', openPop);
     edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
     prev.addEventListener('click', () => { if (page > 0) { page--; render(); } });
     next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); } });
@@ -373,7 +390,7 @@
     render();
     tick();
     ctx.every(tick, 1000);
-    return { unmount() { busy = false; } };
+    return { unmount() { busy = false; closePop(); } };
   }
 
   SD.register({
