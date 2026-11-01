@@ -1,5 +1,6 @@
-// Speed Dial module: Targets v0.1.0
-// Save players by ID. Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, ...).
+// Speed Dial module: Targets v0.2.0
+// Save players by ID or by name (one box: digits / profile link = ID, anything else = name search with a pick list).
+// Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
 // From 15 targets on, the list switches to pages (15 per page, arrows with "page / total" in the middle) instead of scrolling,
@@ -35,6 +36,38 @@
     };
   }
 
+  // ---- name search (Torn API v2 user/search, flagged Unstable by Torn) ----
+  // The filter syntax for names is the one thing here that could not be checked against the docs, so the tries live in this list:
+  // each is built from the typed name; the first one that returns players wins. Edit here if Torn changes it.
+  const NAME_TRIES = [
+    q => 'name:=:' + q,
+    q => 'name:like:' + q
+  ];
+  const arr = j => {   // first list of objects in the response, whatever the key is called
+    if (Array.isArray(j)) return j;
+    for (const v of Object.values(j || {})) {
+      if (Array.isArray(v) && (!v.length || typeof v[0] === 'object')) return v;
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        const o = Object.values(v);
+        if (o.length && typeof o[0] === 'object' && o[0] && (o[0].name || o[0].id || o[0].player_id)) return o;
+      }
+    }
+    return [];
+  };
+  async function findName(q) {
+    let err = null, ok = false;
+    for (const t of NAME_TRIES) {
+      try {
+        const j = await SD.api('https://api.torn.com/v2/user/search?limit=10&filters=' + encodeURIComponent(t(q)));
+        ok = true;
+        const out = arr(j).map(o => ({ id: +(o.id || o.player_id || o.user_id || 0), name: String(o.name || ''), level: o.level || 0 })).filter(o => o.id && o.name);
+        if (out.length) return out;
+      } catch (e) { err = e; }
+    }
+    if (!ok) throw err || new Error('search failed');
+    return [];
+  }
+
   // what to show right now: the saved status, but once the cooldown has run out it counts as Okay
   function view(st) {
     if (!st) return { label: '...', color: '#8a8a8a', rem: 0 };
@@ -49,6 +82,17 @@
     #sdial .tg button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 10px}
     #sdial .tg button:active{background:#2e2e2e}
     #sdial .tg button:disabled{opacity:.4}
+    #sdial .tg .lst{max-height:44vh;overflow-y:auto;overflow-x:hidden;touch-action:pan-y}
+    #sdial .tg .sr{display:none;margin-bottom:6px;border:1px solid #2f2f2f;border-radius:8px;background:#20242c;overflow:hidden}
+    #sdial .tg .sr.on{display:block}
+    #sdial .tg .sh{display:flex;align-items:center;padding:0 0 0 8px;color:#8a8a8a;font-size:11px;height:26px}
+    #sdial .tg .sh span{flex:1}
+    #sdial .tg .sh button.sc{flex:0 0 34px;height:26px;border:0;background:none;padding:0}
+    #sdial .tg .sl2{max-height:30vh;overflow-y:auto;touch-action:pan-y}
+    #sdial .tg .it{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid #2a2f38}
+    #sdial .tg .it:active{background:#2a3140}
+    #sdial .tg .it .who{flex:1;min-width:0}
+    #sdial .tg .it .lv{flex:0 0 auto;color:#9a9a9a;font-size:11px}
     #sdial .tg .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
     #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
     #sdial .tg .tr:active{background:#2e2e2e}
@@ -83,13 +127,14 @@
     const el = ctx.el;
     el.innerHTML =
       '<div class="tg">' +
-        '<div class="ad"><input class="in" type="text" inputmode="numeric" placeholder="Player ID" autocomplete="off"><button class="addb">Add</button></div>' +
+        '<div class="ad"><input class="in" type="text" placeholder="Name or ID" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="addb">Add</button></div>' +
+        '<div class="sr"><div class="sh"><span></span><button class="sc" aria-label="Close">\u2715</button></div><div class="sl2"></div></div>' +
         '<div class="lst"></div>' +
         '<div class="pg"><button class="pp" aria-label="Previous page">' + ARROW_L + '</button><span class="pn"></span><button class="pnx" aria-label="Next page">' + ARROW_R + '</button></div>' +
         '<div class="foot"><button class="edit">Edit</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
       '</div>';
     const q = s => el.querySelector(s);
-    const root = q('.tg'), lst = q('.lst'), inp = q('.in'), addB = q('.addb'), pn = q('.pn');
+    const root = q('.tg'), lst = q('.lst'), sr = q('.sr'), sh = q('.sh span'), sl2 = q('.sl2'), inp = q('.in'), addB = q('.addb'), pn = q('.pn');
     const prev = q('.pp'), next = q('.pnx'), edit = q('.edit'), rf = q('.rf'), rs = q('.rs');
     let page = 0, busy = false;
 
@@ -137,12 +182,9 @@
     }
 
     // ---- add ----
-    async function add() {
-      if (busy) return;
-      if (!SD.hasKey) return SD.toast('No API key available');
-      const m = String(inp.value).match(/\d+/);
-      const id = m ? +m[0] : 0;
-      if (!id) return SD.toast('Enter a player ID');
+    const clearSr = () => { sr.classList.remove('on'); sl2.innerHTML = ''; };
+
+    async function addId(id) {
       if (S.list.some(t => t.id === id)) return SD.toast('Already in your list');
       if (S.list.length >= MAX) return SD.toast('Max ' + MAX + ' targets');
       busy = true; addB.disabled = true;
@@ -150,14 +192,41 @@
         const r = await pull(id);
         S.list.push({ id, name: r.name, st: r.st });
         save();
-        inp.value = '';
-        if (ctx.alive) { page = pages() - 1; render(); }   // jump to where the new target is
+        if (ctx.alive) { inp.value = ''; clearSr(); page = pages() - 1; render(); }   // jump to where the new target is
         SD.toast(r.name + ' added');
       } catch (e) {
         SD.toast('Could not add: ' + e.message);
       }
       busy = false;
       if (ctx.alive) { addB.disabled = false; tick(); }
+    }
+
+    async function byName(name) {
+      busy = true; addB.disabled = true;
+      let res = null;
+      try { res = await findName(name); }
+      catch (e) { SD.toast('Name search failed (' + e.message + '). Use the player ID instead.'); }
+      busy = false;
+      if (!ctx.alive) return;
+      addB.disabled = false;
+      tick();
+      if (!res) return;
+      if (!res.length) { clearSr(); return SD.toast('No player found for "' + name + '"'); }
+      sh.textContent = res.length + ' found, tap to add';
+      sl2.innerHTML = res.map(o => '<div class="it" data-id="' + o.id + '"><div class="who"><span class="nm">' + SD.esc(o.name) + '</span><span class="id">[' + o.id + ']</span></div>' + (o.level ? '<span class="lv">Lv ' + o.level + '</span>' : '') + '</div>').join('');
+      sr.classList.add('on');
+    }
+
+    // one box: a profile link, "[123]" or plain digits = ID; anything else = a name
+    function add() {
+      if (busy) return;
+      if (!SD.hasKey) return SD.toast('No API key available');
+      const raw = String(inp.value).trim();
+      if (!raw) return SD.toast('Enter a name or ID');
+      const m = raw.match(/XID=(\d+)/i) || raw.match(/^\[?\s*(\d+)\s*\]?$/);
+      if (m) { clearSr(); return addId(+m[1]); }
+      if (raw.length < 2) return SD.toast('Type at least 2 letters');
+      byName(raw.replace(/^[@\s]+|\s+$/g, ''));
     }
 
     // ---- refresh: only the targets on screen, at most once per 30 seconds ----
@@ -197,6 +266,11 @@
     addB.addEventListener('click', add);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
     rf.addEventListener('click', refresh);
+    q('.sc').addEventListener('click', clearSr);
+    sl2.addEventListener('click', e => {
+      const it = e.target.closest('.it');
+      if (it && !busy) addId(+it.dataset.id);
+    });
     edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
     prev.addEventListener('click', () => { if (page > 0) { page--; render(); } });
     next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); } });
