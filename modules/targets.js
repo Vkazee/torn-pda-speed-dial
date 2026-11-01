@@ -1,9 +1,11 @@
-// Speed Dial module: Targets v0.5.0
+// Speed Dial module: Targets v0.5.1
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
 // anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
 // Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
+// Auto-refresh: the targets on screen are also refreshed when the window opens, when you change page and when you change the sort.
+// It only loads targets whose data is older than 30 seconds, does not start the Refresh button cooldown and stays silent unless something fails.
 // From 15 targets on, the list switches to pages (15 per page, arrows with "page / total" in the middle) instead of scrolling,
 // and Refresh only asks for the current page, so the number of API requests stays small.
 // Nothing runs while the window is closed.
@@ -15,7 +17,7 @@
   const LS = 'speedDial.targets1';   // { list: [{ id, name, st }], rt: last refresh (ms) }
   const PER = 15;                    // targets per page; from this many targets on, pages replace scrolling
   const MAX = 150;                   // most targets you can save
-  const COOL = 30000;                // Refresh button cooldown
+  const COOL = 30000;                // Refresh button cooldown (also the age after which auto-refresh reloads a target)
   const BATCH = 5;                   // parallel requests while refreshing
 
   const S = SD.read(LS, null) || {};
@@ -312,17 +314,25 @@
       byName(raw.replace(/^[@\s]+|\s+$/g, ''));
     }
 
-    // ---- refresh: only the targets on screen, at most once per 30 seconds ----
-    async function refresh() {
+    // ---- refresh: only the targets on screen ----
+    // manual (button): at most once per 30 seconds, starts the cooldown, always shows a toast.
+    // auto (window open, page change, sort change): only targets whose data is older than 30 seconds,
+    // no button cooldown, and a toast only when something failed.
+    async function refresh(auto) {
       if (busy) return;
-      if (!SD.hasKey) return SD.toast('No API key available');
-      const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
-      if (left > 0) return SD.toast('Wait ' + left + 's');
-      const todo = shown().slice();
+      if (!SD.hasKey) return auto ? undefined : SD.toast('No API key available');
+      if (!auto) {
+        const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
+        if (left > 0) return SD.toast('Wait ' + left + 's');
+      }
+      let todo = shown().slice();
+      if (auto) todo = todo.filter(t => !t.st || Date.now() - t.st.t > COOL);   // only stale ones
       if (!todo.length) return;
       busy = true;
-      S.rt = Date.now();   // starts the cooldown right away, so a double tap cannot send twice
-      save();
+      if (!auto) {
+        S.rt = Date.now();   // manual refresh starts the cooldown right away, so a double tap cannot send twice
+        save();
+      }
       tick();
       let failed = 0, last = '';
       const job = (async () => {
@@ -343,7 +353,7 @@
       if (!ctx.alive) return;
       render();
       tick();
-      SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
+      if (!auto || failed) SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
     }
 
     // ---- sort pop-up: lives in #sdial (not inside the window, which clips and moves), so it dims the whole screen ----
@@ -358,7 +368,7 @@
         '<button class="cx">Cancel</button></div>';
       t.addEventListener('click', e => {
         const op = e.target.closest('.op');
-        if (op) { S.sort = op.dataset.s; save(); page = 0; closePop(); render(); return; }
+        if (op) { S.sort = op.dataset.s; save(); page = 0; closePop(); render(); refresh(true); return; }
         if (e.target === t || e.target.closest('.cx')) closePop();
       });
       (document.getElementById('sdial') || document.body).appendChild(t);
@@ -370,11 +380,11 @@
     q('.back').addEventListener('click', closeAdd);
     goB.addEventListener('click', go);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-    rf.addEventListener('click', refresh);
+    rf.addEventListener('click', () => refresh(false));
     fb.addEventListener('click', openPop);
     edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
-    prev.addEventListener('click', () => { if (page > 0) { page--; render(); } });
-    next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); } });
+    prev.addEventListener('click', () => { if (page > 0) { page--; render(); refresh(true); } });
+    next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); refresh(true); } });
     lst.addEventListener('click', e => {
       const row = e.target.closest('.tr');
       if (!row) return;
@@ -392,6 +402,7 @@
     render();
     tick();
     ctx.every(tick, 1000);
+    refresh(true);   // refresh on open
     return { unmount() { busy = false; closePop(); } };
   }
 
