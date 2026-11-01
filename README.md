@@ -22,6 +22,7 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 | `core.js` | Core: main circle, module list, floating windows, shared player data (1 API call), toast, storage |
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
+| `modules/targets.js` | Targets module |
 | `modules/settings.js` | Settings module (gear circle, always last): show/hide and reorder circles, switch page features on/off, and add your own emoji shortcuts |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
@@ -72,6 +73,7 @@ Features start when the page loads. A feature switched on while you are on anoth
 ## Notes
 
 - Travel Helper: tap a country for flight times, the time you will be back, and warnings. "Go to travel agency" only opens Torn's travel page (nothing on the page is clicked or read). The button is disabled while you are in hospital or jail.
+- Targets: type a player ID (or paste a profile link) and tap Add; the name and status are fetched once. Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, Traveling, ...). Tap a row for the status details; tap the name to open the profile. **Edit** shows a ✕ per row to remove it. Refresh reloads only the targets on screen and works once every 30 seconds (also across reopening the window). From 15 targets on, the list uses pages (15 each, arrows with `page / total` between them) instead of scrolling, and Refresh only requests the current page. Max 150 targets, saved under `speedDial.targets1`.
 - Settings (gear circle, always last, cannot be hidden):
   - **Menu** page: every circle in your order. Tap the eye to hide or show one. Tap **Edit** to drag the handle (≡) to reorder; your own shortcuts also get a ✕ to delete. New modules appear at the bottom until you move them.
   - **Features** page: a switch per page feature, and a **!** button that opens a pop-up with its one-line explanation.
