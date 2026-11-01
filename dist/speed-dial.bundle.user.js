@@ -1458,8 +1458,9 @@
   });
 })();
 
-// Speed Dial module: Targets v0.2.0
-// Save players by ID or by name (one box: digits / profile link = ID, anything else = name search with a pick list).
+// Speed Dial module: Targets v0.3.0
+// Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
+// anything else = name search with a pick list. Filter picks the order: Default (as added), A-Z, or Okay first.
 // Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
@@ -1497,11 +1498,14 @@
   }
 
   // ---- name search (Torn API v2 user/search, flagged Unstable by Torn) ----
-  // The filter syntax for names is the one thing here that could not be checked against the docs, so the tries live in this list:
-  // each is built from the typed name; the first one that returns players wins. Edit here if Torn changes it.
+  // The name filter syntax could not be checked against Torn's docs, and a wrong one is NOT an error: the API just ignores it
+  // and returns unrelated players. So every result is checked against what you typed, and a try only counts when it gives matches.
+  // Each try = the query string part for the typed name. The first one that works is remembered (S.nt) and used first next time.
   const NAME_TRIES = [
-    q => 'name:=:' + q,
-    q => 'name:like:' + q
+    q => 'filters=' + encodeURIComponent('name:=:' + q),
+    q => 'filters=' + encodeURIComponent('name:like:' + q),
+    q => 'filters=' + encodeURIComponent('name:contains:' + q),
+    q => 'name=' + encodeURIComponent(q)
   ];
   const arr = j => {   // first list of objects in the response, whatever the key is called
     if (Array.isArray(j)) return j;
@@ -1515,16 +1519,23 @@
     return [];
   };
   async function findName(q) {
-    let err = null, ok = false;
-    for (const t of NAME_TRIES) {
+    const low = q.toLowerCase();
+    const order = NAME_TRIES.map((t, i) => i);
+    if (typeof S.nt === 'number' && S.nt >= 0 && S.nt < order.length) order.unshift(order.splice(S.nt, 1)[0]);
+    let err = null, ok = false, empty = false, junk = false;
+    for (const i of order) {
       try {
-        const j = await SD.api('https://api.torn.com/v2/user/search?limit=10&filters=' + encodeURIComponent(t(q)));
+        const j = await SD.api('https://api.torn.com/v2/user/search?' + NAME_TRIES[i](q));
         ok = true;
-        const out = arr(j).map(o => ({ id: +(o.id || o.player_id || o.user_id || 0), name: String(o.name || ''), level: o.level || 0 })).filter(o => o.id && o.name);
-        if (out.length) return out;
+        const all = arr(j).map(o => ({ id: +(o.id || o.player_id || o.user_id || 0), name: String(o.name || ''), level: o.level || 0 })).filter(o => o.id && o.name);
+        const hit = all.filter(o => o.name.toLowerCase().indexOf(low) > -1).slice(0, 15);
+        if (hit.length) { if (S.nt !== i) { S.nt = i; save(); } return hit; }
+        if (all.length) junk = true; else empty = true;   // unrelated players = filter ignored; nobody = filter works
       } catch (e) { err = e; }
     }
     if (!ok) throw err || new Error('search failed');
+    if (empty) return [];
+    if (junk) throw new Error('the API ignored the name filter');
     return [];
   }
 
@@ -1537,23 +1548,31 @@
   }
 
   const CSS = `
-    #sdial .tg .ad{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .tg input{flex:1;min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:13px;padding:0 8px}
     #sdial .tg button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 10px}
     #sdial .tg button:active{background:#2e2e2e}
     #sdial .tg button:disabled{opacity:.4}
-    #sdial .tg .lst{max-height:44vh;overflow-y:auto;overflow-x:hidden;touch-action:pan-y}
-    #sdial .tg .sr{display:none;margin-bottom:6px;border:1px solid #2f2f2f;border-radius:8px;background:#20242c;overflow:hidden}
-    #sdial .tg .sr.on{display:block}
-    #sdial .tg .sh{display:flex;align-items:center;padding:0 0 0 8px;color:#8a8a8a;font-size:11px;height:26px}
-    #sdial .tg .sh span{flex:1}
-    #sdial .tg .sh button.sc{flex:0 0 34px;height:26px;border:0;background:none;padding:0}
-    #sdial .tg .sl2{max-height:30vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .tg .it{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid #2a2f38}
-    #sdial .tg .it:active{background:#2a3140}
-    #sdial .tg .it .who{flex:1;min-width:0}
-    #sdial .tg .it .lv{flex:0 0 auto;color:#9a9a9a;font-size:11px}
+    #sdial .tg input{flex:1;min-width:0;height:36px;border-radius:8px;border:1px solid #3a3a3a;background:#242424;color:#e6e6e6;font-size:16px;padding:0 10px;outline:none}
+    #sdial .tg input:focus{border-color:#4a8fd9}
+    #sdial .tg .addv{display:none}
+    #sdial .tg.adding .addv{display:block}
+    #sdial .tg.adding .main{display:none}
+    #sdial .tg .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#e6e6e6;font-size:13px}
+    #sdial .tg .ah .back{flex:0 0 32px;width:32px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .tg .ad{display:flex;gap:6px;margin-bottom:6px}
+    #sdial .tg .ad .go{flex:0 0 auto;height:36px;padding:0 14px}
+    #sdial .tg .res{max-height:44vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
+    #sdial .tg .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #4a8fd9}
+    #sdial .tg .res .r:active{background:#2e2e2e}
+    #sdial .tg .res .r.have{opacity:.5}
+    #sdial .tg .res .lv{flex:0 0 auto;color:#9a9a9a;font-size:11px}
+    #sdial .tg .res .pl{flex:0 0 18px;text-align:center;color:#7fd08a;font-size:18px;line-height:1}
+    #sdial .tg .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
+    #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .tg .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
+    #sdial .tg .fl{display:none;gap:6px;margin-bottom:6px}
+    #sdial .tg.fo .fl{display:flex}
+    #sdial .tg .fl button{flex:1;height:30px;padding:0}
+    #sdial .tg .fl button.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
     #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
     #sdial .tg .tr:active{background:#2e2e2e}
     #sdial .tg .r1{display:flex;align-items:center;gap:8px}
@@ -1573,41 +1592,66 @@
     #sdial .tg .pg button svg{width:18px;height:18px}
     #sdial .tg .pn{flex:1;text-align:center;color:#cfcfcf;font-size:13px}
     #sdial .tg .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
-    #sdial .tg .foot .edit{flex:1}
+    #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
     #sdial .tg.ed .foot .edit{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
-    #sdial .tg .foot .rf{flex:0 0 auto;min-width:56px;display:flex;align-items:center;justify-content:center;gap:5px}
-    #sdial .tg .rf .rs{font-size:11px;min-width:18px;text-align:left}
+    #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .tg .foot .fb.act,#sdial .tg.fo .foot .fb{background:#2a3140;border-color:#4a8fd9}
+    #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
+    #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
   `;
 
   const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
   const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
+  const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
+  const SORTS = [['def', 'Default'], ['name', 'A-Z'], ['okay', 'Okay first']];
 
   function mount(ctx) {
     SD.css('sd-targets', CSS);
     const el = ctx.el;
     el.innerHTML =
       '<div class="tg">' +
-        '<div class="ad"><input class="in" type="text" placeholder="Name or ID" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="addb">Add</button></div>' +
-        '<div class="sr"><div class="sh"><span></span><button class="sc" aria-label="Close">\u2715</button></div><div class="sl2"></div></div>' +
-        '<div class="lst"></div>' +
-        '<div class="pg"><button class="pp" aria-label="Previous page">' + ARROW_L + '</button><span class="pn"></span><button class="pnx" aria-label="Next page">' + ARROW_R + '</button></div>' +
-        '<div class="foot"><button class="edit">Edit</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
+        '<div class="addv">' +
+          '<div class="ah"><button class="back" aria-label="Back">' + ARROW_L + '</button><span>Add target</span></div>' +
+          '<div class="ad"><input class="in" type="text" placeholder="Name or ID" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="go">Go</button></div>' +
+          '<div class="res"></div>' +
+        '</div>' +
+        '<div class="main">' +
+          '<div class="fl">' + SORTS.map(x => '<button data-s="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>' +
+          '<div class="lst"></div>' +
+          '<div class="pg"><button class="pp" aria-label="Previous page">' + ARROW_L + '</button><span class="pn"></span><button class="pnx" aria-label="Next page">' + ARROW_R + '</button></div>' +
+          '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="fb" aria-label="Sort">' + FUNNEL + '</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
+        '</div>' +
       '</div>';
     const q = s => el.querySelector(s);
-    const root = q('.tg'), lst = q('.lst'), sr = q('.sr'), sh = q('.sh span'), sl2 = q('.sl2'), inp = q('.in'), addB = q('.addb'), pn = q('.pn');
-    const prev = q('.pp'), next = q('.pnx'), edit = q('.edit'), rf = q('.rf'), rs = q('.rs');
-    let page = 0, busy = false;
+    const root = q('.tg'), lst = q('.lst'), res = q('.res'), inp = q('.in'), goB = q('.go'), pn = q('.pn');
+    const prev = q('.pp'), next = q('.pnx'), edit = q('.edit'), rf = q('.rf'), rs = q('.rs'), fb = q('.fb');
+    let page = 0, busy = false, found = [];
 
+    // ---- order: Default (as added), A-Z, Okay first (then the shortest cooldown first) ----
+    const sortKey = () => (S.sort === 'name' || S.sort === 'okay') ? S.sort : 'def';
+    function sorted() {
+      const l = S.list.slice();
+      const k = sortKey();
+      if (k === 'name') l.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      else if (k === 'okay') {
+        const w = t => { const v = view(t.st); return v.label === 'Okay' ? 0 : v.label === '...' ? 2 : 1; };
+        l.sort((a, b) => (w(a) - w(b)) || (view(a.st).rem - view(b.st).rem) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      }
+      return l;
+    }
     const paged = () => S.list.length >= PER;
     const pages = () => Math.max(1, Math.ceil(S.list.length / PER));
-    const shown = () => paged() ? S.list.slice(page * PER, page * PER + PER) : S.list;
+    const shown = () => { const l = sorted(); return paged() ? l.slice(page * PER, page * PER + PER) : l; };
 
     function render() {
       if (page > pages() - 1) page = pages() - 1;
       if (page < 0) page = 0;
       root.classList.toggle('pgd', paged());
+      fb.classList.toggle('act', sortKey() !== 'def');
+      el.querySelectorAll('.fl button').forEach(b => b.classList.toggle('on', b.dataset.s === sortKey()));
       if (!SD.hasKey) { lst.innerHTML = '<div class="em">No API key available.</div>'; return; }
-      if (!S.list.length) { lst.innerHTML = '<div class="em">No targets yet.<br>Enter a player ID and tap Add.</div>'; return; }
+      if (!S.list.length) { lst.innerHTML = '<div class="em">No targets yet.<br>Tap Add.</div>'; return; }
+      const keep = lst.scrollTop;
       lst.innerHTML = shown().map(t => {
         const v = view(t.st);
         const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
@@ -1620,6 +1664,7 @@
           '<div class="dt">' + SD.esc(det || 'No details') + '</div>' +
         '</div>';
       }).join('');
+      lst.scrollTop = keep;
       pn.textContent = (page + 1) + ' / ' + pages();
       prev.disabled = page <= 0;
       next.disabled = page >= pages() - 1;
@@ -1635,56 +1680,88 @@
         const rem = u - now;
         if (rem <= 0) redraw = true; else c.textContent = SD.durS(rem);
       });
-      if (redraw) render();
+      if (redraw && !root.classList.contains('adding')) render();
       const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
       rs.textContent = left > 0 ? left + 's' : '';
       rf.disabled = left > 0 || busy;
     }
 
-    // ---- add ----
-    const clearSr = () => { sr.classList.remove('on'); sl2.innerHTML = ''; };
+    // ---- add view (like Item Dock: its own view with a back button) ----
+    function renderRes(msg) {
+      if (msg) { res.innerHTML = '<div class="hint">' + SD.esc(msg) + '</div>'; return; }
+      if (!found.length) { res.innerHTML = '<div class="hint">Type a name or an ID, then tap Go.</div>'; return; }
+      res.innerHTML = '';
+      found.forEach(o => {
+        const have = S.list.some(t => t.id === o.id);
+        const r = document.createElement('div');
+        r.className = 'r' + (have ? ' have' : '');
+        r.innerHTML = '<div class="who"><span class="nm"></span><span class="id">[' + o.id + ']</span></div>' + (o.level ? '<span class="lv">Lv ' + o.level + '</span>' : '') + '<span class="pl">' + (have ? '\u2713' : '+') + '</span>';
+        r.querySelector('.nm').textContent = o.name;
+        if (!have) r.addEventListener('click', () => { if (!busy) addId(o.id); });
+        res.appendChild(r);
+      });
+    }
+
+    function openAdd() {
+      if (!SD.hasKey) return SD.toast('No API key available');
+      root.classList.remove('fo');
+      root.classList.add('adding');
+      found = [];
+      inp.value = '';
+      renderRes();
+      inp.focus();
+    }
+    function closeAdd() {
+      root.classList.remove('adding');
+      inp.blur();
+      render();
+      tick();
+    }
 
     async function addId(id) {
       if (S.list.some(t => t.id === id)) return SD.toast('Already in your list');
       if (S.list.length >= MAX) return SD.toast('Max ' + MAX + ' targets');
-      busy = true; addB.disabled = true;
+      busy = true; goB.disabled = true;
       try {
         const r = await pull(id);
         S.list.push({ id, name: r.name, st: r.st });
         save();
-        if (ctx.alive) { inp.value = ''; clearSr(); page = pages() - 1; render(); }   // jump to where the new target is
+        if (ctx.alive) {
+          if (sortKey() === 'def') page = pages() - 1;   // show the new one at the end
+          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: 0 }];   // typed an ID: show it as added
+          inp.value = '';
+          renderRes();
+        }
         SD.toast(r.name + ' added');
       } catch (e) {
         SD.toast('Could not add: ' + e.message);
       }
       busy = false;
-      if (ctx.alive) { addB.disabled = false; tick(); }
+      if (ctx.alive) { goB.disabled = false; tick(); }
     }
 
     async function byName(name) {
-      busy = true; addB.disabled = true;
-      let res = null;
-      try { res = await findName(name); }
-      catch (e) { SD.toast('Name search failed (' + e.message + '). Use the player ID instead.'); }
+      busy = true; goB.disabled = true;
+      renderRes('Searching...');
+      let list = null;
+      try { list = await findName(name); }
+      catch (e) { found = []; if (ctx.alive) renderRes('Name search is not working (' + e.message + '). Use the player ID instead.'); }
       busy = false;
       if (!ctx.alive) return;
-      addB.disabled = false;
+      goB.disabled = false;
       tick();
-      if (!res) return;
-      if (!res.length) { clearSr(); return SD.toast('No player found for "' + name + '"'); }
-      sh.textContent = res.length + ' found, tap to add';
-      sl2.innerHTML = res.map(o => '<div class="it" data-id="' + o.id + '"><div class="who"><span class="nm">' + SD.esc(o.name) + '</span><span class="id">[' + o.id + ']</span></div>' + (o.level ? '<span class="lv">Lv ' + o.level + '</span>' : '') + '</div>').join('');
-      sr.classList.add('on');
+      if (!list) return;
+      found = list;
+      renderRes(list.length ? '' : 'No player found for "' + name + '".');
     }
 
     // one box: a profile link, "[123]" or plain digits = ID; anything else = a name
-    function add() {
+    function go() {
       if (busy) return;
-      if (!SD.hasKey) return SD.toast('No API key available');
       const raw = String(inp.value).trim();
       if (!raw) return SD.toast('Enter a name or ID');
       const m = raw.match(/XID=(\d+)/i) || raw.match(/^\[?\s*(\d+)\s*\]?$/);
-      if (m) { clearSr(); return addId(+m[1]); }
+      if (m) return addId(+m[1]);
       if (raw.length < 2) return SD.toast('Type at least 2 letters');
       byName(raw.replace(/^[@\s]+|\s+$/g, ''));
     }
@@ -1723,14 +1800,19 @@
     }
 
     // ---- events ----
-    addB.addEventListener('click', add);
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+    q('.add').addEventListener('click', openAdd);
+    q('.back').addEventListener('click', closeAdd);
+    goB.addEventListener('click', go);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     rf.addEventListener('click', refresh);
-    q('.sc').addEventListener('click', clearSr);
-    sl2.addEventListener('click', e => {
-      const it = e.target.closest('.it');
-      if (it && !busy) addId(+it.dataset.id);
-    });
+    fb.addEventListener('click', () => root.classList.toggle('fo'));
+    el.querySelectorAll('.fl button').forEach(b => b.addEventListener('click', () => {
+      S.sort = b.dataset.s;
+      save();
+      page = 0;
+      root.classList.remove('fo');
+      render();
+    }));
     edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
     prev.addEventListener('click', () => { if (page > 0) { page--; render(); } });
     next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); } });
@@ -1757,7 +1839,7 @@
   SD.register({
     id: 'targets',
     label: 'Targets',
-    width: 260,
+    width: 270,
     // crosshair
     icon: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/>',
     mount
