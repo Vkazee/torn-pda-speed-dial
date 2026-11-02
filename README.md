@@ -30,6 +30,7 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
 | `modules/targets.js` | Targets module |
+| `modules/bazaar.js` | Bazaar module: summary of your own bazaar, price check against market value, shortcuts to the Torn bazaar pages |
 | `modules/settings.js` | Settings module (gear circle, always last): show/hide and reorder circles, switch page features on/off, and add your own emoji shortcuts |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |

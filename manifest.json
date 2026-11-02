@@ -5,6 +5,7 @@
     "modules/itemdock.js",
     "modules/travelhelper.js",
     "modules/targets.js",
+    "modules/bazaar.js",
     "modules/settings.js",
     "features/gymguide.js"
   ]

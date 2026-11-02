@@ -663,6 +663,222 @@
   };
 })();
 
+// Speed Dial module: Bazaar v0.1.0
+// Your own bazaar at a glance. Top: a summary (items, pieces, total value at your prices vs market value, how many are too cheap / too high).
+// Below: every listed item with your price compared to Torn's market value (green = fair, red = cheap, yellow = high, grey = no market value).
+// Tap a row for details. Bottom bar: Manage | Add | Style (open the Torn bazaar pages) and Refresh (once every 30 seconds).
+// Needs an API key that is allowed to read your bazaar. Nothing runs while the window is closed; nothing is saved (everything is re-fetched).
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const CHEAP = 0.90;      // price below 90% of market value = too cheap (red)
+  const HIGH = 1.10;       // price above 110% of market value = high, may not sell (yellow)
+  const COOL = 30000;      // minimum age (ms) before a refresh asks the API again
+  const GREEN = '#7fd08a', YELLOW = '#d9a441', RED = '#f1807a', GREY = '#8a8a8a';
+
+  const URLS = ['https://api.torn.com/v2/user/bazaar', 'https://api.torn.com/user/?selections=bazaar'];
+  const ID_KEYS = ['ID', 'id', 'item_id', 'itemID'];
+  const QTY_KEYS = ['quantity', 'amount', 'qty'];
+  const PRICE_KEYS = ['price', 'cost'];
+  const MV_KEYS = ['market_price', 'market_value', 'marketPrice', 'marketValue'];
+
+  let cache = null;        // { t, rows, open } kept in memory only
+  let catalog = null;      // item id -> market value (one API call, only when the bazaar answer lacks it)
+
+  const num = v => { const n = typeof v === 'string' ? Number(v.replace(/[, $]/g, '')) : v; return typeof n === 'number' && isFinite(n) ? n : null; };
+  const pick = (o, keys) => { for (const k of keys) { const n = num(o[k]); if (n != null) return n; } return null; };
+  const money = n => '$' + Math.round(n).toLocaleString('en-US');
+  const short = n => {
+    const a = Math.abs(n);
+    if (a >= 1e9) return '$' + +(n / 1e9).toFixed(2) + 'b';
+    if (a >= 1e6) return '$' + +(n / 1e6).toFixed(2) + 'm';
+    if (a >= 1e4) return '$' + +(n / 1e3).toFixed(1) + 'k';
+    return money(n);
+  };
+
+  // finds every { id, quantity, price } object, whatever the API wraps it in
+  function collect(node, out) {
+    if (Array.isArray(node)) { node.forEach(n => collect(n, out)); return out; }
+    if (!node || typeof node !== 'object') return out;
+    const q = pick(node, QTY_KEYS), p = pick(node, PRICE_KEYS);
+    const item = node.item && typeof node.item === 'object' ? node.item : null;
+    const id = pick(node, ID_KEYS) != null ? pick(node, ID_KEYS) : (item ? pick(item, ID_KEYS) : null);
+    if (q != null && p != null && id != null) {
+      const mv = pick(node, MV_KEYS) != null ? pick(node, MV_KEYS) : (item ? pick(item, MV_KEYS) : null);
+      out.push({ id, name: String(node.name || (item && item.name) || ('Item ' + id)), qty: q, price: p, mv: mv && mv > 0 ? mv : null });
+    } else Object.values(node).forEach(v => collect(v, out));
+    return out;
+  }
+
+  // open / closed, only when the API says so
+  function findOpen(j) {
+    const look = o => {
+      if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+      for (const k of ['is_open', 'isOpen', 'open']) if (typeof o[k] === 'boolean') return o[k];
+      if (typeof o.closed === 'boolean') return !o.closed;
+      return null;
+    };
+    const a = look(j);
+    return a != null ? a : look(j && j.bazaar);
+  }
+
+  async function loadCatalog() {
+    if (catalog) return catalog;
+    const j = await SD.api('https://api.torn.com/torn/?selections=items');
+    catalog = {};
+    Object.entries(j.items || {}).forEach(([id, v]) => { const m = num(v.market_value); if (m) catalog[id] = m; });
+    return catalog;
+  }
+
+  async function fetchBazaar() {
+    let j = null, firstErr = null;
+    for (const u of URLS) {
+      try { j = await SD.api(u); if (collect(j, []).length || findOpen(j) != null || u === URLS[URLS.length - 1]) break; }
+      catch (e) { if (!firstErr) firstErr = e; j = null; }
+    }
+    if (!j) throw firstErr || new Error('No answer from the API');
+    const rows = collect(j, []);
+    if (rows.some(r => !r.mv)) {
+      try { const c = await loadCatalog(); rows.forEach(r => { if (!r.mv && c[r.id]) r.mv = c[r.id]; }); } catch (e) { /* rows without a market value stay grey */ }
+    }
+    rows.forEach(r => {
+      r.total = r.qty * r.price;
+      r.ratio = r.mv ? r.price / r.mv : null;
+      r.lvl = r.ratio == null ? 2 : r.ratio < CHEAP ? 0 : r.ratio > HIGH ? 1 : 3;   // 0 cheap, 1 high, 2 unknown, 3 fair
+    });
+    // problems first (cheap, then high), then unknown, then fair; biggest total first inside each group
+    rows.sort((a, b) => (a.lvl - b.lvl) || (b.total - a.total));
+    return { t: Date.now(), rows, open: findOpen(j) };
+  }
+
+  const LVL = [{ c: RED, w: 'Cheap' }, { c: YELLOW, w: 'High' }, { c: GREY, w: 'No MV' }, { c: GREEN, w: 'Fair' }];
+  const pct = r => (r >= 1 ? '+' : '') + ((r - 1) * 100).toFixed(1).replace(/\.0$/, '') + '%';
+
+  const CSS = `
+    #sdial .bz button,#sdial .bz .lk{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 8px;text-decoration:none;display:flex;align-items:center;justify-content:center}
+    #sdial .bz button:active,#sdial .bz .lk:active{background:#2e2e2e}
+    #sdial .bz .sum{margin-bottom:6px;padding:6px 8px;border-radius:8px;background:#242424;border-left:3px solid #4a8fd9;font-size:12px;line-height:1.5;color:#cfcfcf}
+    #sdial .bz .sum b{color:#e6e6e6}
+    #sdial .bz .sum .o{float:right;font-weight:600}
+    #sdial .bz .sum .o.on{color:#7fd08a}
+    #sdial .bz .sum .o.off{color:#f1807a}
+    #sdial .bz .sum .bad{color:#f1807a}
+    #sdial .bz .sum .hi{color:#d9a441}
+    #sdial .bz .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
+    #sdial .bz .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
+    #sdial .bz .em.err{color:#f1807a}
+    #sdial .bz .r{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
+    #sdial .bz .r:active{background:#2e2e2e}
+    #sdial .bz .r1{display:flex;align-items:center;gap:8px}
+    #sdial .bz .who{flex:1;min-width:0}
+    #sdial .bz .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e6e6e6;font-size:13px}
+    #sdial .bz .id{display:block;color:#8a8a8a;font-size:11px;margin-top:1px}
+    #sdial .bz .sx{flex:0 0 auto;text-align:right}
+    #sdial .bz .sl{display:block;font-weight:600;font-size:12px;color:var(--c)}
+    #sdial .bz .cd{display:block;color:#9a9a9a;font-size:11px;margin-top:1px}
+    #sdial .bz .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid #2f2f2f;color:#9a9a9a;font-size:11px;line-height:1.5}
+    #sdial .bz .dt b{color:#cfcfcf;font-weight:600}
+    #sdial .bz .r.open .dt{display:block}
+    #sdial .bz .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
+    #sdial .bz .foot .lk{flex:1;padding:0 4px}
+    #sdial .bz .foot .rf{flex:0 0 44px;padding:0}
+  `;
+
+  function mount(ctx) {
+    SD.css('sd-bazaar', CSS);
+    const el = ctx.el;
+    el.innerHTML =
+      '<div class="bz">' +
+        '<div class="sum" style="display:none"></div>' +
+        '<div class="lst"></div>' +
+        '<div class="foot">' +
+          '<a class="lk" href="/bazaar.php#/manage">Manage</a>' +
+          '<a class="lk" href="/bazaar.php#/add">Add</a>' +
+          '<a class="lk" href="/bazaar.php#/personalize">Style</a>' +
+          '<button class="rf" aria-label="Refresh">' + SD.icons.refresh + '</button>' +
+        '</div>' +
+      '</div>';
+    const q = s => el.querySelector(s);
+    const sum = q('.sum'), lst = q('.lst'), rf = q('.rf');
+    let busy = false, error = '';
+
+    function render() {
+      if (!SD.hasKey) { sum.style.display = 'none'; lst.innerHTML = '<div class="em err">This module needs your API key.</div>'; return; }
+      if (!cache) {
+        sum.style.display = 'none';
+        lst.innerHTML = '<div class="em' + (error ? ' err' : '') + '">' + SD.esc(error || 'Loading...') + '</div>';
+        return;
+      }
+      const rows = cache.rows;
+      const pcs = rows.reduce((s, r) => s + r.qty, 0);
+      const val = rows.reduce((s, r) => s + r.total, 0);
+      const mvv = rows.reduce((s, r) => s + (r.mv ? r.qty * r.mv : 0), 0);
+      const cheap = rows.filter(r => r.lvl === 0).length, high = rows.filter(r => r.lvl === 1).length;
+      const open = cache.open == null ? '' : '<span class="o ' + (cache.open ? 'on">Open' : 'off">Closed') + '</span>';
+      sum.style.display = 'block';
+      sum.innerHTML = open +
+        '<b>' + rows.length + '</b> item' + (rows.length === 1 ? '' : 's') + ' · <b>' + pcs.toLocaleString('en-US') + '</b> pcs<br>' +
+        'Value <b>' + short(val) + '</b>' + (mvv ? ' (MV ' + short(mvv) + ')' : '') +
+        ((cheap || high) ? '<br>' + (cheap ? '<span class="bad">' + cheap + ' cheap</span>' : '') + (cheap && high ? ' · ' : '') + (high ? '<span class="hi">' + high + ' high</span>' : '') : '');
+      if (!rows.length) {
+        lst.innerHTML = '<div class="em">' + (error ? SD.esc(error) : 'No items found in your bazaar.') + '</div>';
+        return;
+      }
+      lst.innerHTML = rows.map(r => {
+        const L = LVL[r.lvl];
+        return '<div class="r" style="--c:' + L.c + '">' +
+          '<div class="r1"><div class="who"><span class="nm">' + SD.esc(r.name) + '</span>' +
+          '<span class="id">' + r.qty.toLocaleString('en-US') + ' × ' + money(r.price) + '</span></div>' +
+          '<div class="sx"><span class="sl">' + (r.ratio == null ? 'No MV' : pct(r.ratio)) + '</span>' +
+          '<span class="cd">' + (r.mv ? 'MV ' + short(r.mv) : '') + '</span></div></div>' +
+          '<div class="dt"><b>' + L.w + '</b>' + (r.mv ? ' · ' + (r.price - r.mv >= 0 ? '+' : '-') + money(Math.abs(r.price - r.mv)) + ' vs market value each' : '') +
+          '<br>Total at your price: <b>' + money(r.total) + '</b>' + (r.mv ? '<br>Total at market value: ' + money(r.qty * r.mv) : '') + '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    async function load(force) {
+      if (busy || !SD.hasKey) return;
+      if (cache && Date.now() - cache.t < COOL) { render(); return; }
+      busy = true;
+      try {
+        cache = await fetchBazaar();
+        error = '';
+      } catch (e) {
+        error = 'Bazaar unavailable: ' + (e && e.message ? e.message : 'unknown error');
+        if (force) SD.toast(error);
+      }
+      busy = false;
+      if (ctx.alive) render();
+    }
+
+    lst.addEventListener('click', e => {
+      const row = e.target.closest('.r');
+      if (row) row.classList.toggle('open');
+    });
+    rf.addEventListener('click', () => {
+      if (busy) return;
+      if (cache && Date.now() - cache.t < COOL) { SD.toast('Wait ' + Math.ceil((COOL - (Date.now() - cache.t)) / 1000) + 's'); return; }
+      SD.spin(rf, load(true));
+    });
+
+    render();     // shows the last result straight away (if any), then reloads when it is older than 30s
+    load(false);
+    return { unmount() { busy = false; } };
+  }
+
+  SD.register({
+    id: 'bazaar',
+    label: 'Bazaar',
+    width: 270,
+    // storefront
+    icon: '<path d="M3.5 9.5L5 4h14l1.5 5.5"/><path d="M3.5 9.5a2.8 2.8 0 0 0 5.5 0 2.8 2.8 0 0 0 6 0 2.8 2.8 0 0 0 5.5 0"/><path d="M5 12.5V20h14v-7.5"/><path d="M10 20v-4.5h4V20"/>',
+    mount
+  });
+})();
+
 // Speed Dial module: Item Dock v0.9.4
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
 // In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
@@ -1224,8 +1440,10 @@
   });
 })();
 
-// Speed Dial module: Settings v0.4.0
-// The pinned gear circle (always last, cannot be hidden). Three pages:
+// Speed Dial module: Settings v0.5.0
+// The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
+// tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
+// to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
 //   Menu          - every module in your order. Eye = show/hide the circle. Edit mode: drag the handle to reorder,
 //                   and remove your own shortcuts.
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
@@ -1279,11 +1497,26 @@
   const EYE = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7c2 0 3.7.7 5.2 1.7M22 12s-3.6 7-10 7c-2 0-3.7-.7-5.2-1.7"/><path d="M4 4l16 16"/></svg>';
   const GRIP = '<svg viewBox="0 0 24 24"><line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="5" y1="16" x2="19" y2="16"/></svg>';
+  const HAMB = '<svg viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
+
+  // pages shown in the menu (order = order in the list). show(): optional, runs every time the page opens
+  const ICON_MENU = '<svg viewBox="0 0 24 24"><line x1="9" y1="7" x2="20" y2="7"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="17" x2="20" y2="17"/><circle cx="5" cy="7" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="17" r="1"/></svg>';
+  const ICON_FEAT = '<svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></svg>';
+  const ICON_ADD = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
 
   const CSS = `
-    #sdial .cz .tabs{display:flex;gap:4px;margin-bottom:6px}
-    #sdial .cz .tabs button{flex:1}
-    #sdial .cz .tabs button.on{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
+    #sdial .cz .nav{display:flex;align-items:center;gap:8px;height:34px;margin-bottom:6px}
+    #sdial .cz .nav .hb{flex:0 0 auto;width:38px;height:32px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .cz .nav .hb svg{width:20px;height:20px;fill:none;stroke:#cfcfcf;stroke-width:2;stroke-linecap:round}
+    #sdial .cz .nav .hb.on{background:#383838;border-color:#5a5a5a}
+    #sdial .cz .nav .cur{flex:1;min-width:0;font-size:13px;font-weight:700;color:#e6e6e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .cz .mn{display:none;max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
+    #sdial .cz.nav-open .mn{display:block}
+    #sdial .cz.nav-open .pg{display:none !important}
+    #sdial .cz .mn .mi{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;margin-bottom:3px;border-radius:8px;border:1px solid transparent;background:#242424;color:#cfcfcf;font-size:13px;text-align:left}
+    #sdial .cz .mn .mi.on{background:#383838;color:#fff;border-color:#5a5a5a}
+    #sdial .cz .mn .mi svg{flex:0 0 auto;width:18px;height:18px;fill:none;stroke:#9a9a9a;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    #sdial .cz .mn .mi.on svg{stroke:#e6e6e6}
     #sdial .cz .pg{display:none}
     #sdial .cz .pg.on{display:block}
     #sdial .cz .qk{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
@@ -1336,7 +1569,8 @@
     const el = ctx.el;
     el.className = 'cz';
     el.innerHTML =
-      '<div class="tabs"><button class="tb on" data-p="pm">Menu</button><button class="tb" data-p="pf">Features</button><button class="tb" data-p="pa">Shortcut</button></div>' +
+      '<div class="nav"><button class="hb" aria-label="Pages" aria-expanded="false">' + HAMB + '</button><span class="cur"></span></div>' +
+      '<div class="mn"></div>' +
       '<div class="pg pm on"><div class="lst"></div><button class="edit">Edit</button></div>' +
       '<div class="pg pf"><div class="fl"></div></div>' +
       '<div class="pg pa">' +
@@ -1347,16 +1581,42 @@
       '</div>';
     const qk = el.querySelector('.qk'), lst = el.querySelector('.lst'), fl = el.querySelector('.fl');
     const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
+    const hb = el.querySelector('.hb'), cur = el.querySelector('.cur'), mn = el.querySelector('.mn');
     let drag = null;
 
-    // ----- pages -----
-    el.querySelectorAll('.tb').forEach(b => b.addEventListener('click', () => {
+    // ----- page navigation: 3-line button opens the list of pages, tapping one opens that page -----
+    const PAGES = [
+      { id: 'pm', label: 'Menu', icon: ICON_MENU, show: () => renderList() },
+      { id: 'pf', label: 'Features', icon: ICON_FEAT, show: () => renderFeat() },
+      { id: 'pa', label: 'Shortcut', icon: ICON_ADD }
+    ];
+
+    function setNav(open) {
+      el.classList.toggle('nav-open', open);
+      hb.classList.toggle('on', open);
+      hb.setAttribute('aria-expanded', open ? 'true' : 'false');
       closeTip();
-      el.querySelectorAll('.tb').forEach(x => x.classList.toggle('on', x === b));
-      el.querySelectorAll('.pg').forEach(p => p.classList.toggle('on', p.classList.contains(b.dataset.p)));
-      if (b.dataset.p === 'pm') renderList();
-      if (b.dataset.p === 'pf') renderFeat();
-    }));
+    }
+
+    function showPage(id) {
+      const p = PAGES.find(x => x.id === id) || PAGES[0];
+      cur.textContent = p.label;
+      el.querySelectorAll('.pg').forEach(g => g.classList.toggle('on', g.classList.contains(p.id)));
+      mn.querySelectorAll('.mi').forEach(b => b.classList.toggle('on', b.dataset.p === p.id));
+      setNav(false);
+      if (p.show) p.show();
+    }
+
+    PAGES.forEach(p => {
+      const b = document.createElement('button');
+      b.className = 'mi';
+      b.dataset.p = p.id;
+      b.innerHTML = p.icon + '<span></span>';
+      b.querySelector('span').textContent = p.label;
+      b.addEventListener('click', () => showPage(p.id));
+      mn.appendChild(b);
+    });
+    hb.addEventListener('click', () => setNav(!el.classList.contains('nav-open')));
 
     // ----- features page: on/off per feature, "!" opens a small pop-up -----
     let tip = null;
@@ -1534,7 +1794,7 @@
       e.target.textContent = on ? 'Done' : 'Edit';
     });
 
-    renderList();
+    showPage('pm');
     return { unmount: closeTip };
   }
 
@@ -2402,10 +2662,9 @@
   });
 })();
 
-// Speed Dial feature: Gym Guide v0.7.0
+// Speed Dial feature: Gym Guide v0.7.2
 // Highlights the gym tile to train next (Baldr / Hank ratios) and shows a progress panel under the gym icons.
 // Reads only what the page shows. No API. Switch it on or off in Settings > Features.
-//
 // Ratio logic (roles, eligibility checks, recommendation order) is adapted from
 // GymIQ by ClasixTV, MIT License: https://github.com/CLASIX/GymIQ---Torn-Ratio-Helper
 (function () {
@@ -2447,10 +2706,12 @@
   const KEYMAP = { str: 'str', strength: 'str', def: 'def', defense: 'def', defence: 'def', spd: 'spd', speed: 'spd', dex: 'dex', dexterity: 'dex' };
 
   const CSS = `
-    .ggd-hl{position:relative !important;outline:3px solid #85b200 !important;outline-offset:-3px;
+    .ggd-hl{outline:3px solid #85b200 !important;outline-offset:-3px;
       box-shadow:inset 0 0 8px rgba(133,178,0,.3), 0 0 4px rgba(133,178,0,.45) !important}
-    .ggd-hl::after{content:"Recommended";position:absolute;right:6px;bottom:4px;height:12px;line-height:12px;padding:0 5px;
+    .ggd-tag{position:absolute;right:6px;bottom:4px;height:12px;line-height:12px;padding:0 5px;
       font-size:8px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;color:#111;background:#85b200;border-radius:2px;pointer-events:none;z-index:2}
+    .ggd-hl.bad{outline-color:#e0584a !important;box-shadow:inset 0 0 8px rgba(224,88,74,.3), 0 0 4px rgba(224,88,74,.45) !important}
+    .ggd-tag.bad{background:#e0584a;color:#fff}
     #ggd,#ggd-b{box-sizing:border-box;max-width:100%;font-family:inherit;font-size:12px;line-height:1.4;color:#ccc;text-align:left;font-weight:400}
     #ggd *,#ggd-b *{box-sizing:border-box;font-family:inherit}
     #ggd button,#ggd-b button{font-family:inherit;font-size:12px;font-weight:400;cursor:pointer}
@@ -2468,6 +2729,7 @@
     #ggd .sr.n .k,#ggd .sr.n .p{color:#85b200}
     #ggd .sr.n .bar i{background:#85b200}
     #ggd .sr .bar i.over{background:#d9a441}
+    #ggd .sr.x{opacity:.45}
     #ggd .why{margin-top:6px;padding-top:6px;border-top:1px solid #3a3a3a;color:#ddd}
     #ggd-b{width:100%;padding:10px 12px 12px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
     #ggd-b .bt{margin-bottom:4px;color:#fff;font-weight:700}
@@ -2599,17 +2861,22 @@
     }
 
     // ---------- read stats (from the page only) ----------
-    function tileOf(el) {
+    // Tile of a stat = the biggest ancestor of its number element that does not contain
+    // the number element of any other stat (so it works whatever the tile's inner markup is).
+    function tileOf(el, k) {
+      const others = [];
+      KEYS.forEach(o => { if (o !== k) (tiles[o] || []).forEach(x => others.push(x)); });
       let node = el;
       while (node.parentElement && node.parentElement !== document.body) {
-        const n = (node.parentElement.textContent.match(/energy per train/gi) || []).length;
-        if (n >= 2) break;
-        node = node.parentElement;
+        const p = node.parentElement;
+        if (others.some(x => p.contains(x))) break;
+        node = p;
       }
       return node;
     }
 
     let tiles = { str: [], def: [], spd: [], dex: [] };
+    let blocked = {};   // stats shown as "Unavailable" in the current gym
 
     function readDom() {
       const out = {}, found = { str: [], def: [], spd: [], dex: [] };
@@ -2622,14 +2889,44 @@
       });
       if (!KEYS.every(k => typeof out[k] === 'number')) return null;
       tiles = found;
+      const bl = {};
+      KEYS.forEach(k => {
+        bl[k] = found[k].some(el => {
+          const t = tileOf(el, k);
+          return !!(t && /unavailable/i.test(t.textContent));
+        });
+      });
+      blocked = bl;
       return out;
     }
 
     let curRec = null;
+
+    function clearHighlight() {
+      document.querySelectorAll('.ggd-hl').forEach(n => {
+        n.classList.remove('ggd-hl', 'bad');
+        if (n.dataset.ggdPos) { n.style.position = ''; delete n.dataset.ggdPos; }
+      });
+      document.querySelectorAll('.ggd-tag').forEach(n => n.remove());
+    }
+
     function applyHighlight() {
-      document.querySelectorAll('.ggd-hl').forEach(n => n.classList.remove('ggd-hl'));
+      clearHighlight();
       if (!curRec) return;
-      (tiles[curRec] || []).forEach(el => { const t = tileOf(el); if (t) t.classList.add('ggd-hl'); });
+      const done = [];
+      (tiles[curRec] || []).forEach(el => {
+        const t = tileOf(el, curRec);
+        if (!t || done.indexOf(t) > -1) return;
+        done.push(t);
+        const bad = !!blocked[curRec];
+        if (getComputedStyle(t).position === 'static') { t.style.position = 'relative'; t.dataset.ggdPos = '1'; }
+        t.classList.add('ggd-hl');
+        if (bad) t.classList.add('bad');
+        const tag = document.createElement('span');
+        tag.className = 'ggd-tag' + (bad ? ' bad' : '');
+        tag.textContent = bad ? 'Not Available' : 'Recommended';
+        t.appendChild(tag);
+      });
     }
 
     // ---------- UI ----------
@@ -2659,7 +2956,8 @@
       curRec = rec.stat;
 
       const why =
-        rec.reason === 'below' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
+        blocked[rec.stat] ? '<b>' + NAMES[rec.stat] + '</b> is recommended but not available in this gym'
+        : rec.reason === 'below' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
         : rec.reason === 'access' ? 'Train <b>' + NAMES[rec.stat] + '</b> to restore ' + rec.gym
         : rec.reason === 'prepare' ? 'Train <b>' + NAMES[rec.stat] + '</b> before raising ' + SHORT[high]
         : rec.reason === 'raise' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 other stats are over target'
@@ -2672,8 +2970,8 @@
         const rp = t[k] > 0 ? stats[k] / t[k] : 0;
         const pct = Math.round(rp * 100);
         const over = k !== high && (dump ? rp > 1 : rp > 1.05);
-        const lbl = k === high ? 'High' : dump ? 'max' : pct + '%';
-        top += '<div class="sr' + (k === rec.stat ? ' n' : '') + '"><span class="k">' + SHORT[k] + '</span>' +
+        const lbl = blocked[k] ? 'n/a' : k === high ? 'High' : dump ? 'max' : pct + '%';
+        top += '<div class="sr' + (k === rec.stat ? ' n' : '') + (blocked[k] ? ' x' : '') + '"><span class="k">' + SHORT[k] + '</span>' +
           '<div class="bar"><i class="' + (over ? 'over' : '') + '" style="width:' + Math.min(pct, 100) + '%"></i></div><span class="p">' + lbl + '</span></div>';
       });
       top += '<div class="why">' + why + '</div></div>';
@@ -2758,7 +3056,8 @@
       mount();
       const s = readDom();
       if (!s) { if (box.isConnected && !stats) render(); return; }
-      const key = KEYS.map(k => s[k]).join('|');
+      // include which stats are unavailable, so switching gyms re-renders even when the numbers are the same
+      const key = KEYS.map(k => s[k]).join('|') + '#' + KEYS.map(k => (blocked[k] ? 1 : 0)).join('');
       if (key !== last) { last = key; stats = s; render(); }
       applyHighlight();
     }
@@ -2773,7 +3072,7 @@
       stop() {
         box.remove();
         bbox.remove();
-        document.querySelectorAll('.ggd-hl').forEach(n => n.classList.remove('ggd-hl'));
+        clearHighlight();
         delete window.__gymGuide;
       }
     };
