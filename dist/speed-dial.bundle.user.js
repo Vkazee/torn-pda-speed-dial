@@ -1458,12 +1458,14 @@
   });
 })();
 
-// Speed Dial module: Targets v0.3.0
+// Speed Dial module: Targets v0.5.2
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
-// anything else = name search with a pick list. Filter picks the order: Default (as added), A-Z, or Okay first.
-// Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, ...).
+// anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
+// Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
+// Auto-refresh: the targets on screen are also refreshed when the window opens, when you change page and when you change the sort.
+// It only loads targets whose data is older than 30 seconds, does not start the Refresh button cooldown and stays silent unless something fails.
 // From 15 targets on, the list switches to pages (15 per page, arrows with "page / total" in the middle) instead of scrolling,
 // and Refresh only asks for the current page, so the number of API requests stays small.
 // Nothing runs while the window is closed.
@@ -1475,13 +1477,28 @@
   const LS = 'speedDial.targets1';   // { list: [{ id, name, st }], rt: last refresh (ms) }
   const PER = 15;                    // targets per page; from this many targets on, pages replace scrolling
   const MAX = 150;                   // most targets you can save
-  const COOL = 30000;                // Refresh button cooldown
+  const COOL = 30000;                // Refresh button cooldown (also the age after which auto-refresh reloads a target)
   const BATCH = 5;                   // parallel requests while refreshing
 
   const S = SD.read(LS, null) || {};
   if (!Array.isArray(S.list)) S.list = [];
   if (typeof S.rt !== 'number') S.rt = 0;
   const save = () => SD.write(LS, S);
+
+  // Used by other parts of Speed Dial (Peek Card): adds a target through THIS copy of the list, so a later save() here never overwrites it.
+  // 'live' is set while the Targets window is open, so the list redraws by itself.
+  let live = null;
+  SD.targets = {
+    has: id => S.list.some(t => t.id === id),
+    add(o) {   // o = { id, name, lv, st }  ->  'ok' | 'dup' | 'max'
+      if (S.list.some(t => t.id === o.id)) return 'dup';
+      if (S.list.length >= MAX) return 'max';
+      S.list.push({ id: o.id, name: o.name, lv: o.lv || 0, st: o.st });
+      save();
+      if (live) live();
+      return 'ok';
+    }
+  };
 
   const strip = s => String(s || '').replace(/<[^>]*>/g, '').trim();
   const COLOR = { Okay: '#7fd08a', Hospital: '#f1807a', Jail: '#d9a441', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
@@ -1493,6 +1510,7 @@
     const s = j.status || {};
     return {
       name: String(j.name || ('#' + id)),
+      lv: typeof j.level === 'number' ? j.level : 0,
       st: { state: s.state || 'Okay', desc: strip(s.description), det: strip(s.details), until: s.until || 0, t: Date.now() }
     };
   }
@@ -1569,16 +1587,13 @@
     #sdial .tg .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
     #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .tg .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
-    #sdial .tg .fl{display:none;gap:6px;margin-bottom:6px}
-    #sdial .tg.fo .fl{display:flex}
-    #sdial .tg .fl button{flex:1;height:30px;padding:0}
-    #sdial .tg .fl button.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
     #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
     #sdial .tg .tr:active{background:#2e2e2e}
     #sdial .tg .r1{display:flex;align-items:center;gap:8px}
     #sdial .tg .who{flex:1;min-width:0}
     #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e6e6e6;text-decoration:none;font-size:13px}
     #sdial .tg .id{display:block;color:#6b6b6b;font-size:11px;margin-top:1px}
+    #sdial .tg .id em{font-style:normal;color:#9a9a9a;margin-left:8px}
     #sdial .tg .sx{flex:0 0 auto;text-align:right;max-width:46%}
     #sdial .tg .sl{display:block;font-weight:600;font-size:12px;color:var(--c)}
     #sdial .tg .cd{display:block;color:#cfcfcf;font-size:11px;margin-top:1px;min-height:13px}
@@ -1595,15 +1610,26 @@
     #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
     #sdial .tg.ed .foot .edit{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
     #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
-    #sdial .tg .foot .fb.act,#sdial .tg.fo .foot .fb{background:#2a3140;border-color:#4a8fd9}
+    #sdial .tg .foot .fb.act{background:#2a3140;border-color:#4a8fd9}
     #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
     #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
+    #sdial .tgpop{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
+    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .tgpop .th{padding:2px 4px 8px;font-size:14px;font-weight:700}
+    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:44px;margin-top:4px;padding:0 12px;border-radius:10px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:14px;text-align:left}
+    #sdial .tgpop .op:active{background:#2e2e2e}
+    #sdial .tgpop .op i{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid #5a5a5a}
+    #sdial .tgpop .op.on{border-color:#4a8fd9;background:#2a3140}
+    #sdial .tgpop .op.on i{border-color:#4a8fd9;background:radial-gradient(circle,#4a8fd9 0 40%,transparent 45%)}
+    #sdial .tgpop .op span{flex:1}
+    #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid #333;background:none;color:#cfcfcf;font-size:13px}
+    #sdial .tgpop .cx:active{background:#2e2e2e}
   `;
 
   const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
   const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
   const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
-  const SORTS = [['def', 'Default'], ['name', 'A-Z'], ['okay', 'Okay first']];
+  const SORTS = [['def', 'Sort by Default'], ['name', 'Sort by A-Z'], ['okay', 'Sort by Time']];
 
   function mount(ctx) {
     SD.css('sd-targets', CSS);
@@ -1616,7 +1642,6 @@
           '<div class="res"></div>' +
         '</div>' +
         '<div class="main">' +
-          '<div class="fl">' + SORTS.map(x => '<button data-s="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>' +
           '<div class="lst"></div>' +
           '<div class="pg"><button class="pp" aria-label="Previous page">' + ARROW_L + '</button><span class="pn"></span><button class="pnx" aria-label="Next page">' + ARROW_R + '</button></div>' +
           '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="fb" aria-label="Sort">' + FUNNEL + '</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
@@ -1648,7 +1673,6 @@
       if (page < 0) page = 0;
       root.classList.toggle('pgd', paged());
       fb.classList.toggle('act', sortKey() !== 'def');
-      el.querySelectorAll('.fl button').forEach(b => b.classList.toggle('on', b.dataset.s === sortKey()));
       if (!SD.hasKey) { lst.innerHTML = '<div class="em">No API key available.</div>'; return; }
       if (!S.list.length) { lst.innerHTML = '<div class="em">No targets yet.<br>Tap Add.</div>'; return; }
       const keep = lst.scrollTop;
@@ -1657,7 +1681,7 @@
         const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
         return '<div class="tr" data-id="' + t.id + '" style="--c:' + v.color + '">' +
           '<div class="r1">' +
-            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']</span></div>' +
+            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
             '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
             '<button class="rm" aria-label="Remove">\u2715</button>' +
           '</div>' +
@@ -1704,7 +1728,6 @@
 
     function openAdd() {
       if (!SD.hasKey) return SD.toast('No API key available');
-      root.classList.remove('fo');
       root.classList.add('adding');
       found = [];
       inp.value = '';
@@ -1724,11 +1747,11 @@
       busy = true; goB.disabled = true;
       try {
         const r = await pull(id);
-        S.list.push({ id, name: r.name, st: r.st });
+        S.list.push({ id, name: r.name, lv: r.lv, st: r.st });
         save();
         if (ctx.alive) {
           if (sortKey() === 'def') page = pages() - 1;   // show the new one at the end
-          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: 0 }];   // typed an ID: show it as added
+          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: r.lv }];   // typed an ID: show it as added
           inp.value = '';
           renderRes();
         }
@@ -1766,17 +1789,25 @@
       byName(raw.replace(/^[@\s]+|\s+$/g, ''));
     }
 
-    // ---- refresh: only the targets on screen, at most once per 30 seconds ----
-    async function refresh() {
+    // ---- refresh: only the targets on screen ----
+    // manual (button): at most once per 30 seconds, starts the cooldown, always shows a toast.
+    // auto (window open, page change, sort change): only targets whose data is older than 30 seconds,
+    // no button cooldown, and a toast only when something failed.
+    async function refresh(auto) {
       if (busy) return;
-      if (!SD.hasKey) return SD.toast('No API key available');
-      const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
-      if (left > 0) return SD.toast('Wait ' + left + 's');
-      const todo = shown().slice();
+      if (!SD.hasKey) return auto ? undefined : SD.toast('No API key available');
+      if (!auto) {
+        const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
+        if (left > 0) return SD.toast('Wait ' + left + 's');
+      }
+      let todo = shown().slice();
+      if (auto) todo = todo.filter(t => !t.st || Date.now() - t.st.t > COOL);   // only stale ones
       if (!todo.length) return;
       busy = true;
-      S.rt = Date.now();   // starts the cooldown right away, so a double tap cannot send twice
-      save();
+      if (!auto) {
+        S.rt = Date.now();   // manual refresh starts the cooldown right away, so a double tap cannot send twice
+        save();
+      }
       tick();
       let failed = 0, last = '';
       const job = (async () => {
@@ -1785,6 +1816,7 @@
             try {
               const r = await pull(t.id);
               t.name = r.name;
+              if (r.lv) t.lv = r.lv;
               t.st = r.st;
             } catch (e) { failed++; last = e.message; }   // keep the old status when one request fails
           }));
@@ -1796,7 +1828,26 @@
       if (!ctx.alive) return;
       render();
       tick();
-      SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
+      if (!auto || failed) SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
+    }
+
+    // ---- sort pop-up: lives in #sdial (not inside the window, which clips and moves), so it dims the whole screen ----
+    let pop = null;
+    function closePop() { if (pop) { pop.remove(); pop = null; } }
+    function openPop() {
+      closePop();
+      const t = document.createElement('div');
+      t.className = 'tgpop';
+      t.innerHTML = '<div class="tc" role="dialog"><div class="th">Sort</div>' +
+        SORTS.map(x => '<button class="op' + (x[0] === sortKey() ? ' on' : '') + '" data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span></button>').join('') +
+        '<button class="cx">Cancel</button></div>';
+      t.addEventListener('click', e => {
+        const op = e.target.closest('.op');
+        if (op) { S.sort = op.dataset.s; save(); page = 0; closePop(); render(); refresh(true); return; }
+        if (e.target === t || e.target.closest('.cx')) closePop();
+      });
+      (document.getElementById('sdial') || document.body).appendChild(t);
+      pop = t;
     }
 
     // ---- events ----
@@ -1804,18 +1855,11 @@
     q('.back').addEventListener('click', closeAdd);
     goB.addEventListener('click', go);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-    rf.addEventListener('click', refresh);
-    fb.addEventListener('click', () => root.classList.toggle('fo'));
-    el.querySelectorAll('.fl button').forEach(b => b.addEventListener('click', () => {
-      S.sort = b.dataset.s;
-      save();
-      page = 0;
-      root.classList.remove('fo');
-      render();
-    }));
+    rf.addEventListener('click', () => refresh(false));
+    fb.addEventListener('click', openPop);
     edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
-    prev.addEventListener('click', () => { if (page > 0) { page--; render(); } });
-    next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); } });
+    prev.addEventListener('click', () => { if (page > 0) { page--; render(); refresh(true); } });
+    next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); refresh(true); } });
     lst.addEventListener('click', e => {
       const row = e.target.closest('.tr');
       if (!row) return;
@@ -1833,7 +1877,9 @@
     render();
     tick();
     ctx.every(tick, 1000);
-    return { unmount() { busy = false; } };
+    refresh(true);   // refresh on open
+    live = () => { if (ctx.alive && !root.classList.contains('adding')) { render(); tick(); } };
+    return { unmount() { busy = false; live = null; closePop(); } };
   }
 
   SD.register({
@@ -2664,6 +2710,203 @@
     where: 'Gym',
     info: 'Highlights the best gym to train next, with stat progress and gym access info.',
     match: /^\/gym\.php/,
+    start
+  });
+})();
+
+// Speed Dial feature: Peek Card v0.1.0
+// Hold a player's name (any link to a profile) for half a second and a small card appears next to your finger:
+// name, ID, level, status with a live cooldown, last action, faction, and two buttons: "+ Target" and "Profile".
+// One API request (selections=profile) per peek, cached for 30 seconds. Nothing runs until you hold a name.
+// The card has no timer while it is closed. Switch it on or off in Settings > Features.
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const HOLD = 500;      // ms you hold a name before the card opens
+  const SLOP = 10;       // px the finger may drift (more = you are scrolling)
+  const TTL = 30000;     // how long one player's data is reused
+  const XID = /[?&]XID=(\d+)/;
+  const COLOR = { Okay: '#7fd08a', Hospital: '#f1807a', Jail: '#d9a441', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
+  const strip = s => String(s || '').replace(/<[^>]*>/g, '').trim();
+
+  const CSS = `
+    a[href*="XID="]{-webkit-touch-callout:none}
+    #sdial .pk{position:fixed;left:0;top:0;width:236px;max-width:calc(100vw - 12px);z-index:50;padding:10px;border-radius:12px;border:1px solid var(--c,#5a5a5a);background:#1c1c1c;color:#e6e6e6;box-shadow:0 6px 18px rgba(0,0,0,.55);font-size:12px;line-height:1.35}
+    #sdial .pk-h{display:flex;align-items:center;gap:6px}
+    #sdial .pk-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e6e6e6;text-decoration:none;font-size:14px;font-weight:700}
+    #sdial .pk-x{flex:0 0 30px;width:30px;height:30px;border:0;background:none;color:#cfcfcf;font-size:14px;padding:0}
+    #sdial .pk-id{color:#8a8a8a;font-size:11px;margin-top:1px}
+    #sdial .pk-st{margin-top:6px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
+    #sdial .pk-st b{color:var(--c,#cfcfcf);font-size:12px;margin-right:8px}
+    #sdial .pk-cd{color:#cfcfcf;font-size:11px}
+    #sdial .pk-dt{margin-top:4px;color:#9a9a9a;font-size:11px;word-break:break-word}
+    #sdial .pk-row{margin-top:4px;color:#cfcfcf;font-size:12px;word-break:break-word}
+    #sdial .pk-row i{font-style:normal;color:#8a8a8a;margin-right:6px}
+    #sdial .pk-b{display:flex;gap:6px;margin-top:8px}
+    #sdial .pk-b button,#sdial .pk-b a{flex:1;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid #3a3a3a;background:#242424;color:#e6e6e6;font-size:13px;text-decoration:none;padding:0}
+    #sdial .pk-b button:active,#sdial .pk-b a:active{background:#2e2e2e}
+    #sdial .pk-b button:disabled{opacity:.5}
+    #sdial .pk-ld{padding:14px 4px;text-align:center;color:#8a8a8a}
+  `;
+
+  const cache = new Map();   // id -> { t, v }
+  async function pull(id) {
+    const c = cache.get(id);
+    if (c && Date.now() - c.t < TTL) return c.v;
+    const j = await SD.api('https://api.torn.com/user/' + id + '?selections=profile');
+    const s = j.status || {};
+    const f = j.faction || {};
+    const v = {
+      id,
+      name: String(j.name || ('#' + id)),
+      lv: typeof j.level === 'number' ? j.level : 0,
+      last: strip(j.last_action && j.last_action.relative),
+      fac: f.faction_name && f.faction_name !== 'None' ? strip(f.faction_name) + (f.position ? ' (' + strip(f.position) + ')' : '') : '',
+      st: { state: s.state || 'Okay', desc: strip(s.description), det: strip(s.details), until: s.until || 0, t: Date.now() }
+    };
+    cache.set(id, { t: Date.now(), v });
+    return v;
+  }
+
+  // same idea as the Targets module: a cooldown that already ended is shown as Okay
+  function view(st) {
+    const rem = st.until ? st.until - Date.now() / 1000 : 0;
+    if (st.state !== 'Okay' && st.until && rem <= 0) return { label: 'Okay', color: COLOR.Okay, rem: 0 };
+    return { label: st.state, color: COLOR[st.state] || '#cfcfcf', rem: Math.max(0, rem) };
+  }
+
+  function start(ctx) {
+    const wrap = document.querySelector('#sdial .wins');   // inside #sdial, so Torn's swipe handlers never see touches on the card
+    if (!wrap) throw new Error('Speed Dial is not ready yet');
+    ctx.css(CSS);
+
+    let cur = null;          // { id, el, x, y, tk }
+    let timer = 0, sx = 0, sy = 0, noClick = 0, pressUntil = 0;
+
+    function close() {
+      if (!cur) return;
+      clearInterval(cur.tk);
+      cur.el.remove();
+      cur = null;
+    }
+
+    function place() {
+      if (!cur) return;
+      const el = cur.el, w = el.offsetWidth, h = el.offsetHeight;
+      let l = Math.min(Math.max(6, cur.x - w / 2), innerWidth - w - 6);
+      let t = cur.y - h - 28;                 // above the finger, so the finger does not hide it
+      if (t < 6) t = cur.y + 32;
+      t = Math.min(Math.max(6, t), innerHeight - h - 6);
+      el.style.transform = 'translate(' + l + 'px,' + t + 'px)';
+    }
+
+    function paint(v) {
+      if (!cur || cur.id !== v.id) return;
+      const el = cur.el, w = view(v.st);
+      el.style.setProperty('--c', w.color);
+      const addable = !!SD.targets;
+      const have = addable && SD.targets.has(v.id);
+      const det = [v.st.desc, v.st.det].filter(Boolean).join(' - ');
+      el.innerHTML =
+        '<div class="pk-h"><a class="pk-nm" href="/profiles.php?XID=' + v.id + '">' + SD.esc(v.name) + '</a><button class="pk-x" aria-label="Close">\u2715</button></div>' +
+        '<div class="pk-id">[' + v.id + ']' + (v.lv ? ' \u00b7 Lv ' + v.lv : '') + '</div>' +
+        '<div class="pk-st"><b>' + SD.esc(w.label) + '</b><span class="pk-cd" data-u="' + (w.rem ? v.st.until : 0) + '">' + (w.rem ? SD.durS(w.rem) : '') + '</span></div>' +
+        (det && w.label !== 'Okay' ? '<div class="pk-dt">' + SD.esc(det) + '</div>' : '') +
+        (v.last ? '<div class="pk-row"><i>Last action</i>' + SD.esc(v.last) + '</div>' : '') +
+        (v.fac ? '<div class="pk-row"><i>Faction</i>' + SD.esc(v.fac) + '</div>' : '') +
+        '<div class="pk-b">' +
+          (addable ? '<button class="pk-add"' + (have ? ' disabled' : '') + '>' + (have ? '\u2713 In Targets' : '+ Target') + '</button>' : '') +
+          '<a class="pk-go" href="/profiles.php?XID=' + v.id + '">Profile</a>' +
+        '</div>';
+      el.querySelector('.pk-x').addEventListener('click', close);
+      const add = el.querySelector('.pk-add');
+      if (add) add.addEventListener('click', () => {
+        const r = SD.targets.add({ id: v.id, name: v.name, lv: v.lv, st: v.st });
+        if (r === 'max') return SD.toast('Targets is full');
+        add.disabled = true;
+        add.textContent = '\u2713 In Targets';
+        SD.toast(r === 'ok' ? v.name + ' added to Targets' : 'Already in Targets');
+      });
+      place();
+      // live cooldown: this timer only exists while the card is open
+      clearInterval(cur.tk);
+      cur.tk = setInterval(() => {
+        const cd = el.querySelector('.pk-cd');
+        const u = cd ? +cd.dataset.u : 0;
+        if (!u) return;
+        const rem = u - Date.now() / 1000;
+        if (rem <= 0) paint(v); else cd.textContent = SD.durS(rem);
+      }, 1000);
+    }
+
+    async function open(id, x, y) {
+      if (!SD.hasKey) return SD.toast('No API key available');
+      close();
+      const el = document.createElement('div');
+      el.className = 'pk';
+      el.innerHTML = '<div class="pk-ld">Loading...</div>';
+      wrap.appendChild(el);
+      cur = { id, el, x, y, tk: 0 };
+      noClick = Date.now() + 800;   // the lift of your finger must not open the link you held
+      place();
+      try {
+        const v = await pull(id);
+        paint(v);
+      } catch (e) {
+        if (cur && cur.id === id) {
+          el.innerHTML = '<div class="pk-h"><span class="pk-nm">Could not load</span><button class="pk-x" aria-label="Close">\u2715</button></div><div class="pk-dt">' + SD.esc(e.message || 'error') + '</div>';
+          el.querySelector('.pk-x').addEventListener('click', close);
+          place();
+        }
+      }
+    }
+
+    const cancel = () => { if (timer) { clearTimeout(timer); timer = 0; } };
+
+    ctx.on(document, 'touchstart', e => {
+      const inCard = cur && cur.el.contains(e.target);
+      if (cur && !inCard) close();   // tap anywhere else closes the card
+      cancel();
+      if (e.touches.length !== 1 || !e.target.closest) return;
+      const a = e.target.closest('a[href*="XID="]');
+      if (!a || a.closest('#sdial')) return;
+      const m = XID.exec(a.getAttribute('href') || '');
+      if (!m) return;
+      const t = e.touches[0];
+      sx = t.clientX; sy = t.clientY;
+      pressUntil = Date.now() + HOLD + 600;
+      timer = setTimeout(() => { timer = 0; open(+m[1], sx, sy); }, HOLD);
+    }, { capture: true, passive: true });
+
+    ctx.on(document, 'touchmove', e => {
+      if (!timer) return;
+      const t = e.touches[0];
+      if (!t || Math.abs(t.clientX - sx) + Math.abs(t.clientY - sy) > SLOP) cancel();
+    }, { capture: true, passive: true });
+
+    ['touchend', 'touchcancel'].forEach(type => ctx.on(document, type, () => {
+      cancel();
+      if (cur && Date.now() < noClick) noClick = Date.now() + 400;
+    }, { capture: true, passive: true }));
+
+    // after a long press, swallow the click that would open the link, and the browser's own link menu
+    ctx.on(document, 'click', e => {
+      if (Date.now() < noClick && !(cur && cur.el.contains(e.target))) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+    ctx.on(document, 'contextmenu', e => {
+      if (Date.now() < pressUntil || (cur && Date.now() < noClick)) e.preventDefault();
+    }, true);
+
+    return { stop() { cancel(); close(); } };
+  }
+
+  SD.feature({
+    id: 'peekcard',
+    label: 'Peek Card',
+    where: 'Any page',
+    info: 'Hold a player name to see a mini profile card with a + Target button.',
     start
   });
 })();

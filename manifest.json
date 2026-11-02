@@ -5,6 +5,7 @@
     "modules/travelhelper.js",
     "modules/targets.js",
     "modules/settings.js",
-    "features/gymguide.js"
+    "features/gymguide.js",
+    "features/peekcard.js"
   ]
 }

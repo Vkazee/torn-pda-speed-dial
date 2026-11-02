@@ -25,6 +25,7 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 | `modules/targets.js` | Targets module |
 | `modules/settings.js` | Settings module (gear circle, always last): show/hide and reorder circles, switch page features on/off, and add your own emoji shortcuts |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
+| `features/peekcard.js` | Peek Card, a page feature (hold a player name on any page to open a mini profile card) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
 | `build.sh` | Combines `core.js` + `modules/` + `features/` into the bundle |
 
@@ -62,6 +63,10 @@ A **feature** runs on a Torn page itself instead of inside a window (for example
 3. Push to GitHub. It appears in Settings > Features by itself.
 
 Features start when the page loads. A feature switched on while you are on another page starts the next time you open its page. The old standalone Gym Guide userscript must be removed from PDA (the feature refuses to start while it is installed).
+
+## Peek Card
+
+Page feature (off by default; switch it on in **Settings > Features**). Hold any player name that links to a profile for half a second: a small card opens next to your finger with name, ID, level, status with a live cooldown, last action and faction. **+ Target** adds the player straight to the Targets module (the list redraws if its window is open); **Profile** opens the profile. Tap anywhere else, or ✕, to close. One API request per peek (`selections=profile`), reused for 30 seconds; the card's only timer exists while it is open. It needs the Targets module for the + Target button; without it the button is hidden.
 
 ## Troubleshooting
 
