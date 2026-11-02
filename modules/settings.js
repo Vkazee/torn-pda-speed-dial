@@ -1,13 +1,12 @@
-// Speed Dial module: Settings v0.5.2
+// Speed Dial module: Settings v0.5.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
-// tap the 3-line button, a half-width panel slides over the left side (like Torn's own menu), tap a page to go there. To add a page later, add an entry
+// tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
 //   Menu          - every module in your order. Eye = show/hide the circle. Edit mode: drag the handle to reorder,
 //                   and remove your own shortcuts.
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
 //                   The "!" next to a feature opens a small pop-up with a one-line explanation.
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
-// The window has one fixed size on every page (--sdh below); a page taller than that scrolls inside it.
 // Nothing is read from or clicked on the page. Only torn.com pages are accepted.
 (function () {
   'use strict';
@@ -69,22 +68,15 @@
     #sdial .cz .nav .hb svg{width:20px;height:20px;fill:none;stroke:#cfcfcf;stroke-width:2;stroke-linecap:round}
     #sdial .cz .nav .hb.on{background:#383838;border-color:#5a5a5a}
     #sdial .cz .nav .cur{flex:1;min-width:0;font-size:13px;font-weight:700;color:#e6e6e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .cz{--sdh:232px;position:relative;height:var(--sdh);overflow:hidden}
-    #sdial .cz .scrim{display:none;position:absolute;left:0;right:0;top:40px;bottom:0;z-index:5;background:rgba(0,0,0,.5);border-radius:8px}
-    #sdial .cz.nav-open .scrim{display:block}
-    #sdial .cz .mn{display:none;position:absolute;left:0;top:40px;z-index:6;width:62%;max-height:calc(100% - 44px);overflow-y:auto;touch-action:pan-y;
-      padding:6px;border:1px solid #333;border-radius:8px;background:#1c1c1c;box-shadow:4px 0 14px rgba(0,0,0,.6)}
+    #sdial .cz .mn{display:none;max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
     #sdial .cz.nav-open .mn{display:block}
+    #sdial .cz.nav-open .pg{display:none !important}
     #sdial .cz .mn .mi{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;margin-bottom:3px;border-radius:8px;border:1px solid transparent;background:#242424;color:#cfcfcf;font-size:13px;text-align:left}
     #sdial .cz .mn .mi.on{background:#383838;color:#fff;border-color:#5a5a5a}
     #sdial .cz .mn .mi svg{flex:0 0 auto;width:18px;height:18px;fill:none;stroke:#9a9a9a;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
     #sdial .cz .mn .mi.on svg{stroke:#e6e6e6}
     #sdial .cz .pg{display:none}
-    #sdial .cz .pg.on{display:block;height:calc(100% - 40px);overflow-y:auto;touch-action:pan-y}
-    #sdial .cz .pg.pm.on{display:flex;flex-direction:column;overflow:hidden}
-    #sdial .cz .pm .lst{flex:1;min-height:0;max-height:none;margin-bottom:6px}
-    #sdial .cz .pm .edit{flex:0 0 auto}
-    #sdial .cz .pf .fl{max-height:none;overflow:visible}
+    #sdial .cz .pg.on{display:block}
     #sdial .cz .qk{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
     #sdial .cz .qk button{flex:0 0 auto;width:30px;height:30px;font-size:16px;padding:0}
     #sdial .cz .rw{display:flex;gap:6px;margin-bottom:6px}
@@ -136,7 +128,7 @@
     el.className = 'cz';
     el.innerHTML =
       '<div class="nav"><button class="hb" aria-label="Pages" aria-expanded="false">' + HAMB + '</button><span class="cur"></span></div>' +
-      '<div class="scrim"></div><div class="mn"></div>' +
+      '<div class="mn"></div>' +
       '<div class="pg pm on"><div class="lst"></div><button class="edit">Edit</button></div>' +
       '<div class="pg pf"><div class="fl"></div></div>' +
       '<div class="pg pa">' +
@@ -183,7 +175,6 @@
       mn.appendChild(b);
     });
     hb.addEventListener('click', () => setNav(!el.classList.contains('nav-open')));
-    el.querySelector('.scrim').addEventListener('click', () => setNav(false));
 
     // ----- features page: on/off per feature, "!" opens a small pop-up -----
     let tip = null;

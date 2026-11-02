@@ -1,7 +1,6 @@
 // Speed Dial feature: Gym Guide v0.7.2
 // Highlights the gym tile to train next (Baldr / Hank ratios) and shows a progress panel under the gym icons.
 // Reads only what the page shows. No API. Switch it on or off in Settings > Features.
-//
 // Ratio logic (roles, eligibility checks, recommendation order) is adapted from
 // GymIQ by ClasixTV, MIT License: https://github.com/CLASIX/GymIQ---Torn-Ratio-Helper
 (function () {
