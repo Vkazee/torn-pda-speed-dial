@@ -1,4 +1,4 @@
-// Speed Dial feature: Gym Guide v0.7.0
+// Speed Dial feature: Gym Guide v0.7.1
 // Highlights the gym tile to train next (Baldr / Hank ratios) and shows a progress panel under the gym icons.
 // Reads only what the page shows. No API. Switch it on or off in Settings > Features.
 //
@@ -41,11 +41,13 @@
 
   const NUM = /^(str|strength|def|defense|defence|spd|speed|dex|dexterity)([\d,]+(?:\.\d+)?)$/;
   const KEYMAP = { str: 'str', strength: 'str', def: 'def', defense: 'def', defence: 'def', spd: 'spd', speed: 'spd', dex: 'dex', dexterity: 'dex' };
+  // finds stat labels inside a block of text, e.g. "STR1,440.96Damage on impact..."
+  const LABEL_RE = /(?<![a-z])(strength|defense|defence|speed|dexterity|str|def|spd|dex)(?![a-z])/gi;
 
   const CSS = `
-    .ggd-hl{position:relative !important;outline:3px solid #85b200 !important;outline-offset:-3px;
+    .ggd-hl{outline:3px solid #85b200 !important;outline-offset:-3px;
       box-shadow:inset 0 0 8px rgba(133,178,0,.3), 0 0 4px rgba(133,178,0,.45) !important}
-    .ggd-hl::after{content:"Recommended";position:absolute;right:6px;bottom:4px;height:12px;line-height:12px;padding:0 5px;
+    .ggd-tag{position:absolute;right:6px;bottom:4px;height:12px;line-height:12px;padding:0 5px;
       font-size:8px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;color:#111;background:#85b200;border-radius:2px;pointer-events:none;z-index:2}
     #ggd,#ggd-b{box-sizing:border-box;max-width:100%;font-family:inherit;font-size:12px;line-height:1.4;color:#ccc;text-align:left;font-weight:400}
     #ggd *,#ggd-b *{box-sizing:border-box;font-family:inherit}
@@ -64,6 +66,7 @@
     #ggd .sr.n .k,#ggd .sr.n .p{color:#85b200}
     #ggd .sr.n .bar i{background:#85b200}
     #ggd .sr .bar i.over{background:#d9a441}
+    #ggd .sr.x{opacity:.45}
     #ggd .why{margin-top:6px;padding-top:6px;border-top:1px solid #3a3a3a;color:#ddd}
     #ggd-b{width:100%;padding:10px 12px 12px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
     #ggd-b .bt{margin-bottom:4px;color:#fff;font-weight:700}
@@ -179,6 +182,19 @@
       return { stat: high, reason: 'maintain' };
     }
 
+    // used when the recommended stat can't be trained in this gym: best trainable stat instead
+    function fallbackPick(stats, ratio, high, war, from) {
+      const roles = rolesFor(ratio, high), t = targetsFor(stats, ratio, high);
+      const w = k => (war ? WAR_W[k] : 1);
+      const open = KEYS.filter(k => !blocked[k]);
+      if (!open.length) return { stat: null, reason: 'none', from };
+      const pool = open.filter(k => !isDump(ratio, roles, k));
+      const cands = pool.length ? pool : open;
+      const score = k => stats[k] / (t[k] || 1) / w(k);
+      const pick = cands.reduce((lo, k) => (score(k) < score(lo) ? k : lo));
+      return { stat: pick, reason: 'fallback', from, pct: Math.round((stats[pick] / (t[pick] || 1)) * 100) };
+    }
+
     function grade(stats, ratio, high) {
       const roles = rolesFor(ratio, high), t = targetsFor(stats, ratio, high);
       let sum = 0;
@@ -195,10 +211,20 @@
     }
 
     // ---------- read stats (from the page only) ----------
+    // Climb from a stat's number element up to its tile: stop right before the parent
+    // that contains labels of 2+ different stats (i.e. the whole grid).
     function tileOf(el) {
       let node = el;
       while (node.parentElement && node.parentElement !== document.body) {
-        const n = (node.parentElement.textContent.match(/energy per train/gi) || []).length;
+        const seen = {};
+        let n = 0, m;
+        LABEL_RE.lastIndex = 0;
+        const txt = node.parentElement.textContent;
+        while ((m = LABEL_RE.exec(txt))) {
+          const k = KEYMAP[m[1].toLowerCase()];
+          if (!seen[k]) { seen[k] = 1; n++; }
+          if (n >= 2) break;
+        }
         if (n >= 2) break;
         node = node.parentElement;
       }
@@ -206,6 +232,7 @@
     }
 
     let tiles = { str: [], def: [], spd: [], dex: [] };
+    let blocked = {};   // stats shown as "Unavailable" in the current gym
 
     function readDom() {
       const out = {}, found = { str: [], def: [], spd: [], dex: [] };
@@ -218,14 +245,40 @@
       });
       if (!KEYS.every(k => typeof out[k] === 'number')) return null;
       tiles = found;
+      const bl = {};
+      KEYS.forEach(k => {
+        bl[k] = found[k].some(el => {
+          const t = tileOf(el);
+          return !!(t && /unavailable/i.test(t.textContent));
+        });
+      });
+      blocked = bl;
       return out;
     }
 
     let curRec = null;
+
+    function clearHighlight() {
+      document.querySelectorAll('.ggd-hl').forEach(n => {
+        n.classList.remove('ggd-hl');
+        if (n.dataset.ggdPos) { n.style.position = ''; delete n.dataset.ggdPos; }
+      });
+      document.querySelectorAll('.ggd-tag').forEach(n => n.remove());
+    }
+
     function applyHighlight() {
-      document.querySelectorAll('.ggd-hl').forEach(n => n.classList.remove('ggd-hl'));
-      if (!curRec) return;
-      (tiles[curRec] || []).forEach(el => { const t = tileOf(el); if (t) t.classList.add('ggd-hl'); });
+      clearHighlight();
+      if (!curRec || blocked[curRec]) return;
+      (tiles[curRec] || []).forEach(el => {
+        const t = tileOf(el);
+        if (!t) return;
+        if (getComputedStyle(t).position === 'static') { t.style.position = 'relative'; t.dataset.ggdPos = '1'; }
+        t.classList.add('ggd-hl');
+        const tag = document.createElement('span');
+        tag.className = 'ggd-tag';
+        tag.textContent = 'Recommended';
+        t.appendChild(tag);
+      });
     }
 
     // ---------- UI ----------
@@ -249,13 +302,16 @@
       const ratio = P.ratio;
       const roles = rolesFor(ratio, high);
       const t = targetsFor(stats, ratio, high);
-      const rec = recommend(stats, ratio, high, P.war);
+      let rec = recommend(stats, ratio, high, P.war);
+      if (blocked[rec.stat]) rec = fallbackPick(stats, ratio, high, P.war, rec.stat);
       const g = grade(stats, ratio, high);
       const el = eligibility(stats, ratio, high);
       curRec = rec.stat;
 
       const why =
-        rec.reason === 'below' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
+        rec.reason === 'none' ? 'No stat can be trained in this gym'
+        : rec.reason === 'fallback' ? NAMES[rec.from] + ' is unavailable here. Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
+        : rec.reason === 'below' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
         : rec.reason === 'access' ? 'Train <b>' + NAMES[rec.stat] + '</b> to restore ' + rec.gym
         : rec.reason === 'prepare' ? 'Train <b>' + NAMES[rec.stat] + '</b> before raising ' + SHORT[high]
         : rec.reason === 'raise' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 other stats are over target'
@@ -268,8 +324,8 @@
         const rp = t[k] > 0 ? stats[k] / t[k] : 0;
         const pct = Math.round(rp * 100);
         const over = k !== high && (dump ? rp > 1 : rp > 1.05);
-        const lbl = k === high ? 'High' : dump ? 'max' : pct + '%';
-        top += '<div class="sr' + (k === rec.stat ? ' n' : '') + '"><span class="k">' + SHORT[k] + '</span>' +
+        const lbl = blocked[k] ? 'n/a' : k === high ? 'High' : dump ? 'max' : pct + '%';
+        top += '<div class="sr' + (k === rec.stat ? ' n' : '') + (blocked[k] ? ' x' : '') + '"><span class="k">' + SHORT[k] + '</span>' +
           '<div class="bar"><i class="' + (over ? 'over' : '') + '" style="width:' + Math.min(pct, 100) + '%"></i></div><span class="p">' + lbl + '</span></div>';
       });
       top += '<div class="why">' + why + '</div></div>';
@@ -354,7 +410,8 @@
       mount();
       const s = readDom();
       if (!s) { if (box.isConnected && !stats) render(); return; }
-      const key = KEYS.map(k => s[k]).join('|');
+      // include which stats are unavailable, so switching gyms re-renders even when the numbers are the same
+      const key = KEYS.map(k => s[k]).join('|') + '#' + KEYS.map(k => (blocked[k] ? 1 : 0)).join('');
       if (key !== last) { last = key; stats = s; render(); }
       applyHighlight();
     }
@@ -369,7 +426,7 @@
       stop() {
         box.remove();
         bbox.remove();
-        document.querySelectorAll('.ggd-hl').forEach(n => n.classList.remove('ggd-hl'));
+        clearHighlight();
         delete window.__gymGuide;
       }
     };
