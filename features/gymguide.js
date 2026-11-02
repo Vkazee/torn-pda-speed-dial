@@ -1,6 +1,10 @@
-// Speed Dial feature: Gym Guide v0.7.1
+// Speed Dial feature: Gym Guide v0.7.2
 // Highlights the gym tile to train next (Baldr / Hank ratios) and shows a progress panel under the gym icons.
 // Reads only what the page shows. No API. Switch it on or off in Settings > Features.
+//
+// v0.7.2: if the recommended stat is "Unavailable" in the current gym, its tile gets a red outline and a
+//         "Not Available" label. The tile is found by structure (the biggest ancestor that holds no other
+//         stat), and the label is a real element instead of ::after, so it no longer breaks Torn's own styling.
 //
 // Ratio logic (roles, eligibility checks, recommendation order) is adapted from
 // GymIQ by ClasixTV, MIT License: https://github.com/CLASIX/GymIQ---Torn-Ratio-Helper
@@ -41,14 +45,14 @@
 
   const NUM = /^(str|strength|def|defense|defence|spd|speed|dex|dexterity)([\d,]+(?:\.\d+)?)$/;
   const KEYMAP = { str: 'str', strength: 'str', def: 'def', defense: 'def', defence: 'def', spd: 'spd', speed: 'spd', dex: 'dex', dexterity: 'dex' };
-  // finds stat labels inside a block of text, e.g. "STR1,440.96Damage on impact..."
-  const LABEL_RE = /(?<![a-z])(strength|defense|defence|speed|dexterity|str|def|spd|dex)(?![a-z])/gi;
 
   const CSS = `
     .ggd-hl{outline:3px solid #85b200 !important;outline-offset:-3px;
       box-shadow:inset 0 0 8px rgba(133,178,0,.3), 0 0 4px rgba(133,178,0,.45) !important}
     .ggd-tag{position:absolute;right:6px;bottom:4px;height:12px;line-height:12px;padding:0 5px;
       font-size:8px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;color:#111;background:#85b200;border-radius:2px;pointer-events:none;z-index:2}
+    .ggd-hl.bad{outline-color:#e0584a !important;box-shadow:inset 0 0 8px rgba(224,88,74,.3), 0 0 4px rgba(224,88,74,.45) !important}
+    .ggd-tag.bad{background:#e0584a;color:#fff}
     #ggd,#ggd-b{box-sizing:border-box;max-width:100%;font-family:inherit;font-size:12px;line-height:1.4;color:#ccc;text-align:left;font-weight:400}
     #ggd *,#ggd-b *{box-sizing:border-box;font-family:inherit}
     #ggd button,#ggd-b button{font-family:inherit;font-size:12px;font-weight:400;cursor:pointer}
@@ -182,19 +186,6 @@
       return { stat: high, reason: 'maintain' };
     }
 
-    // used when the recommended stat can't be trained in this gym: best trainable stat instead
-    function fallbackPick(stats, ratio, high, war, from) {
-      const roles = rolesFor(ratio, high), t = targetsFor(stats, ratio, high);
-      const w = k => (war ? WAR_W[k] : 1);
-      const open = KEYS.filter(k => !blocked[k]);
-      if (!open.length) return { stat: null, reason: 'none', from };
-      const pool = open.filter(k => !isDump(ratio, roles, k));
-      const cands = pool.length ? pool : open;
-      const score = k => stats[k] / (t[k] || 1) / w(k);
-      const pick = cands.reduce((lo, k) => (score(k) < score(lo) ? k : lo));
-      return { stat: pick, reason: 'fallback', from, pct: Math.round((stats[pick] / (t[pick] || 1)) * 100) };
-    }
-
     function grade(stats, ratio, high) {
       const roles = rolesFor(ratio, high), t = targetsFor(stats, ratio, high);
       let sum = 0;
@@ -211,22 +202,16 @@
     }
 
     // ---------- read stats (from the page only) ----------
-    // Climb from a stat's number element up to its tile: stop right before the parent
-    // that contains labels of 2+ different stats (i.e. the whole grid).
-    function tileOf(el) {
+    // Tile of a stat = the biggest ancestor of its number element that does not contain
+    // the number element of any other stat (so it works whatever the tile's inner markup is).
+    function tileOf(el, k) {
+      const others = [];
+      KEYS.forEach(o => { if (o !== k) (tiles[o] || []).forEach(x => others.push(x)); });
       let node = el;
       while (node.parentElement && node.parentElement !== document.body) {
-        const seen = {};
-        let n = 0, m;
-        LABEL_RE.lastIndex = 0;
-        const txt = node.parentElement.textContent;
-        while ((m = LABEL_RE.exec(txt))) {
-          const k = KEYMAP[m[1].toLowerCase()];
-          if (!seen[k]) { seen[k] = 1; n++; }
-          if (n >= 2) break;
-        }
-        if (n >= 2) break;
-        node = node.parentElement;
+        const p = node.parentElement;
+        if (others.some(x => p.contains(x))) break;
+        node = p;
       }
       return node;
     }
@@ -248,7 +233,7 @@
       const bl = {};
       KEYS.forEach(k => {
         bl[k] = found[k].some(el => {
-          const t = tileOf(el);
+          const t = tileOf(el, k);
           return !!(t && /unavailable/i.test(t.textContent));
         });
       });
@@ -260,7 +245,7 @@
 
     function clearHighlight() {
       document.querySelectorAll('.ggd-hl').forEach(n => {
-        n.classList.remove('ggd-hl');
+        n.classList.remove('ggd-hl', 'bad');
         if (n.dataset.ggdPos) { n.style.position = ''; delete n.dataset.ggdPos; }
       });
       document.querySelectorAll('.ggd-tag').forEach(n => n.remove());
@@ -268,15 +253,19 @@
 
     function applyHighlight() {
       clearHighlight();
-      if (!curRec || blocked[curRec]) return;
+      if (!curRec) return;
+      const done = [];
       (tiles[curRec] || []).forEach(el => {
-        const t = tileOf(el);
-        if (!t) return;
+        const t = tileOf(el, curRec);
+        if (!t || done.indexOf(t) > -1) return;
+        done.push(t);
+        const bad = !!blocked[curRec];
         if (getComputedStyle(t).position === 'static') { t.style.position = 'relative'; t.dataset.ggdPos = '1'; }
         t.classList.add('ggd-hl');
+        if (bad) t.classList.add('bad');
         const tag = document.createElement('span');
-        tag.className = 'ggd-tag';
-        tag.textContent = 'Recommended';
+        tag.className = 'ggd-tag' + (bad ? ' bad' : '');
+        tag.textContent = bad ? 'Not Available' : 'Recommended';
         t.appendChild(tag);
       });
     }
@@ -302,15 +291,13 @@
       const ratio = P.ratio;
       const roles = rolesFor(ratio, high);
       const t = targetsFor(stats, ratio, high);
-      let rec = recommend(stats, ratio, high, P.war);
-      if (blocked[rec.stat]) rec = fallbackPick(stats, ratio, high, P.war, rec.stat);
+      const rec = recommend(stats, ratio, high, P.war);
       const g = grade(stats, ratio, high);
       const el = eligibility(stats, ratio, high);
       curRec = rec.stat;
 
       const why =
-        rec.reason === 'none' ? 'No stat can be trained in this gym'
-        : rec.reason === 'fallback' ? NAMES[rec.from] + ' is unavailable here. Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
+        blocked[rec.stat] ? '<b>' + NAMES[rec.stat] + '</b> is recommended but not available in this gym'
         : rec.reason === 'below' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
         : rec.reason === 'access' ? 'Train <b>' + NAMES[rec.stat] + '</b> to restore ' + rec.gym
         : rec.reason === 'prepare' ? 'Train <b>' + NAMES[rec.stat] + '</b> before raising ' + SHORT[high]
