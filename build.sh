@@ -8,7 +8,7 @@ cat <<'HEAD'
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.5.0
+// @version      0.6.0
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -37,6 +37,19 @@ cat <<'GUARD'
 })();
 
 GUARD
+cat <<'PRE'
+// ---- native storage: PDA_storage only exists in this script's own scope, so it is handed to store.js first ----
+(async function () {
+  'use strict';
+  try {
+    for (let i = 0; i < 20 && typeof PDA_httpGet !== 'function'; i++) await new Promise(r => setTimeout(r, 100));   // PDA's bridge may not exist yet at document-start
+    window.__sdNative = typeof PDA_storage !== 'undefined' ? PDA_storage : null;
+PRE
+cat store.js
+cat <<'MID'
+
+    if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
+MID
 cat core.js
 for f in modules/*.js features/*.js; do
   echo
@@ -44,9 +57,8 @@ for f in modules/*.js features/*.js; do
 done
 cat <<'TAIL'
 
-(function () {
-  'use strict';
-  window.SpeedDial.start({ apiKey: '###PDA-APIKEY###' }); // filled in by Torn PDA
+    window.SpeedDial.start({ apiKey: '###PDA-APIKEY###' }); // filled in by Torn PDA
+  } catch (e) { console.error('Speed Dial:', e); }
 })();
 TAIL
 } > dist/speed-dial.bundle.user.js

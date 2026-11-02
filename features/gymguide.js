@@ -91,10 +91,10 @@
 
     // ---------- prefs ----------
     let P;
-    try { P = JSON.parse(localStorage.getItem(LS)); } catch (e) {}
+    P = SD.read(LS, null);
     P = Object.assign({ ratio: 'baldr', high: 'auto', war: false }, P || {});
     if (!MULTS[P.ratio]) P.ratio = 'baldr';
-    const savePrefs = () => { try { localStorage.setItem(LS, JSON.stringify(P)); } catch (e) {} };
+    const savePrefs = () => SD.write(LS, P);
 
     // ---------- logic ----------
     function resolveHigh(stats) {

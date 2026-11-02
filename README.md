@@ -2,6 +2,12 @@
 
 A single floating circle for Torn PDA. Tap the main circle, then one circle appears for each tool. Tap a tool's circle to open it in its own **floating window**. Each tool **only runs while its window is open**: no timers, API calls, or background rendering once it is closed.
 
+## Saved data (native storage)
+
+Everything you save (Targets, menu order and hidden circles, shortcuts, window positions, Item Dock items, Travel Helper settings, Gym Guide choices, which features are on) is kept in Torn PDA's native per-script storage (`PDA_storage`): on disk in the app, not wiped when the browser cache is cleared. Because PDA_storage is asynchronous, `store.js` loads it once before anything else starts and then works from memory; writes reach the app in one batch about half a second later and again when the page is hidden. The first time, whatever is already in localStorage is copied into the app, so nothing is lost. localStorage still gets a copy of each write and is used alone if your PDA has no native storage. The downloaded-source cache (`speedDial.src.*`) stays in localStorage on purpose: it is only an offline backup of the code.
+
+Because the loader is the only script installed in PDA, all data lives in the loader's own namespace (Userscripts > the script's storage button shows what it uses; the default limit is 10 MB, this project needs well under 1 MB). **After updating, paste the new `speed-dial.loader.user.js` into PDA once** (it now hands `PDA_storage` to `store.js`); everything else updates from GitHub as before. Add `store.js` to the repo root next to `core.js`.
+
 ## Windows
 
 - Each window has a title bar (module name and ✕). Drag it by the title bar only; the content scrolls normally.
@@ -19,6 +25,7 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 |---|---|
 | `speed-dial.loader.user.js` | The only script installed in PDA. Downloads everything listed in `manifest.json` from GitHub |
 | `manifest.json` | List of files the loader downloads, in order |
+| `store.js` | Saved data: loads everything once from Torn PDA's native storage (`PDA_storage`) and saves back in batches; localStorage is the copy/fallback. Always first in `manifest.json` |
 | `core.js` | Core: main circle, module list, floating windows, shared player data (1 API call), toast, storage |
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
@@ -31,13 +38,17 @@ A single floating circle for Torn PDA. Tap the main circle, then one circle appe
 ## Install
 
 1. Create a **public** GitHub repo named `torn-pda-speed-dial`.
-2. Upload `core.js`, `manifest.json`, and the `modules/` folder to the repo root.
+2. Upload `store.js`, `core.js`, `manifest.json`, and the `modules/` and `features/` folders to the repo root.
 3. Open `speed-dial.loader.user.js` and make sure `BASE` matches your username, repo, and branch.
 4. In Torn PDA, add `speed-dial.loader.user.js` as a new userscript.
 5. Disable or delete the old Item Dock, Travel Helper, and any earlier Speed Dial scripts to avoid duplicates.
 6. Reload the Torn page. A circle with a four-square icon should appear.
 
 How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps the last good copy in localStorage (works if GitHub is unreachable), and runs them as inline scripts using the page's CSP nonce, because Torn blocks `eval`.
+
+## Rule for every new module or feature: saved data goes through `SD.read` / `SD.write`
+
+Never touch `localStorage` directly. `SD.read(key, default)` and `SD.write(key, value)` are what keep the data in Torn PDA's native storage (see "Saved data"). The key MUST start with `speedDial.` (or the old prefixes `itemDock.`, `travelHelper.`, `gymGuide.`); `store.js` only saves keys with those prefixes to the app, any other key silently stays in localStorage only. Read once when the module loads, keep it in memory, call `SD.write` after each change. Data that can be re-fetched (API caches) may use `sessionStorage` or memory instead.
 
 ## Adding a New Module
 

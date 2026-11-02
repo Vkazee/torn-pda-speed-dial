@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.5.0
+// @version      0.6.0
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -27,6 +27,93 @@
 
 })();
 
+// ---- native storage: PDA_storage only exists in this script's own scope, so it is handed to store.js first ----
+(async function () {
+  'use strict';
+  try {
+    for (let i = 0; i < 20 && typeof PDA_httpGet !== 'function'; i++) await new Promise(r => setTimeout(r, 100));   // PDA's bridge may not exist yet at document-start
+    window.__sdNative = typeof PDA_storage !== 'undefined' ? PDA_storage : null;
+// Speed Dial store v0.1.0
+// Keeps your saved data (Targets, menu layout, shortcuts, window positions, Item Dock items, Travel Helper settings, Gym Guide choices)
+// in Torn PDA's native storage (PDA_storage): on disk in the app, not wiped when the browser cache is cleared.
+// PDA_storage is asynchronous, so everything is loaded ONCE before core.js and the modules start, then read from memory.
+// Writes go to memory at once and to the app in one batch about half a second later (and when the page is hidden).
+// localStorage still gets a copy of every write, and is the fallback when this PDA has no native storage.
+// The first time, anything already in localStorage is copied into the app, so nothing is lost.
+// The loader (or bundle) hands PDA_storage over as window.__sdNative, because it only exists in the userscript's own scope.
+(function () {
+  'use strict';
+  if (window.__sdStore) return;
+
+  // Only keys starting with one of these go to the app. A new module must name its key 'speedDial.<name>' or it silently stays in localStorage only.
+  const PFX = ['speedDial.', 'itemDock.', 'travelHelper.', 'gymGuide.'];
+  const mine = k => PFX.some(p => k.indexOf(p) === 0) && !/^speedDial\.(src\.|data1$)/.test(k);   // not the downloaded-source cache
+  const ls = {
+    get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: (k, s) => { try { localStorage.setItem(k, s); } catch (e) {} }
+  };
+
+  let nat = null;                       // PDA_storage, once loaded
+  const cache = Object.create(null);    // key -> JSON text (only while nat is on)
+  const dirty = new Set();              // keys not yet written to the app
+  let timer = 0, busy = false, warned = false;
+
+  const say = m => { try { window.SpeedDial && window.SpeedDial.toast(m); } catch (e) {} };
+  const sched = ms => { if (!timer) timer = setTimeout(flush, ms); };
+
+  async function flush() {
+    if (timer) { clearTimeout(timer); timer = 0; }
+    if (!nat || busy || !dirty.size) return;
+    busy = true;
+    const keys = Array.from(dirty);
+    dirty.clear();
+    const o = {};
+    keys.forEach(k => { try { o[k] = JSON.parse(cache[k]); } catch (e) {} });
+    let ok = true;
+    try { await nat.setMany(o); }
+    catch (e) {
+      ok = false;
+      keys.forEach(k => dirty.add(k));   // try again later
+      if (!warned) { warned = true; say(e && e.code === 'QuotaExceeded' ? 'Speed Dial: PDA storage is full' : 'Speed Dial: could not save to PDA storage'); }
+    }
+    busy = false;
+    if (dirty.size) sched(ok ? 400 : 15000);
+  }
+
+  window.__sdInit = async () => {
+    const n = window.__sdNative;
+    if (!n || typeof n.loadAll !== 'function' || typeof n.setMany !== 'function') return;   // old PDA: stay on localStorage
+    const all = (await n.loadAll()) || {};
+    Object.keys(all).forEach(k => { if (mine(k) && all[k] != null) cache[k] = JSON.stringify(all[k]); });
+    const move = {};
+    try {   // first run: copy what is in localStorage but not yet in the app
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !mine(k) || k in cache) continue;
+        const raw = localStorage.getItem(k);
+        try { move[k] = JSON.parse(raw); cache[k] = raw; } catch (e) {}
+      }
+    } catch (e) {}
+    nat = n;
+    Object.keys(move).forEach(k => dirty.add(k));
+    if (dirty.size) await flush();
+  };
+
+  window.__sdStore = {
+    get: k => (nat && mine(k)) ? (k in cache ? cache[k] : null) : ls.get(k),
+    set(k, s) {
+      ls.set(k, s);   // copy in the browser too
+      if (nat && mine(k)) { cache[k] = s; dirty.add(k); sched(500); }
+    },
+    get native() { return !!nat; },
+    flush
+  };
+
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+  window.addEventListener('pagehide', () => { flush(); });
+})();
+
+    if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 // Speed Dial core v0.7.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
@@ -37,7 +124,7 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.7.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.8.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -45,10 +132,14 @@
   const LAY = 'speedDial.layout1';   // { order: [ids], hidden: [ids] }
 
   // ---------- helpers shared by modules ----------
+  // saved data goes through store.js (Torn PDA native storage, with localStorage as copy/fallback).
+  // New modules/features: ALWAYS use SD.read / SD.write, never localStorage directly, and start the key with 'speedDial.' (see store.js PFX).
   SD.read = (k, def) => {
-    try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? def : v; } catch (e) { return def; }
+    try { const v = JSON.parse(window.__sdStore ? window.__sdStore.get(k) : localStorage.getItem(k)); return v == null ? def : v; } catch (e) { return def; }
   };
-  SD.write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  SD.write = (k, v) => {
+    try { const t = JSON.stringify(v); if (window.__sdStore) window.__sdStore.set(k, t); else localStorage.setItem(k, t); } catch (e) {}
+  };
   SD.esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // minutes precision: 2h 14m
   SD.dur = sec => {
@@ -1458,12 +1549,14 @@
   });
 })();
 
-// Speed Dial module: Targets v0.3.0
+// Speed Dial module: Targets v0.5.1
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
-// anything else = name search with a pick list. Filter picks the order: Default (as added), A-Z, or Okay first.
-// Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, ...).
+// anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
+// Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
+// Auto-refresh: the targets on screen are also refreshed when the window opens, when you change page and when you change the sort.
+// It only loads targets whose data is older than 30 seconds, does not start the Refresh button cooldown and stays silent unless something fails.
 // From 15 targets on, the list switches to pages (15 per page, arrows with "page / total" in the middle) instead of scrolling,
 // and Refresh only asks for the current page, so the number of API requests stays small.
 // Nothing runs while the window is closed.
@@ -1475,7 +1568,7 @@
   const LS = 'speedDial.targets1';   // { list: [{ id, name, st }], rt: last refresh (ms) }
   const PER = 15;                    // targets per page; from this many targets on, pages replace scrolling
   const MAX = 150;                   // most targets you can save
-  const COOL = 30000;                // Refresh button cooldown
+  const COOL = 30000;                // Refresh button cooldown (also the age after which auto-refresh reloads a target)
   const BATCH = 5;                   // parallel requests while refreshing
 
   const S = SD.read(LS, null) || {};
@@ -1493,6 +1586,7 @@
     const s = j.status || {};
     return {
       name: String(j.name || ('#' + id)),
+      lv: typeof j.level === 'number' ? j.level : 0,
       st: { state: s.state || 'Okay', desc: strip(s.description), det: strip(s.details), until: s.until || 0, t: Date.now() }
     };
   }
@@ -1569,16 +1663,13 @@
     #sdial .tg .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
     #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .tg .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
-    #sdial .tg .fl{display:none;gap:6px;margin-bottom:6px}
-    #sdial .tg.fo .fl{display:flex}
-    #sdial .tg .fl button{flex:1;height:30px;padding:0}
-    #sdial .tg .fl button.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
     #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
     #sdial .tg .tr:active{background:#2e2e2e}
     #sdial .tg .r1{display:flex;align-items:center;gap:8px}
     #sdial .tg .who{flex:1;min-width:0}
     #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e6e6e6;text-decoration:none;font-size:13px}
     #sdial .tg .id{display:block;color:#6b6b6b;font-size:11px;margin-top:1px}
+    #sdial .tg .id em{font-style:normal;color:#9a9a9a;margin-left:8px}
     #sdial .tg .sx{flex:0 0 auto;text-align:right;max-width:46%}
     #sdial .tg .sl{display:block;font-weight:600;font-size:12px;color:var(--c)}
     #sdial .tg .cd{display:block;color:#cfcfcf;font-size:11px;margin-top:1px;min-height:13px}
@@ -1595,15 +1686,26 @@
     #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
     #sdial .tg.ed .foot .edit{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
     #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
-    #sdial .tg .foot .fb.act,#sdial .tg.fo .foot .fb{background:#2a3140;border-color:#4a8fd9}
+    #sdial .tg .foot .fb.act{background:#2a3140;border-color:#4a8fd9}
     #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
     #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
+    #sdial .tgpop{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
+    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .tgpop .th{padding:2px 4px 8px;font-size:14px;font-weight:700}
+    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:44px;margin-top:4px;padding:0 12px;border-radius:10px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:14px;text-align:left}
+    #sdial .tgpop .op:active{background:#2e2e2e}
+    #sdial .tgpop .op i{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid #5a5a5a}
+    #sdial .tgpop .op.on{border-color:#4a8fd9;background:#2a3140}
+    #sdial .tgpop .op.on i{border-color:#4a8fd9;background:radial-gradient(circle,#4a8fd9 0 40%,transparent 45%)}
+    #sdial .tgpop .op span{flex:1}
+    #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid #333;background:none;color:#cfcfcf;font-size:13px}
+    #sdial .tgpop .cx:active{background:#2e2e2e}
   `;
 
   const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
   const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
   const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
-  const SORTS = [['def', 'Default'], ['name', 'A-Z'], ['okay', 'Okay first']];
+  const SORTS = [['def', 'Sort by Default'], ['name', 'Sort by A-Z'], ['okay', 'Sort by Time']];
 
   function mount(ctx) {
     SD.css('sd-targets', CSS);
@@ -1616,7 +1718,6 @@
           '<div class="res"></div>' +
         '</div>' +
         '<div class="main">' +
-          '<div class="fl">' + SORTS.map(x => '<button data-s="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>' +
           '<div class="lst"></div>' +
           '<div class="pg"><button class="pp" aria-label="Previous page">' + ARROW_L + '</button><span class="pn"></span><button class="pnx" aria-label="Next page">' + ARROW_R + '</button></div>' +
           '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="fb" aria-label="Sort">' + FUNNEL + '</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
@@ -1648,7 +1749,6 @@
       if (page < 0) page = 0;
       root.classList.toggle('pgd', paged());
       fb.classList.toggle('act', sortKey() !== 'def');
-      el.querySelectorAll('.fl button').forEach(b => b.classList.toggle('on', b.dataset.s === sortKey()));
       if (!SD.hasKey) { lst.innerHTML = '<div class="em">No API key available.</div>'; return; }
       if (!S.list.length) { lst.innerHTML = '<div class="em">No targets yet.<br>Tap Add.</div>'; return; }
       const keep = lst.scrollTop;
@@ -1657,7 +1757,7 @@
         const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
         return '<div class="tr" data-id="' + t.id + '" style="--c:' + v.color + '">' +
           '<div class="r1">' +
-            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']</span></div>' +
+            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
             '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
             '<button class="rm" aria-label="Remove">\u2715</button>' +
           '</div>' +
@@ -1704,7 +1804,6 @@
 
     function openAdd() {
       if (!SD.hasKey) return SD.toast('No API key available');
-      root.classList.remove('fo');
       root.classList.add('adding');
       found = [];
       inp.value = '';
@@ -1724,11 +1823,11 @@
       busy = true; goB.disabled = true;
       try {
         const r = await pull(id);
-        S.list.push({ id, name: r.name, st: r.st });
+        S.list.push({ id, name: r.name, lv: r.lv, st: r.st });
         save();
         if (ctx.alive) {
           if (sortKey() === 'def') page = pages() - 1;   // show the new one at the end
-          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: 0 }];   // typed an ID: show it as added
+          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: r.lv }];   // typed an ID: show it as added
           inp.value = '';
           renderRes();
         }
@@ -1766,17 +1865,25 @@
       byName(raw.replace(/^[@\s]+|\s+$/g, ''));
     }
 
-    // ---- refresh: only the targets on screen, at most once per 30 seconds ----
-    async function refresh() {
+    // ---- refresh: only the targets on screen ----
+    // manual (button): at most once per 30 seconds, starts the cooldown, always shows a toast.
+    // auto (window open, page change, sort change): only targets whose data is older than 30 seconds,
+    // no button cooldown, and a toast only when something failed.
+    async function refresh(auto) {
       if (busy) return;
-      if (!SD.hasKey) return SD.toast('No API key available');
-      const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
-      if (left > 0) return SD.toast('Wait ' + left + 's');
-      const todo = shown().slice();
+      if (!SD.hasKey) return auto ? undefined : SD.toast('No API key available');
+      if (!auto) {
+        const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
+        if (left > 0) return SD.toast('Wait ' + left + 's');
+      }
+      let todo = shown().slice();
+      if (auto) todo = todo.filter(t => !t.st || Date.now() - t.st.t > COOL);   // only stale ones
       if (!todo.length) return;
       busy = true;
-      S.rt = Date.now();   // starts the cooldown right away, so a double tap cannot send twice
-      save();
+      if (!auto) {
+        S.rt = Date.now();   // manual refresh starts the cooldown right away, so a double tap cannot send twice
+        save();
+      }
       tick();
       let failed = 0, last = '';
       const job = (async () => {
@@ -1785,6 +1892,7 @@
             try {
               const r = await pull(t.id);
               t.name = r.name;
+              if (r.lv) t.lv = r.lv;
               t.st = r.st;
             } catch (e) { failed++; last = e.message; }   // keep the old status when one request fails
           }));
@@ -1796,7 +1904,26 @@
       if (!ctx.alive) return;
       render();
       tick();
-      SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
+      if (!auto || failed) SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
+    }
+
+    // ---- sort pop-up: lives in #sdial (not inside the window, which clips and moves), so it dims the whole screen ----
+    let pop = null;
+    function closePop() { if (pop) { pop.remove(); pop = null; } }
+    function openPop() {
+      closePop();
+      const t = document.createElement('div');
+      t.className = 'tgpop';
+      t.innerHTML = '<div class="tc" role="dialog"><div class="th">Sort</div>' +
+        SORTS.map(x => '<button class="op' + (x[0] === sortKey() ? ' on' : '') + '" data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span></button>').join('') +
+        '<button class="cx">Cancel</button></div>';
+      t.addEventListener('click', e => {
+        const op = e.target.closest('.op');
+        if (op) { S.sort = op.dataset.s; save(); page = 0; closePop(); render(); refresh(true); return; }
+        if (e.target === t || e.target.closest('.cx')) closePop();
+      });
+      (document.getElementById('sdial') || document.body).appendChild(t);
+      pop = t;
     }
 
     // ---- events ----
@@ -1804,18 +1931,11 @@
     q('.back').addEventListener('click', closeAdd);
     goB.addEventListener('click', go);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-    rf.addEventListener('click', refresh);
-    fb.addEventListener('click', () => root.classList.toggle('fo'));
-    el.querySelectorAll('.fl button').forEach(b => b.addEventListener('click', () => {
-      S.sort = b.dataset.s;
-      save();
-      page = 0;
-      root.classList.remove('fo');
-      render();
-    }));
+    rf.addEventListener('click', () => refresh(false));
+    fb.addEventListener('click', openPop);
     edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
-    prev.addEventListener('click', () => { if (page > 0) { page--; render(); } });
-    next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); } });
+    prev.addEventListener('click', () => { if (page > 0) { page--; render(); refresh(true); } });
+    next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); refresh(true); } });
     lst.addEventListener('click', e => {
       const row = e.target.closest('.tr');
       if (!row) return;
@@ -1833,7 +1953,8 @@
     render();
     tick();
     ctx.every(tick, 1000);
-    return { unmount() { busy = false; } };
+    refresh(true);   // refresh on open
+    return { unmount() { busy = false; closePop(); } };
   }
 
   SD.register({
@@ -2374,10 +2495,10 @@
 
     // ---------- prefs ----------
     let P;
-    try { P = JSON.parse(localStorage.getItem(LS)); } catch (e) {}
+    P = SD.read(LS, null);
     P = Object.assign({ ratio: 'baldr', high: 'auto', war: false }, P || {});
     if (!MULTS[P.ratio]) P.ratio = 'baldr';
-    const savePrefs = () => { try { localStorage.setItem(LS, JSON.stringify(P)); } catch (e) {} };
+    const savePrefs = () => SD.write(LS, P);
 
     // ---------- logic ----------
     function resolveHigh(stats) {
@@ -2668,7 +2789,6 @@
   });
 })();
 
-(function () {
-  'use strict';
-  window.SpeedDial.start({ apiKey: '###PDA-APIKEY###' }); // filled in by Torn PDA
+    window.SpeedDial.start({ apiKey: '###PDA-APIKEY###' }); // filled in by Torn PDA
+  } catch (e) { console.error('Speed Dial:', e); }
 })();

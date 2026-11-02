@@ -8,7 +8,7 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.7.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.8.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -16,10 +16,14 @@
   const LAY = 'speedDial.layout1';   // { order: [ids], hidden: [ids] }
 
   // ---------- helpers shared by modules ----------
+  // saved data goes through store.js (Torn PDA native storage, with localStorage as copy/fallback).
+  // New modules/features: ALWAYS use SD.read / SD.write, never localStorage directly, and start the key with 'speedDial.' (see store.js PFX).
   SD.read = (k, def) => {
-    try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? def : v; } catch (e) { return def; }
+    try { const v = JSON.parse(window.__sdStore ? window.__sdStore.get(k) : localStorage.getItem(k)); return v == null ? def : v; } catch (e) { return def; }
   };
-  SD.write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  SD.write = (k, v) => {
+    try { const t = JSON.stringify(v); if (window.__sdStore) window.__sdStore.set(k, t); else localStorage.setItem(k, t); } catch (e) {}
+  };
   SD.esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // minutes precision: 2h 14m
   SD.dur = sec => {

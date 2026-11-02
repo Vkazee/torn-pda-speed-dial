@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (loader)
 // @namespace    speeddial
-// @version      0.4.0
+// @version      0.5.0
 // @description  Loads Speed Dial core + modules from GitHub (list in manifest.json). Install once, never edit again.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -95,11 +95,18 @@
       if (window.SpeedDial && window.SpeedDial.started) return;
       const man = JSON.parse(await load('manifest.json'));
       const codes = await Promise.all(man.files.map(load)); // download in parallel
+      await waitPda();   // PDA's bridge (and PDA_storage) may not exist yet at document-start
+      // PDA_storage only exists in this userscript's own scope, not on the page: hand it to store.js (first file in manifest.json)
+      window.__sdNative = typeof PDA_storage !== 'undefined' ? PDA_storage : null;
       const nonce = await getNonce();
       if (!nonce) return fail('no page nonce found (CSP)');
       for (let i = 0; i < man.files.length; i++) {            // run in manifest order
         try { run(codes[i], man.files[i], nonce); }
         catch (e) { return fail(man.files[i] + ': ' + e.message); }
+        if (typeof window.__sdInit === 'function') {   // store.js: load your saved data before core.js and the modules read it
+          const init = window.__sdInit; window.__sdInit = null;
+          try { await init(); } catch (e) {}
+        }
       }
       if (!window.SpeedDial) return fail('core did not load');
       window.SpeedDial.start({ apiKey: API_KEY });
