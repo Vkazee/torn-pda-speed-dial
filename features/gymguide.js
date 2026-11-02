@@ -2,10 +2,6 @@
 // Highlights the gym tile to train next (Baldr / Hank ratios) and shows a progress panel under the gym icons.
 // Reads only what the page shows. No API. Switch it on or off in Settings > Features.
 //
-// v0.7.2: if the recommended stat is "Unavailable" in the current gym, its tile gets a red outline and a
-//         "Not Available" label. The tile is found by structure (the biggest ancestor that holds no other
-//         stat), and the label is a real element instead of ::after, so it no longer breaks Torn's own styling.
-//
 // Ratio logic (roles, eligibility checks, recommendation order) is adapted from
 // GymIQ by ClasixTV, MIT License: https://github.com/CLASIX/GymIQ---Torn-Ratio-Helper
 (function () {

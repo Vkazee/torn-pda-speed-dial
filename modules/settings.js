@@ -1,5 +1,7 @@
-// Speed Dial module: Settings v0.4.0
-// The pinned gear circle (always last, cannot be hidden). Three pages:
+// Speed Dial module: Settings v0.5.0
+// The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
+// tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
+// to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
 //   Menu          - every module in your order. Eye = show/hide the circle. Edit mode: drag the handle to reorder,
 //                   and remove your own shortcuts.
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
@@ -53,11 +55,26 @@
   const EYE = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7c2 0 3.7.7 5.2 1.7M22 12s-3.6 7-10 7c-2 0-3.7-.7-5.2-1.7"/><path d="M4 4l16 16"/></svg>';
   const GRIP = '<svg viewBox="0 0 24 24"><line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="5" y1="16" x2="19" y2="16"/></svg>';
+  const HAMB = '<svg viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
+
+  // pages shown in the menu (order = order in the list). show(): optional, runs every time the page opens
+  const ICON_MENU = '<svg viewBox="0 0 24 24"><line x1="9" y1="7" x2="20" y2="7"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="17" x2="20" y2="17"/><circle cx="5" cy="7" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="17" r="1"/></svg>';
+  const ICON_FEAT = '<svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></svg>';
+  const ICON_ADD = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
 
   const CSS = `
-    #sdial .cz .tabs{display:flex;gap:4px;margin-bottom:6px}
-    #sdial .cz .tabs button{flex:1}
-    #sdial .cz .tabs button.on{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
+    #sdial .cz .nav{display:flex;align-items:center;gap:8px;height:34px;margin-bottom:6px}
+    #sdial .cz .nav .hb{flex:0 0 auto;width:38px;height:32px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .cz .nav .hb svg{width:20px;height:20px;fill:none;stroke:#cfcfcf;stroke-width:2;stroke-linecap:round}
+    #sdial .cz .nav .hb.on{background:#383838;border-color:#5a5a5a}
+    #sdial .cz .nav .cur{flex:1;min-width:0;font-size:13px;font-weight:700;color:#e6e6e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .cz .mn{display:none;max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
+    #sdial .cz.nav-open .mn{display:block}
+    #sdial .cz.nav-open .pg{display:none !important}
+    #sdial .cz .mn .mi{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;margin-bottom:3px;border-radius:8px;border:1px solid transparent;background:#242424;color:#cfcfcf;font-size:13px;text-align:left}
+    #sdial .cz .mn .mi.on{background:#383838;color:#fff;border-color:#5a5a5a}
+    #sdial .cz .mn .mi svg{flex:0 0 auto;width:18px;height:18px;fill:none;stroke:#9a9a9a;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    #sdial .cz .mn .mi.on svg{stroke:#e6e6e6}
     #sdial .cz .pg{display:none}
     #sdial .cz .pg.on{display:block}
     #sdial .cz .qk{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
@@ -110,7 +127,8 @@
     const el = ctx.el;
     el.className = 'cz';
     el.innerHTML =
-      '<div class="tabs"><button class="tb on" data-p="pm">Menu</button><button class="tb" data-p="pf">Features</button><button class="tb" data-p="pa">Shortcut</button></div>' +
+      '<div class="nav"><button class="hb" aria-label="Pages" aria-expanded="false">' + HAMB + '</button><span class="cur"></span></div>' +
+      '<div class="mn"></div>' +
       '<div class="pg pm on"><div class="lst"></div><button class="edit">Edit</button></div>' +
       '<div class="pg pf"><div class="fl"></div></div>' +
       '<div class="pg pa">' +
@@ -121,16 +139,42 @@
       '</div>';
     const qk = el.querySelector('.qk'), lst = el.querySelector('.lst'), fl = el.querySelector('.fl');
     const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
+    const hb = el.querySelector('.hb'), cur = el.querySelector('.cur'), mn = el.querySelector('.mn');
     let drag = null;
 
-    // ----- pages -----
-    el.querySelectorAll('.tb').forEach(b => b.addEventListener('click', () => {
+    // ----- page navigation: 3-line button opens the list of pages, tapping one opens that page -----
+    const PAGES = [
+      { id: 'pm', label: 'Menu', icon: ICON_MENU, show: () => renderList() },
+      { id: 'pf', label: 'Features', icon: ICON_FEAT, show: () => renderFeat() },
+      { id: 'pa', label: 'Shortcut', icon: ICON_ADD }
+    ];
+
+    function setNav(open) {
+      el.classList.toggle('nav-open', open);
+      hb.classList.toggle('on', open);
+      hb.setAttribute('aria-expanded', open ? 'true' : 'false');
       closeTip();
-      el.querySelectorAll('.tb').forEach(x => x.classList.toggle('on', x === b));
-      el.querySelectorAll('.pg').forEach(p => p.classList.toggle('on', p.classList.contains(b.dataset.p)));
-      if (b.dataset.p === 'pm') renderList();
-      if (b.dataset.p === 'pf') renderFeat();
-    }));
+    }
+
+    function showPage(id) {
+      const p = PAGES.find(x => x.id === id) || PAGES[0];
+      cur.textContent = p.label;
+      el.querySelectorAll('.pg').forEach(g => g.classList.toggle('on', g.classList.contains(p.id)));
+      mn.querySelectorAll('.mi').forEach(b => b.classList.toggle('on', b.dataset.p === p.id));
+      setNav(false);
+      if (p.show) p.show();
+    }
+
+    PAGES.forEach(p => {
+      const b = document.createElement('button');
+      b.className = 'mi';
+      b.dataset.p = p.id;
+      b.innerHTML = p.icon + '<span></span>';
+      b.querySelector('span').textContent = p.label;
+      b.addEventListener('click', () => showPage(p.id));
+      mn.appendChild(b);
+    });
+    hb.addEventListener('click', () => setNav(!el.classList.contains('nav-open')));
 
     // ----- features page: on/off per feature, "!" opens a small pop-up -----
     let tip = null;
@@ -308,7 +352,7 @@
       e.target.textContent = on ? 'Done' : 'Edit';
     });
 
-    renderList();
+    showPage('pm');
     return { unmount: closeTip };
   }
 
