@@ -1,4 +1,4 @@
-// Speed Dial module: Targets v0.5.2
+// Speed Dial module: Targets v0.5.1
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
 // anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
 // Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
@@ -24,21 +24,6 @@
   if (!Array.isArray(S.list)) S.list = [];
   if (typeof S.rt !== 'number') S.rt = 0;
   const save = () => SD.write(LS, S);
-
-  // Used by other parts of Speed Dial (Peek Card): adds a target through THIS copy of the list, so a later save() here never overwrites it.
-  // 'live' is set while the Targets window is open, so the list redraws by itself.
-  let live = null;
-  SD.targets = {
-    has: id => S.list.some(t => t.id === id),
-    add(o) {   // o = { id, name, lv, st }  ->  'ok' | 'dup' | 'max'
-      if (S.list.some(t => t.id === o.id)) return 'dup';
-      if (S.list.length >= MAX) return 'max';
-      S.list.push({ id: o.id, name: o.name, lv: o.lv || 0, st: o.st });
-      save();
-      if (live) live();
-      return 'ok';
-    }
-  };
 
   const strip = s => String(s || '').replace(/<[^>]*>/g, '').trim();
   const COLOR = { Okay: '#7fd08a', Hospital: '#f1807a', Jail: '#d9a441', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
@@ -418,8 +403,7 @@
     tick();
     ctx.every(tick, 1000);
     refresh(true);   // refresh on open
-    live = () => { if (ctx.alive && !root.classList.contains('adding')) { render(); tick(); } };
-    return { unmount() { busy = false; live = null; closePop(); } };
+    return { unmount() { busy = false; closePop(); } };
   }
 
   SD.register({
