@@ -307,7 +307,7 @@
     #sdial[data-st="blk"]{--st:#e5534b}
     #sdial .mod.act{border-color:var(--st)}
     #sdial .mod:active{background:#2e2e2e}
-    #sdial .mod.sub::after{content:'';position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--st);border:2px solid #1c1c1c}
+    #sdial .mod.sub::after{content:'';position:absolute;top:-1px;right:-1px;width:6px;height:6px;border-radius:50%;background:var(--st);border:1.5px solid #1c1c1c}
     #sdial .emo{font-size:18px;line-height:1;pointer-events:none}
     #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
     #sdial.r .lb{left:auto;right:40px}
