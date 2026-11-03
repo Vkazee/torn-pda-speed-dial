@@ -130,7 +130,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.11.0
+// Speed Dial core v0.12.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -141,7 +141,7 @@ try {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.11.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.12.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -296,17 +296,19 @@ try {
   };
 
   // ---------- shared player data: ONE call for every module, cached 30s ----------
-  let D = null, inflight = null, err = '';
+  let D = null, inflight = null, err = '', errCode = 0;
   const readCache = () => {
     try { const c = JSON.parse(sessionStorage.getItem(DK)); if (c && c.t) D = c; } catch (e) { SD.log('data', 'session cache unreadable, ignored: ' + e.message, 'w'); }
   };
   SD.peek = () => { if (!D) readCache(); return D; };
   SD.error = () => err;
+  SD.errorCode = () => errCode;   // Torn API error code of the last failed status call (0 = none / network)
 
-  SD.data = function (force) {
+  // maxAge (ms, optional) = how old the cached status may be before it is fetched again (default TTL = 30s)
+  SD.data = function (force, maxAge) {
     if (!SD.hasKey) return Promise.resolve(null);
     SD.peek();
-    if (!force && D && Date.now() - D.t < TTL) { SD.log('data', 'cache hit (' + Math.round((Date.now() - D.t) / 1000) + 's old)'); ring(); return Promise.resolve(D); }   // cache masih segar: tetap gambar outline
+    if (!force && D && Date.now() - D.t < (typeof maxAge === 'number' ? maxAge : TTL)) { SD.log('data', 'cache hit (' + Math.round((Date.now() - D.t) / 1000) + 's old)'); ring(); return Promise.resolve(D); }   // cache masih segar: tetap gambar outline
     if (inflight) return inflight;
     const t0 = Date.now();
     SD.log('data', 'fetching status' + (force ? ' (forced)' : ''));
@@ -331,12 +333,12 @@ try {
           nerve: j.nerve || null,
           cd: { drug: c.drug || 0, medical: c.medical || 0, booster: c.booster || 0 }
         };
-        err = '';
+        err = ''; errCode = 0;
         SD.log('data', 'ok ' + (Date.now() - t0) + 'ms state=' + state + ' dest=' + (dest || '-') + ' abroad=' + D.abroad);
         try { sessionStorage.setItem(DK, JSON.stringify(D)); } catch (e) { SD.log('data', 'sessionStorage cache failed: ' + e.message, 'w'); }
         return D;
       })
-      .catch(e => { err = e && e.api ? (e.message || 'API error') : 'Network error'; SD.log('data', (e && e.api ? 'API error: ' : 'network error: ') + (e && e.message), 'e'); return D; })
+      .catch(e => { errCode = (e && e.api && e.code) || 0; err = e && e.api ? (e.message || 'API error') : 'Network error'; SD.log('data', (e && e.api ? 'API error: ' : 'network error: ') + (e && e.message), 'e'); return D; })
       .then(r => { inflight = null; ring(); return r; });
     return inflight;
   };
@@ -825,7 +827,41 @@ try {
 
     SD.peek();
     ring();
-    SD.data(false);
+    SD.data(false, 5000);   // cached outline first, then a fresh check unless the cache is under 5s old
+
+    // Live status: keeps the circle colour current WITHOUT reloading the page. Costs one light API call per POLL while the page is visible.
+    // It also looks again right when the current status should end (hospital / jail timer, flight landing) and when you come back to the app.
+    SD.feature({
+      id: 'livestatus', label: 'Live status', def: true, where: 'Every page',
+      info: 'Updates the circle colour without reloading',
+      start(ctx) {
+        if (!SD.hasKey) { SD.log('live', 'no API key: not watching', 'w'); return null; }
+        const POLL = 10000;        // ms between checks while nothing is about to change
+        const key = d => d ? d.state + '|' + (d.abroad ? 'abroad' : '') + '|' + d.dest : '-';
+        const endsAt = d => !d ? 0 : (d.state === 'Traveling' && d.left) ? d.t + d.left * 1000 : (d.until ? d.until * 1000 : 0);
+        const gap = () => {
+          const x = endsAt(SD.peek()), now = Date.now();
+          if (!x) return POLL;
+          if (x > now) return Math.max(3000, Math.min(POLL, x - now + 1500));   // check right after it should end
+          return now - x < 120000 ? 4000 : POLL;                                // just overdue: look again soon
+        };
+        let next = Date.now() + gap(), busy = false;
+        const tick = async () => {
+          if (busy || document.hidden || Date.now() < next) return;
+          busy = true;
+          const was = key(SD.peek());
+          try { await SD.data(false, 3000); } finally { busy = false; }
+          const now = key(SD.peek());
+          if (now !== was) SD.log('live', 'status changed: ' + was + ' -> ' + now);
+          next = Date.now() + (SD.error() ? (SD.errorCode() === 2 ? 600000 : 60000) : gap());   // back off on API errors (bad key: 10 min)
+        };
+        const wake = () => { next = 0; tick(); };
+        ctx.every(tick, 2000);
+        ctx.on(document, 'visibilitychange', () => { if (!document.hidden) wake(); });
+        ctx.on(window, 'pageshow', wake);
+        return { stop() {} };
+      }
+    });
 
     SD.features.forEach(fsync);   // switched-on features whose page matches start now
   };
@@ -2479,12 +2515,12 @@ try {
 } catch (e) { console.error('Speed Dial: modules/calculator.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/calculator.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Show More v0.5.0
+// Speed Dial module: Show More v0.6.0
 // The pinned "..." circle (sits just before Settings). It opens a launcher grid with every module that is NOT one of the
 // (max 3) circles on screen: calculator, your own shortcuts, new modules. Tap a tile to open it.
 //   - a module opens in its own window (the launcher closes); tap an already-open tile to close that window
 //   - a shortcut (small arrow in the corner) leaves the page and opens its torn.com page
-//   - Arrange: opens Settings > Menu already in edit mode (the one place that reorders, pins and deletes); Settings: opens Settings
+//   - Settings: opens Settings > Menu already in edit mode (the one place that reorders, pins and deletes)
 // Which modules stay on screen, and the order of everything, is chosen in Settings > Menu. The newest module or shortcut always lands at the END of the grid.
 (function () {
   'use strict';
@@ -2512,7 +2548,7 @@ try {
     const el = ctx.el;
     el.className = 'mr';
     el.innerHTML = '<div class="gd"></div>' +
-      '<div class="rw"><button class="ar-b">Arrange</button><button class="st-b">Settings</button></div>';
+      '<div class="rw"><button class="st-b">Settings</button></div>';
     const gd = el.querySelector('.gd');
 
     function render() {
@@ -2547,9 +2583,8 @@ try {
       });
     }
 
-    // Arrange = Settings > Menu in edit mode (it reorders both groups, pins/unpins and deletes shortcuts); this window only launches
-    el.querySelector('.ar-b').addEventListener('click', () => { ctx.close(); SD.open('settings', { page: 'pm', edit: true }); });
-    el.querySelector('.st-b').addEventListener('click', () => { ctx.close(); SD.open('settings'); });
+    // Settings = Settings > Menu in edit mode (it reorders both groups, pins/unpins and deletes shortcuts); this window only launches
+    el.querySelector('.st-b').addEventListener('click', () => { ctx.close(); SD.open('settings', { page: 'pm', edit: true }); });
     render();
   }
 

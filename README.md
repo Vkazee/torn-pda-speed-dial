@@ -1,6 +1,6 @@
 # torn-pda-speed-dial
 
-A single floating circle for Torn PDA. Tap the main circle, then circles appear for your (at most 3) favourite tools, a **Show More** circle (`...`) for everything else, and the Settings gear. Tap a tool's circle to open it in its own **floating window**. Each tool **only runs while its window is open**: no timers, API calls, or background rendering once it is closed.
+A single floating circle for Torn PDA. Tap the main circle, then circles appear for your (at most 3) favourite tools, a **Show More** circle (`...`) for everything else, and the Settings gear. Tap a tool's circle to open it in its own **floating window**. Each tool **only runs while its window is open**: no timers, API calls, or background rendering once it is closed. The one exception is the optional **Live status** feature (see Notes), which keeps the circle colour current.
 
 ## Saved data (native storage)
 
@@ -42,7 +42,7 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 | `modules/travelhelper.js` | Travel Helper module |
 | `modules/targets.js` | Targets module |
 | `modules/calculator.js` | Calculator module (lives in Show More by default) |
-| `modules/showmore.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included, plus Arrange (opens Settings > Menu in edit mode) and Settings |
+| `modules/showmore.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included, plus one Settings button (opens Settings > Menu in edit mode) |
 | `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, add your own emoji shortcuts, and the Terminal (debug log) |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
@@ -125,7 +125,7 @@ Features start when the page loads. A feature switched on while you are on anoth
   - **Features** page: a switch per page feature, and a **!** button that opens a pop-up with its one-line explanation.
   - **Shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
   - Your order and hidden list are saved under `speedDial.layout1`; saved shortcuts keep using `speedDial.shortcuts1`, so they carry over from the old Shortcuts module.
-- Show More: a 4-column grid of icons with the name underneath. Tap a tile to open that module (the launcher closes); tap a tile whose window is open to close it. **Arrange** (bottom left) opens Settings > Menu already in edit mode, the one place that reorders, pins/unpins and deletes shortcuts. Anything new (a new shortcut, a module you unpin from the screen) is added at the END. A tile with a small arrow is a shortcut and leaves the page. While a window of something inside Show More is open, the `...` circle shows a dot. Saved under `speedDial.layout1` as `{ order, front }` (an old `hidden` list is ignored).
+- Show More: a 4-column grid of icons with the name underneath. Tap a tile to open that module (the launcher closes); tap a tile whose window is open to close it. The single **Settings** button opens Settings > Menu already in edit mode, the one place that reorders, pins/unpins and deletes shortcuts. Anything new (a new shortcut, a module you unpin from the screen) is added at the END. A tile with a small arrow is a shortcut and leaves the page. While a window of something inside Show More is open, the `...` circle shows a dot. Saved under `speedDial.layout1` as `{ order, front }` (an old `hidden` list is ignored).
 - Calculator: + − × ÷ with the usual precedence (2+3×4 = 14), %, ±, backspace, AC. `200 + 10%` = 220. Nothing is saved.
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
-- Main circle colours (the window outline, the Item Dock banner and the Targets status text use the same rule): blue = abroad or traveling, yellow = hospital (at home or abroad), red = jail or federal. Status is checked once per page load.
+- Main circle colours (the window outline, the Item Dock banner and the Targets status text use the same rule): blue = abroad or traveling, yellow = hospital (at home or abroad), red = jail or federal. The colour is kept live by the **Live status** feature (Settings > Features, on by default): one light API call every 10 s while the page is visible, a check right when a hospital/jail timer or flight should end, and one when you return to the app; it backs off after API errors. With it switched off, status is only checked when a page loads (and only if the cached status is older than 5 s).

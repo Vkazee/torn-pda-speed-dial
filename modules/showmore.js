@@ -1,9 +1,9 @@
-// Speed Dial module: Show More v0.5.0
+// Speed Dial module: Show More v0.6.0
 // The pinned "..." circle (sits just before Settings). It opens a launcher grid with every module that is NOT one of the
 // (max 3) circles on screen: calculator, your own shortcuts, new modules. Tap a tile to open it.
 //   - a module opens in its own window (the launcher closes); tap an already-open tile to close that window
 //   - a shortcut (small arrow in the corner) leaves the page and opens its torn.com page
-//   - Arrange: opens Settings > Menu already in edit mode (the one place that reorders, pins and deletes); Settings: opens Settings
+//   - Settings: opens Settings > Menu already in edit mode (the one place that reorders, pins and deletes)
 // Which modules stay on screen, and the order of everything, is chosen in Settings > Menu. The newest module or shortcut always lands at the END of the grid.
 (function () {
   'use strict';
@@ -31,7 +31,7 @@
     const el = ctx.el;
     el.className = 'mr';
     el.innerHTML = '<div class="gd"></div>' +
-      '<div class="rw"><button class="ar-b">Arrange</button><button class="st-b">Settings</button></div>';
+      '<div class="rw"><button class="st-b">Settings</button></div>';
     const gd = el.querySelector('.gd');
 
     function render() {
@@ -66,9 +66,8 @@
       });
     }
 
-    // Arrange = Settings > Menu in edit mode (it reorders both groups, pins/unpins and deletes shortcuts); this window only launches
-    el.querySelector('.ar-b').addEventListener('click', () => { ctx.close(); SD.open('settings', { page: 'pm', edit: true }); });
-    el.querySelector('.st-b').addEventListener('click', () => { ctx.close(); SD.open('settings'); });
+    // Settings = Settings > Menu in edit mode (it reorders both groups, pins/unpins and deletes shortcuts); this window only launches
+    el.querySelector('.st-b').addEventListener('click', () => { ctx.close(); SD.open('settings', { page: 'pm', edit: true }); });
     render();
   }
 
