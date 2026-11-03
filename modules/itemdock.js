@@ -158,12 +158,14 @@
         const j = JSON.parse(t);
         msg = j.text || j.msg || j.message || t;
         if (j.success === false || j.error) ok = false;
-      } catch (e) {}
+      } catch (e) { /* reply was not JSON: the raw text is used */ }
       msg = String(msg).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      SD.log('item', 'use ' + it.name + ' (id ' + it.id + ') HTTP ' + r.status + ' -> ' + (ok ? 'ok' : 'FAILED') + ': ' + msg.slice(0, 80), ok ? 'i' : 'w');
       SD.toast(msg ? msg.slice(0, 160) : 'Done');
       if (ok && !it.fac) bump(it.id, -1);                 // update the count right away
       SD.data(true).then(() => { if (ui) ui.status(); });  // fresh status + cooldowns
     } catch (e) {
+      SD.log('item', 'use ' + it.name + ' threw: ' + e.message, 'e');
       SD.toast('Failed: ' + e.message);
     }
     busy = false;

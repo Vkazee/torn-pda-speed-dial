@@ -1,4 +1,4 @@
-// Speed Dial module: Settings v0.6.0
+// Speed Dial module: Settings v0.7.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
@@ -7,6 +7,8 @@
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
 //                   The "!" next to a feature opens a small pop-up with a one-line explanation.
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
+//   Terminal      - the debug log (SD.log in core.js): what Speed Dial did, API calls, storage writes, warnings and errors.
+//                   Lines live in memory only; Save keeps a copy in storage so it survives a reload (view it with Saved).
 // Nothing is read from or clicked on the page. Only torn.com pages are accepted.
 (function () {
   'use strict';
@@ -59,6 +61,7 @@
   // pages shown in the menu (order = order in the list). show(): optional, runs every time the page opens
   const ICON_MENU = '<svg viewBox="0 0 24 24"><line x1="9" y1="7" x2="20" y2="7"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="17" x2="20" y2="17"/><circle cx="5" cy="7" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="17" r="1"/></svg>';
   const ICON_FEAT = '<svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></svg>';
+  const ICON_TERM = '<svg viewBox="0 0 24 24"><polyline points="4 7 9 12 4 17"/><line x1="12" y1="17" x2="20" y2="17"/></svg>';
   const ICON_ADD = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
 
   const CSS = `
@@ -120,6 +123,24 @@
     #sdial .cz .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
     #sdial .cz .fr .sw.on{background:#25360f;border-color:#85b200}
     #sdial .cz .fr .sw.on i{transform:translateX(16px);background:#85b200}
+    #sdial .cz .tm .fr{padding:0 4px 0 6px;min-height:34px;margin-bottom:4px}
+    #sdial .cz .tm .fr .sw{flex:0 0 auto;position:relative;width:40px;height:24px;padding:0;border-radius:12px;border:1px solid #444;background:#1a1a1a;transition:background .12s,border-color .12s}
+    #sdial .cz .tm .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
+    #sdial .cz .tm .fr .sw.on{background:#25360f;border-color:#85b200}
+    #sdial .cz .tm .fr .sw.on i{transform:translateX(16px);background:#85b200}
+    #sdial .cz .tm .bar{display:flex;gap:4px;margin-bottom:4px}
+    #sdial .cz .tm .bar button{flex:1 1 0;min-width:0;height:28px;padding:0 2px;font-size:11px}
+    #sdial .cz .tm .bar button.on{background:#383838;border-color:#5a5a5a;color:#fff}
+    #sdial .cz .tm .bar button:disabled{opacity:.35}
+    #sdial .cz .tm .out{height:34vh;min-height:120px;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;overscroll-behavior:contain;padding:4px 5px;border-radius:8px;background:#0f0f0f;border:1px solid #2c2c2c;font:10px/1.35 ui-monospace,Menlo,Consolas,monospace;margin-bottom:4px;-webkit-user-select:text;user-select:text}
+    #sdial .cz .tm .ln{word-break:break-all;color:#cfcfcf;padding:1px 0}
+    #sdial .cz .tm .ln .tt{color:#6f6f6f}
+    #sdial .cz .tm .ln .tg{color:#7f93b8}
+    #sdial .cz .tm .ln.w{color:#d9a441}
+    #sdial .cz .tm .ln.e{color:#f1807a}
+    #sdial .cz .tm .ln.w .tg,#sdial .cz .tm .ln.e .tg{color:inherit}
+    #sdial .cz .tm .none{padding:10px 4px;text-align:center;color:#6f6f6f}
+    #sdial .cz .tm .ct{margin-bottom:4px;font-size:10px;color:#8a8a8a;text-align:right}
     #sdial .sdtip{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.5)}
     #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
     #sdial .sdtip .th{font-size:13px;font-weight:700}
@@ -142,6 +163,13 @@
         '<div class="gh"><span>Show More</span></div><div class="lst lm"></div>' +
         '<button class="edit">Edit</button></div>' +
       '<div class="pg pf"><div class="fl"></div></div>' +
+      '<div class="pg pt"><div class="tm">' +
+        '<div class="fr"><span class="nm">Logging</span><button class="sw" role="switch" aria-label="Logging"><i></i></button></div>' +
+        '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button></div>' +
+        '<div class="bar"><button data-f="i">All</button><button data-f="w">Warn+</button><button data-f="e">Errors</button></div>' +
+        '<div class="out"></div><div class="ct"></div>' +
+        '<div class="bar"><button class="tp">Pause</button><button class="tc">Clear</button><button class="tcp">Copy</button><button class="ts">Save</button></div>' +
+      '</div></div>' +
       '<div class="pg pa">' +
         '<div class="qk"></div>' +
         '<div class="rw"><input class="ie" maxlength="12" placeholder="Emoji" autocomplete="off"><input class="in" maxlength="20" placeholder="Name" autocomplete="off"></div>' +
@@ -157,6 +185,7 @@
     const PAGES = [
       { id: 'pm', label: 'Menu', icon: ICON_MENU, show: () => renderList() },
       { id: 'pf', label: 'Features', icon: ICON_FEAT, show: () => renderFeat() },
+      { id: 'pt', label: 'Terminal', icon: ICON_TERM, show: () => startTerm() },
       { id: 'pa', label: 'Shortcut', icon: ICON_ADD }
     ];
 
@@ -169,6 +198,7 @@
 
     function showPage(id) {
       const p = PAGES.find(x => x.id === id) || PAGES[0];
+      stopTerm();
       cur.textContent = p.label;
       el.querySelectorAll('.pg').forEach(g => g.classList.toggle('on', g.classList.contains(p.id)));
       mn.querySelectorAll('.mi').forEach(b => b.classList.toggle('on', b.dataset.p === p.id));
@@ -186,6 +216,110 @@
       mn.appendChild(b);
     });
     hb.addEventListener('click', () => setNav(!el.classList.contains('nav-open')));
+
+    // ----- terminal page: the debug log. Lines are only drawn while this page is open (no timers: new lines arrive as events) -----
+    const tm = el.querySelector('.tm');
+    const out = tm.querySelector('.out'), ct = tm.querySelector('.ct'), tsw = tm.querySelector('.sw');
+    const bP = tm.querySelector('.tp'), bC = tm.querySelector('.tc'), bCp = tm.querySelector('.tcp'), bS = tm.querySelector('.ts');
+    const T = { view: 'live', lvl: 'i', paused: false, unsub: null, n: 0 };
+    const RANK = { i: 0, w: 1, e: 2 };
+    const MAXLINES = 300;
+
+    const source = () => (T.view === 'saved' ? SD.logSaved() : SD.logs());
+    const passes = e => RANK[e.l] >= RANK[T.lvl];
+    const lineEl = e => {
+      const d = document.createElement('div');
+      d.className = 'ln ' + e.l;
+      const a = document.createElement('span'), b = document.createElement('span');
+      a.className = 'tt'; a.textContent = SD.logTime(e.t) + ' ';
+      b.className = 'tg'; b.textContent = e.g + ' ';
+      d.appendChild(a); d.appendChild(b); d.appendChild(document.createTextNode(e.m));
+      return d;
+    };
+    const count = () => {
+      ct.textContent = T.n + ' line' + (T.n === 1 ? '' : 's') + (T.view === 'live' && T.paused ? ' (paused)' : '') + (T.view === 'live' && !SD.logIsOn() ? ' (logging is off)' : '');
+    };
+    function drawTerm() {
+      out.innerHTML = '';
+      const rows = source().filter(passes);
+      T.n = rows.length;
+      if (!rows.length) {
+        const n = document.createElement('div');
+        n.className = 'none';
+        n.textContent = T.view === 'saved' ? 'Nothing saved yet. Tap Save in Live.' : 'No lines.';
+        out.appendChild(n);
+      } else rows.forEach(e => out.appendChild(lineEl(e)));
+      out.scrollTop = out.scrollHeight;
+      count();
+    }
+    const onLine = e => {
+      if (T.view !== 'live') return;
+      if (e === null) { drawTerm(); return; }                    // Clear
+      if (T.paused || !passes(e)) return;
+      const nearEnd = out.scrollHeight - out.scrollTop - out.clientHeight < 30;
+      const none = out.querySelector('.none');
+      if (none) none.remove();
+      out.appendChild(lineEl(e));
+      T.n++;
+      while (out.children.length > MAXLINES) { out.removeChild(out.firstChild); T.n--; }
+      if (nearEnd) out.scrollTop = out.scrollHeight;
+      count();
+    };
+    function paintTerm() {
+      tm.querySelectorAll('.bar button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === T.view));
+      tm.querySelectorAll('.bar button[data-f]').forEach(b => b.classList.toggle('on', b.dataset.f === T.lvl));
+      const on = SD.logIsOn();
+      tsw.classList.toggle('on', on);
+      tsw.setAttribute('aria-checked', on ? 'true' : 'false');
+      bP.textContent = T.paused ? 'Resume' : 'Pause';
+      bP.disabled = T.view !== 'live';
+      bS.disabled = !SD.logIsOn() && !SD.logs().length;
+    }
+    function startTerm() {
+      stopTerm();
+      T.unsub = SD.logSub(onLine);
+      paintTerm();
+      drawTerm();
+    }
+    function stopTerm() { if (T.unsub) { T.unsub(); T.unsub = null; } }
+
+    tm.querySelectorAll('.bar button[data-v]').forEach(b => b.addEventListener('click', () => { T.view = b.dataset.v; paintTerm(); drawTerm(); }));
+    tm.querySelectorAll('.bar button[data-f]').forEach(b => b.addEventListener('click', () => { T.lvl = b.dataset.f; paintTerm(); drawTerm(); }));
+    tsw.addEventListener('click', () => { SD.logSet(!SD.logIsOn()); paintTerm(); count(); });
+    bP.addEventListener('click', () => { T.paused = !T.paused; if (!T.paused) drawTerm(); paintTerm(); count(); });
+    bC.addEventListener('click', () => {
+      if (T.view === 'saved') { SD.logUnsave(); drawTerm(); SD.toast('Saved log cleared'); } else SD.logClear();
+    });
+    bS.addEventListener('click', () => {
+      const n = SD.logSave();
+      SD.toast('Saved ' + n + ' line' + (n === 1 ? '' : 's'));
+      if (T.view === 'saved') drawTerm();
+    });
+    bCp.addEventListener('click', () => {
+      const rows = source().filter(passes);
+      const head = 'Speed Dial v' + SD.ver + ' | ' + (T.view === 'saved' ? 'saved log' : 'live log') + ' | native storage: ' + (window.__sdStore && window.__sdStore.native ? 'yes' : 'no') + ' | ' + rows.length + ' line(s)';
+      const text = head + '\n' + rows.map(e => SD.logTime(e.t) + ' [' + e.g + '] ' + (e.l === 'e' ? 'ERROR ' : e.l === 'w' ? 'WARN ' : '') + e.m).join('\n');
+      copyText(text).then(ok => SD.toast(ok ? 'Copied ' + rows.length + ' line(s)' : 'Could not copy. Select the text and copy it by hand.'));
+    });
+    // clipboard API when the page allows it, otherwise the old selection trick
+    function copyText(text) {
+      const old = () => {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.cssText = 'position:fixed;left:0;top:0;opacity:0;width:1px;height:1px';
+          (document.getElementById('sdial') || document.body).appendChild(ta);
+          ta.focus(); ta.select();
+          const ok = document.execCommand('copy');
+          ta.remove();
+          return ok;
+        } catch (e) { return false; }
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(() => true, () => old());
+      } catch (e) {}
+      return Promise.resolve(old());
+    }
 
     // ----- features page: on/off per feature, "!" opens a small pop-up -----
     let tip = null;
@@ -389,7 +523,7 @@
     });
 
     showPage('pm');
-    return { unmount: closeTip };
+    return { unmount() { closeTip(); stopTerm(); } };
   }
 
   SD.register({

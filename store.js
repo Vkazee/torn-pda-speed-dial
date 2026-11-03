@@ -1,4 +1,4 @@
-// Speed Dial store v0.1.0
+// Speed Dial store v0.2.0
 // Keeps your saved data (Targets, menu layout, shortcuts, window positions, Item Dock items, Travel Helper settings, Gym Guide choices)
 // in Torn PDA's native storage (PDA_storage): on disk in the app, not wiped when the browser cache is cleared.
 // PDA_storage is asynchronous, so everything is loaded ONCE before core.js and the modules start, then read from memory.
@@ -23,6 +23,14 @@
   const dirty = new Set();              // keys not yet written to the app
   let timer = 0, busy = false, warned = false;
 
+  // debug log (Terminal in Settings). core.js does not exist yet while this file loads, so early lines wait in window.__sdBoot and core.js picks them up.
+  const log = (m, l) => {
+    try {
+      const S = window.SpeedDial;
+      if (S && S.log) S.log('store', m, l);
+      else (window.__sdBoot = window.__sdBoot || []).push(['store', m, l || 'i', Date.now()]);
+    } catch (e) {}
+  };
   const say = m => { try { window.SpeedDial && window.SpeedDial.toast(m); } catch (e) {} };
   const sched = ms => { if (!timer) timer = setTimeout(flush, ms); };
 
@@ -35,9 +43,10 @@
     const o = {};
     keys.forEach(k => { try { o[k] = JSON.parse(cache[k]); } catch (e) {} });
     let ok = true;
-    try { await nat.setMany(o); }
+    try { await nat.setMany(o); log('saved ' + keys.length + ' key(s) to the app'); }
     catch (e) {
       ok = false;
+      log('save to the app FAILED' + (e && e.code ? ' (' + e.code + ')' : '') + ': ' + (e && e.message || e), 'e');
       keys.forEach(k => dirty.add(k));   // try again later
       if (!warned) { warned = true; say(e && e.code === 'QuotaExceeded' ? 'Speed Dial: PDA storage is full' : 'Speed Dial: could not save to PDA storage'); }
     }
@@ -47,7 +56,7 @@
 
   window.__sdInit = async () => {
     const n = window.__sdNative;
-    if (!n || typeof n.loadAll !== 'function' || typeof n.setMany !== 'function') return;   // old PDA: stay on localStorage
+    if (!n || typeof n.loadAll !== 'function' || typeof n.setMany !== 'function') { log('no native storage in this PDA: localStorage only', 'w'); return; }   // old PDA: stay on localStorage
     const all = (await n.loadAll()) || {};
     Object.keys(all).forEach(k => { if (mine(k) && all[k] != null) cache[k] = JSON.stringify(all[k]); });
     const move = {};
@@ -60,6 +69,7 @@
       }
     } catch (e) {}
     nat = n;
+    log('native storage on: ' + Object.keys(all).filter(mine).length + ' key(s) loaded, ' + Object.keys(move).length + ' copied from localStorage');
     Object.keys(move).forEach(k => dirty.add(k));
     if (dirty.size) await flush();
   };

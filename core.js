@@ -1,4 +1,4 @@
-// Speed Dial core v0.8.0
+// Speed Dial core v0.10.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -9,22 +9,84 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.9.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.10.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
   const GAP = 46;
   const LAY = 'speedDial.layout1';   // { order: [ids], front: [ids] | null }
 
+  // ---------- debug log (the Terminal page in Settings) ----------
+  // Kept in memory only: a ring buffer of the last LOGMAX lines. No timer, no API call, nothing is drawn unless the Terminal page is open.
+  // It reaches storage only when you tap Save in Terminal (key speedDial.log1). Anything that looks like your API key is masked before it is stored.
+  // New modules and features: call SD.log('tag', 'message') for what they do, and SD.log('tag', 'message', 'w') (warn) or 'e' (error) when something goes wrong,
+  // especially inside a catch block, so errors are never silent.
+  const LOGMAX = 300;
+  const DBG = 'speedDial.dbg1';     // { on: true | false }, logging switch (default on)
+  const LOGK = 'speedDial.log1';    // the saved copy of the log
+  const buf = [];
+  const subs = new Set();
+  let dbgOn = true;
+  const mask = s => {
+    s = String(s);
+    if (SD.key && SD.key.length > 4) s = s.split(SD.key).join('***');
+    return s.replace(/([?&]key=)[^&\s"']+/gi, '$1***');
+  };
+  const tell = e => subs.forEach(f => { try { f(e); } catch (x) {} });
+  // lvl: 'i' (default) | 'w' | 'e'; ts is only used for lines that waited in window.__sdBoot
+  SD.log = (tag, msg, lvl, ts) => {
+    if (!dbgOn) return;
+    let m;
+    try { m = typeof msg === 'string' ? msg : ((msg && msg.message) || JSON.stringify(msg)); } catch (x) { m = String(msg); }
+    const e = { t: ts || Date.now(), g: String(tag).slice(0, 10), m: mask(m).slice(0, 400), l: (lvl === 'e' || lvl === 'w') ? lvl : 'i' };
+    buf.push(e);
+    if (buf.length > LOGMAX) buf.shift();
+    tell(e);
+  };
+  SD.logs = () => buf.slice();
+  SD.logSub = fn => { subs.add(fn); return () => subs.delete(fn); };   // fn(entry) per new line, fn(null) after Clear; returns the unsubscribe function
+  SD.logClear = () => { buf.length = 0; tell(null); };
+  SD.logIsOn = () => dbgOn;
+  SD.logSet = on => {
+    on = !!on;
+    if (!on) SD.log('log', 'logging switched off');
+    dbgOn = on;
+    SD.write(DBG, { on });
+    if (on) SD.log('log', 'logging switched on');
+  };
+  SD.logSave = () => { SD.write(LOGK, buf.slice()); return buf.length; };
+  SD.logSaved = () => { const v = SD.read(LOGK, []); return Array.isArray(v) ? v : []; };
+  SD.logUnsave = () => SD.write(LOGK, []);
+  SD.logTime = t => new Date(t).toTimeString().slice(0, 8);
+  // only errors that come from Speed Dial's own files (the loader names them speeddial/<file>); Torn's own errors are not our business
+  const ours = s => /speeddial|speed-dial/i.test(String(s || ''));
+  addEventListener('error', e => {
+    if (ours(e.filename) || ours(e.error && e.error.stack)) SD.log('error', (e.message || 'error') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + e.lineno, 'e');
+  });
+  addEventListener('unhandledrejection', e => {
+    const r = e.reason;
+    if (ours(r && r.stack)) SD.log('promise', 'unhandled: ' + ((r && r.message) || r), 'e');
+  });
+
   // ---------- helpers shared by modules ----------
   // saved data goes through store.js (Torn PDA native storage, with localStorage as copy/fallback).
   // New modules/features: ALWAYS use SD.read / SD.write, never localStorage directly, and start the key with 'speedDial.' (see store.js PFX).
   SD.read = (k, def) => {
-    try { const v = JSON.parse(window.__sdStore ? window.__sdStore.get(k) : localStorage.getItem(k)); return v == null ? def : v; } catch (e) { return def; }
+    try { const v = JSON.parse(window.__sdStore ? window.__sdStore.get(k) : localStorage.getItem(k)); return v == null ? def : v; }
+    catch (e) { if (SD.log) SD.log('store', 'read ' + k + ' failed, default used: ' + e.message, 'w'); return def; }
   };
   SD.write = (k, v) => {
-    try { const t = JSON.stringify(v); if (window.__sdStore) window.__sdStore.set(k, t); else localStorage.setItem(k, t); } catch (e) {}
+    try {
+      const t = JSON.stringify(v);
+      if (window.__sdStore) window.__sdStore.set(k, t); else localStorage.setItem(k, t);
+      if (SD.log && k !== LOGK && k !== DBG) SD.log('store', 'write ' + k + ' (' + t.length + ' B)');
+    } catch (e) { if (SD.log) SD.log('store', 'write ' + k + ' FAILED: ' + e.message, 'e'); }
   };
+  dbgOn = (SD.read(DBG, {}) || {}).on !== false;
+  (window.__sdBoot || []).forEach(a => SD.log(a[0], a[1], a[2], a[3]));   // lines store.js wrote before this file existed
+  window.__sdBoot = null;
+  SD.log('boot', 'core v' + SD.ver + ' loaded');
+  // (SD.read exists from here on, so the logging switch and the lines that waited for core.js are handled now)
   SD.esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // minutes precision: 2h 14m
   SD.dur = sec => {
@@ -59,6 +121,7 @@
 
   let toastEl = null, toastTimer;
   SD.toast = msg => {
+    SD.log('toast', msg);
     if (!toastEl) {
       toastEl = document.createElement('div');
       toastEl.style.cssText = 'position:fixed;left:50%;bottom:72px;transform:translateX(-50%);max-width:82vw;z-index:2147483647;display:none;background:#1c1c1c;border:1px solid #3a3a3a;color:#e6e6e6;padding:8px 12px;border-radius:10px;font:12px/1.35 -apple-system,Roboto,sans-serif;text-align:center';
@@ -72,9 +135,20 @@
 
   // official API (throws on API errors)
   SD.api = async url => {
-    const r = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'key=' + SD.key);
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.error || 'API error');
+    const t0 = Date.now(), ep = String(url).replace(/^https:\/\/api\.torn\.com/, '');
+    let j;
+    try {
+      const r = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'key=' + SD.key);
+      j = await r.json();
+    } catch (e) {
+      SD.log('api', ep + ' network/parse FAILED after ' + (Date.now() - t0) + 'ms: ' + (e && e.message), 'e');
+      throw e;
+    }
+    if (j.error) {
+      SD.log('api', ep + ' error ' + j.error.code + ': ' + (j.error.error || ''), 'e');
+      throw new Error(j.error.error || 'API error');
+    }
+    SD.log('api', ep + ' ok ' + (Date.now() - t0) + 'ms');
     return j;
   };
 
@@ -89,12 +163,14 @@
   SD.data = function (force) {
     if (!SD.hasKey) return Promise.resolve(null);
     SD.peek();
-    if (!force && D && Date.now() - D.t < TTL) { ring(); return Promise.resolve(D); }   // cache masih segar: tetap gambar outline
+    if (!force && D && Date.now() - D.t < TTL) { SD.log('data', 'cache hit (' + Math.round((Date.now() - D.t) / 1000) + 's old)'); ring(); return Promise.resolve(D); }   // cache masih segar: tetap gambar outline
     if (inflight) return inflight;
+    const t0 = Date.now();
+    SD.log('data', 'fetching status' + (force ? ' (forced)' : ''));
     inflight = fetch('https://api.torn.com/user/?selections=basic,travel,cooldowns,bars&key=' + SD.key)
       .then(r => r.json())
       .then(j => {
-        if (j.error) { err = j.error.error || 'API error'; return D; }
+        if (j.error) { err = j.error.error || 'API error'; SD.log('data', 'API error ' + j.error.code + ': ' + err, 'e'); return D; }
         const st = j.status || {}, tr = j.travel || {}, c = j.cooldowns || {};
         const state = st.state || 'Okay';
         const desc = String(st.description || '').replace(/<[^>]*>/g, '').trim();
@@ -115,10 +191,11 @@
           cd: { drug: c.drug || 0, medical: c.medical || 0, booster: c.booster || 0 }
         };
         err = '';
-        try { sessionStorage.setItem(DK, JSON.stringify(D)); } catch (e) {}
+        SD.log('data', 'ok ' + (Date.now() - t0) + 'ms state=' + state + ' dest=' + (dest || '-') + ' abroad=' + D.abroad);
+        try { sessionStorage.setItem(DK, JSON.stringify(D)); } catch (e) { SD.log('data', 'sessionStorage cache failed: ' + e.message, 'w'); }
         return D;
       })
-      .catch(() => { err = 'Network error'; return D; })
+      .catch(e => { err = 'Network error'; SD.log('data', 'network error: ' + (e && e.message), 'e'); return D; })
       .then(r => { inflight = null; ring(); return r; });
     return inflight;
   };
@@ -137,12 +214,14 @@
   // more: true marks the Show More circle itself (it gets a dot while a window of something inside Show More is open)
   SD.register = m => {
     SD.mods.push(m);
+    SD.log('mod', 'register ' + m.id);
     if (stack) refreshCircles();
   };
   SD.unregister = id => {
     const i = SD.mods.findIndex(m => m.id === id);
     if (i < 0) return;
     const m = SD.mods[i];
+    SD.log('mod', 'unregister ' + id);
     closeWin(id);
     SD.mods.splice(i, 1);
     const ly = layout0();                       // forget a removed module in the saved layout
@@ -200,6 +279,7 @@
       front: front.filter(here).slice(0, MAXF).concat((ly.front || []).filter(id => !here(id)))
     };
     SD.write(LAY, LY);
+    SD.log('layout', 'on screen: ' + LY.front.join(', ') + ' | order: ' + LY.order.length + ' module(s)');
     if (stack) refreshCircles();
   };
 
@@ -241,8 +321,9 @@
     me.ons.forEach(o => { try { o[0].removeEventListener(o[1], o[2], o[3]); } catch (e) {} });
     const inst = me.inst;
     me.inst = null;
-    if (inst && typeof inst.stop === 'function') { try { inst.stop(); } catch (e) {} }
+    if (inst && typeof inst.stop === 'function') { try { inst.stop(); } catch (e) { SD.log('feature', id + ' stop() threw: ' + e.message, 'e'); } }
     me.styles.forEach(st => st.remove());
+    SD.log('feature', 'stop ' + id);
   }
 
   function fstart(f) {
@@ -256,8 +337,9 @@
       css: text => { const st = document.createElement('style'); st.textContent = text; document.head.appendChild(st); me.styles.push(st); return st; },
       on: (t, type, fn, o) => { t.addEventListener(type, fn, o); me.ons.push([t, type, fn, o]); }
     };
+    SD.log('feature', 'start ' + f.id);
     try { me.inst = f.start(ctx) || null; }
-    catch (e) { fstop(f.id); SD.toast(f.label + ': ' + (e && e.message || 'could not start')); }
+    catch (e) { fstop(f.id); SD.log('feature', f.id + ' refused/failed to start: ' + (e && e.message || e), 'w'); SD.toast(f.label + ': ' + (e && e.message || 'could not start')); }
   }
 
   // start or stop one feature so it matches "switched on AND on the right page"
@@ -277,6 +359,7 @@
     const f = fget(id);
     if (!f) return;
     fstate()[id] = !!on;
+    SD.log('feature', id + ' switched ' + (on ? 'on' : 'off'));
     SD.write(FK, FS);
     fsync(f);
   };
@@ -325,6 +408,7 @@
     #sdial .win .bd{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;padding:6px}
   `;
 
+  let lastRing = null;
   function ring() {
     if (!fab) return;
     const d = D;
@@ -335,6 +419,9 @@
     fab.classList.toggle('away', !red && (m === 'flying' || m === 'abroad'));
     const hosp = !!d && d.state === 'Hospital' && !d.abroad, away = !red && (m === 'flying' || m === 'abroad');
     root.dataset.st = red ? 'blk' : hosp ? 'hosp' : away ? 'away' : '';   // the window outline follows the main circle
+    const now = root.dataset.st || 'none';
+    if (now !== lastRing) { SD.log('ring', 'outline ' + (lastRing || '-') + ' -> ' + now + (d ? ' (state=' + d.state + ')' : ' (no data)')); lastRing = now; }
+    if (!root.isConnected) SD.log('ring', 'WARNING: the Speed Dial element is not in the page any more', 'w');
   }
 
   function layout() {
@@ -418,8 +505,9 @@
     if (me.ro) me.ro.disconnect();
     const inst = me.inst;
     me.inst = null;
-    if (inst && typeof inst.unmount === 'function') { try { inst.unmount(); } catch (e) {} }
+    if (inst && typeof inst.unmount === 'function') { try { inst.unmount(); } catch (e) { SD.log('win', id + ' unmount() threw: ' + e.message, 'e'); } }
     me.win.remove();
+    SD.log('win', 'close ' + id);
     if (root) markActive();
   }
 
@@ -488,7 +576,8 @@
       setWidth: w => { me.w = w; place(me); },
       close: () => closeWin(m.id)
     };
-    try { me.inst = m.mount(ctx) || null; } catch (e) { inner.textContent = 'Error: ' + e.message; }
+    SD.log('win', 'open ' + m.id);
+    try { me.inst = m.mount(ctx) || null; } catch (e) { inner.textContent = 'Error: ' + e.message; SD.log('win', m.id + ' mount() threw: ' + e.message + (e.stack ? ' | ' + String(e.stack).split('\n').slice(1, 3).join(' | ') : ''), 'e'); }
     if (wins.get(m.id) !== me) return;
     place(me);
     // two windows never start on exactly the same spot
@@ -564,6 +653,20 @@
 
     // pakai status terakhir dari cache dulu supaya outline langsung muncul di tiap halaman,
     // lalu satu pengecekan ringan per page load untuk menyegarkannya
+    SD.log('boot', 'start: key=' + (SD.hasKey ? 'yes' : 'NO') + ', native storage=' + (window.__sdStore && window.__sdStore.native ? 'yes' : 'no') + ', page=' + location.pathname, SD.hasKey ? 'i' : 'w');
+
+    // for the Terminal only (events, no timers): page changes inside Torn, and the moment our element leaves or re-enters the page
+    const nav = type => SD.log('nav', type + ' -> ' + location.pathname + location.hash + ' | speed dial ' + (root.isConnected ? 'in page' : 'MISSING'), root.isConnected ? 'i' : 'w');
+    addEventListener('hashchange', () => nav('hashchange'));
+    addEventListener('popstate', () => nav('popstate'));
+    try {
+      let was = true;
+      new MutationObserver(() => {
+        const now = root.isConnected;
+        if (now !== was) { was = now; SD.log('ui', now ? 'Speed Dial is back in the page' : 'Speed Dial was REMOVED from the page', now ? 'i' : 'w'); }
+      }).observe(document.body, { childList: true });
+    } catch (e) { SD.log('ui', 'could not watch the page: ' + e.message, 'w'); }
+
     SD.peek();
     ring();
     SD.data(false);

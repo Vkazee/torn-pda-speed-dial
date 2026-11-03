@@ -33,7 +33,7 @@
   try {
     for (let i = 0; i < 20 && typeof PDA_httpGet !== 'function'; i++) await new Promise(r => setTimeout(r, 100));   // PDA's bridge may not exist yet at document-start
     window.__sdNative = typeof PDA_storage !== 'undefined' ? PDA_storage : null;
-// Speed Dial store v0.1.0
+// Speed Dial store v0.2.0
 // Keeps your saved data (Targets, menu layout, shortcuts, window positions, Item Dock items, Travel Helper settings, Gym Guide choices)
 // in Torn PDA's native storage (PDA_storage): on disk in the app, not wiped when the browser cache is cleared.
 // PDA_storage is asynchronous, so everything is loaded ONCE before core.js and the modules start, then read from memory.
@@ -58,6 +58,14 @@
   const dirty = new Set();              // keys not yet written to the app
   let timer = 0, busy = false, warned = false;
 
+  // debug log (Terminal in Settings). core.js does not exist yet while this file loads, so early lines wait in window.__sdBoot and core.js picks them up.
+  const log = (m, l) => {
+    try {
+      const S = window.SpeedDial;
+      if (S && S.log) S.log('store', m, l);
+      else (window.__sdBoot = window.__sdBoot || []).push(['store', m, l || 'i', Date.now()]);
+    } catch (e) {}
+  };
   const say = m => { try { window.SpeedDial && window.SpeedDial.toast(m); } catch (e) {} };
   const sched = ms => { if (!timer) timer = setTimeout(flush, ms); };
 
@@ -70,9 +78,10 @@
     const o = {};
     keys.forEach(k => { try { o[k] = JSON.parse(cache[k]); } catch (e) {} });
     let ok = true;
-    try { await nat.setMany(o); }
+    try { await nat.setMany(o); log('saved ' + keys.length + ' key(s) to the app'); }
     catch (e) {
       ok = false;
+      log('save to the app FAILED' + (e && e.code ? ' (' + e.code + ')' : '') + ': ' + (e && e.message || e), 'e');
       keys.forEach(k => dirty.add(k));   // try again later
       if (!warned) { warned = true; say(e && e.code === 'QuotaExceeded' ? 'Speed Dial: PDA storage is full' : 'Speed Dial: could not save to PDA storage'); }
     }
@@ -82,7 +91,7 @@
 
   window.__sdInit = async () => {
     const n = window.__sdNative;
-    if (!n || typeof n.loadAll !== 'function' || typeof n.setMany !== 'function') return;   // old PDA: stay on localStorage
+    if (!n || typeof n.loadAll !== 'function' || typeof n.setMany !== 'function') { log('no native storage in this PDA: localStorage only', 'w'); return; }   // old PDA: stay on localStorage
     const all = (await n.loadAll()) || {};
     Object.keys(all).forEach(k => { if (mine(k) && all[k] != null) cache[k] = JSON.stringify(all[k]); });
     const move = {};
@@ -95,6 +104,7 @@
       }
     } catch (e) {}
     nat = n;
+    log('native storage on: ' + Object.keys(all).filter(mine).length + ' key(s) loaded, ' + Object.keys(move).length + ' copied from localStorage');
     Object.keys(move).forEach(k => dirty.add(k));
     if (dirty.size) await flush();
   };
@@ -114,7 +124,7 @@
 })();
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
-// Speed Dial core v0.8.0
+// Speed Dial core v0.10.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -125,22 +135,84 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.9.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.10.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
   const GAP = 46;
   const LAY = 'speedDial.layout1';   // { order: [ids], front: [ids] | null }
 
+  // ---------- debug log (the Terminal page in Settings) ----------
+  // Kept in memory only: a ring buffer of the last LOGMAX lines. No timer, no API call, nothing is drawn unless the Terminal page is open.
+  // It reaches storage only when you tap Save in Terminal (key speedDial.log1). Anything that looks like your API key is masked before it is stored.
+  // New modules and features: call SD.log('tag', 'message') for what they do, and SD.log('tag', 'message', 'w') (warn) or 'e' (error) when something goes wrong,
+  // especially inside a catch block, so errors are never silent.
+  const LOGMAX = 300;
+  const DBG = 'speedDial.dbg1';     // { on: true | false }, logging switch (default on)
+  const LOGK = 'speedDial.log1';    // the saved copy of the log
+  const buf = [];
+  const subs = new Set();
+  let dbgOn = true;
+  const mask = s => {
+    s = String(s);
+    if (SD.key && SD.key.length > 4) s = s.split(SD.key).join('***');
+    return s.replace(/([?&]key=)[^&\s"']+/gi, '$1***');
+  };
+  const tell = e => subs.forEach(f => { try { f(e); } catch (x) {} });
+  // lvl: 'i' (default) | 'w' | 'e'; ts is only used for lines that waited in window.__sdBoot
+  SD.log = (tag, msg, lvl, ts) => {
+    if (!dbgOn) return;
+    let m;
+    try { m = typeof msg === 'string' ? msg : ((msg && msg.message) || JSON.stringify(msg)); } catch (x) { m = String(msg); }
+    const e = { t: ts || Date.now(), g: String(tag).slice(0, 10), m: mask(m).slice(0, 400), l: (lvl === 'e' || lvl === 'w') ? lvl : 'i' };
+    buf.push(e);
+    if (buf.length > LOGMAX) buf.shift();
+    tell(e);
+  };
+  SD.logs = () => buf.slice();
+  SD.logSub = fn => { subs.add(fn); return () => subs.delete(fn); };   // fn(entry) per new line, fn(null) after Clear; returns the unsubscribe function
+  SD.logClear = () => { buf.length = 0; tell(null); };
+  SD.logIsOn = () => dbgOn;
+  SD.logSet = on => {
+    on = !!on;
+    if (!on) SD.log('log', 'logging switched off');
+    dbgOn = on;
+    SD.write(DBG, { on });
+    if (on) SD.log('log', 'logging switched on');
+  };
+  SD.logSave = () => { SD.write(LOGK, buf.slice()); return buf.length; };
+  SD.logSaved = () => { const v = SD.read(LOGK, []); return Array.isArray(v) ? v : []; };
+  SD.logUnsave = () => SD.write(LOGK, []);
+  SD.logTime = t => new Date(t).toTimeString().slice(0, 8);
+  // only errors that come from Speed Dial's own files (the loader names them speeddial/<file>); Torn's own errors are not our business
+  const ours = s => /speeddial|speed-dial/i.test(String(s || ''));
+  addEventListener('error', e => {
+    if (ours(e.filename) || ours(e.error && e.error.stack)) SD.log('error', (e.message || 'error') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + e.lineno, 'e');
+  });
+  addEventListener('unhandledrejection', e => {
+    const r = e.reason;
+    if (ours(r && r.stack)) SD.log('promise', 'unhandled: ' + ((r && r.message) || r), 'e');
+  });
+
   // ---------- helpers shared by modules ----------
   // saved data goes through store.js (Torn PDA native storage, with localStorage as copy/fallback).
   // New modules/features: ALWAYS use SD.read / SD.write, never localStorage directly, and start the key with 'speedDial.' (see store.js PFX).
   SD.read = (k, def) => {
-    try { const v = JSON.parse(window.__sdStore ? window.__sdStore.get(k) : localStorage.getItem(k)); return v == null ? def : v; } catch (e) { return def; }
+    try { const v = JSON.parse(window.__sdStore ? window.__sdStore.get(k) : localStorage.getItem(k)); return v == null ? def : v; }
+    catch (e) { if (SD.log) SD.log('store', 'read ' + k + ' failed, default used: ' + e.message, 'w'); return def; }
   };
   SD.write = (k, v) => {
-    try { const t = JSON.stringify(v); if (window.__sdStore) window.__sdStore.set(k, t); else localStorage.setItem(k, t); } catch (e) {}
+    try {
+      const t = JSON.stringify(v);
+      if (window.__sdStore) window.__sdStore.set(k, t); else localStorage.setItem(k, t);
+      if (SD.log && k !== LOGK && k !== DBG) SD.log('store', 'write ' + k + ' (' + t.length + ' B)');
+    } catch (e) { if (SD.log) SD.log('store', 'write ' + k + ' FAILED: ' + e.message, 'e'); }
   };
+  dbgOn = (SD.read(DBG, {}) || {}).on !== false;
+  (window.__sdBoot || []).forEach(a => SD.log(a[0], a[1], a[2], a[3]));   // lines store.js wrote before this file existed
+  window.__sdBoot = null;
+  SD.log('boot', 'core v' + SD.ver + ' loaded');
+  // (SD.read exists from here on, so the logging switch and the lines that waited for core.js are handled now)
   SD.esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // minutes precision: 2h 14m
   SD.dur = sec => {
@@ -175,6 +247,7 @@
 
   let toastEl = null, toastTimer;
   SD.toast = msg => {
+    SD.log('toast', msg);
     if (!toastEl) {
       toastEl = document.createElement('div');
       toastEl.style.cssText = 'position:fixed;left:50%;bottom:72px;transform:translateX(-50%);max-width:82vw;z-index:2147483647;display:none;background:#1c1c1c;border:1px solid #3a3a3a;color:#e6e6e6;padding:8px 12px;border-radius:10px;font:12px/1.35 -apple-system,Roboto,sans-serif;text-align:center';
@@ -188,9 +261,20 @@
 
   // official API (throws on API errors)
   SD.api = async url => {
-    const r = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'key=' + SD.key);
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.error || 'API error');
+    const t0 = Date.now(), ep = String(url).replace(/^https:\/\/api\.torn\.com/, '');
+    let j;
+    try {
+      const r = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'key=' + SD.key);
+      j = await r.json();
+    } catch (e) {
+      SD.log('api', ep + ' network/parse FAILED after ' + (Date.now() - t0) + 'ms: ' + (e && e.message), 'e');
+      throw e;
+    }
+    if (j.error) {
+      SD.log('api', ep + ' error ' + j.error.code + ': ' + (j.error.error || ''), 'e');
+      throw new Error(j.error.error || 'API error');
+    }
+    SD.log('api', ep + ' ok ' + (Date.now() - t0) + 'ms');
     return j;
   };
 
@@ -205,12 +289,14 @@
   SD.data = function (force) {
     if (!SD.hasKey) return Promise.resolve(null);
     SD.peek();
-    if (!force && D && Date.now() - D.t < TTL) { ring(); return Promise.resolve(D); }   // cache masih segar: tetap gambar outline
+    if (!force && D && Date.now() - D.t < TTL) { SD.log('data', 'cache hit (' + Math.round((Date.now() - D.t) / 1000) + 's old)'); ring(); return Promise.resolve(D); }   // cache masih segar: tetap gambar outline
     if (inflight) return inflight;
+    const t0 = Date.now();
+    SD.log('data', 'fetching status' + (force ? ' (forced)' : ''));
     inflight = fetch('https://api.torn.com/user/?selections=basic,travel,cooldowns,bars&key=' + SD.key)
       .then(r => r.json())
       .then(j => {
-        if (j.error) { err = j.error.error || 'API error'; return D; }
+        if (j.error) { err = j.error.error || 'API error'; SD.log('data', 'API error ' + j.error.code + ': ' + err, 'e'); return D; }
         const st = j.status || {}, tr = j.travel || {}, c = j.cooldowns || {};
         const state = st.state || 'Okay';
         const desc = String(st.description || '').replace(/<[^>]*>/g, '').trim();
@@ -231,10 +317,11 @@
           cd: { drug: c.drug || 0, medical: c.medical || 0, booster: c.booster || 0 }
         };
         err = '';
-        try { sessionStorage.setItem(DK, JSON.stringify(D)); } catch (e) {}
+        SD.log('data', 'ok ' + (Date.now() - t0) + 'ms state=' + state + ' dest=' + (dest || '-') + ' abroad=' + D.abroad);
+        try { sessionStorage.setItem(DK, JSON.stringify(D)); } catch (e) { SD.log('data', 'sessionStorage cache failed: ' + e.message, 'w'); }
         return D;
       })
-      .catch(() => { err = 'Network error'; return D; })
+      .catch(e => { err = 'Network error'; SD.log('data', 'network error: ' + (e && e.message), 'e'); return D; })
       .then(r => { inflight = null; ring(); return r; });
     return inflight;
   };
@@ -253,12 +340,14 @@
   // more: true marks the Show More circle itself (it gets a dot while a window of something inside Show More is open)
   SD.register = m => {
     SD.mods.push(m);
+    SD.log('mod', 'register ' + m.id);
     if (stack) refreshCircles();
   };
   SD.unregister = id => {
     const i = SD.mods.findIndex(m => m.id === id);
     if (i < 0) return;
     const m = SD.mods[i];
+    SD.log('mod', 'unregister ' + id);
     closeWin(id);
     SD.mods.splice(i, 1);
     const ly = layout0();                       // forget a removed module in the saved layout
@@ -316,6 +405,7 @@
       front: front.filter(here).slice(0, MAXF).concat((ly.front || []).filter(id => !here(id)))
     };
     SD.write(LAY, LY);
+    SD.log('layout', 'on screen: ' + LY.front.join(', ') + ' | order: ' + LY.order.length + ' module(s)');
     if (stack) refreshCircles();
   };
 
@@ -357,8 +447,9 @@
     me.ons.forEach(o => { try { o[0].removeEventListener(o[1], o[2], o[3]); } catch (e) {} });
     const inst = me.inst;
     me.inst = null;
-    if (inst && typeof inst.stop === 'function') { try { inst.stop(); } catch (e) {} }
+    if (inst && typeof inst.stop === 'function') { try { inst.stop(); } catch (e) { SD.log('feature', id + ' stop() threw: ' + e.message, 'e'); } }
     me.styles.forEach(st => st.remove());
+    SD.log('feature', 'stop ' + id);
   }
 
   function fstart(f) {
@@ -372,8 +463,9 @@
       css: text => { const st = document.createElement('style'); st.textContent = text; document.head.appendChild(st); me.styles.push(st); return st; },
       on: (t, type, fn, o) => { t.addEventListener(type, fn, o); me.ons.push([t, type, fn, o]); }
     };
+    SD.log('feature', 'start ' + f.id);
     try { me.inst = f.start(ctx) || null; }
-    catch (e) { fstop(f.id); SD.toast(f.label + ': ' + (e && e.message || 'could not start')); }
+    catch (e) { fstop(f.id); SD.log('feature', f.id + ' refused/failed to start: ' + (e && e.message || e), 'w'); SD.toast(f.label + ': ' + (e && e.message || 'could not start')); }
   }
 
   // start or stop one feature so it matches "switched on AND on the right page"
@@ -393,6 +485,7 @@
     const f = fget(id);
     if (!f) return;
     fstate()[id] = !!on;
+    SD.log('feature', id + ' switched ' + (on ? 'on' : 'off'));
     SD.write(FK, FS);
     fsync(f);
   };
@@ -441,6 +534,7 @@
     #sdial .win .bd{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;padding:6px}
   `;
 
+  let lastRing = null;
   function ring() {
     if (!fab) return;
     const d = D;
@@ -451,6 +545,9 @@
     fab.classList.toggle('away', !red && (m === 'flying' || m === 'abroad'));
     const hosp = !!d && d.state === 'Hospital' && !d.abroad, away = !red && (m === 'flying' || m === 'abroad');
     root.dataset.st = red ? 'blk' : hosp ? 'hosp' : away ? 'away' : '';   // the window outline follows the main circle
+    const now = root.dataset.st || 'none';
+    if (now !== lastRing) { SD.log('ring', 'outline ' + (lastRing || '-') + ' -> ' + now + (d ? ' (state=' + d.state + ')' : ' (no data)')); lastRing = now; }
+    if (!root.isConnected) SD.log('ring', 'WARNING: the Speed Dial element is not in the page any more', 'w');
   }
 
   function layout() {
@@ -534,8 +631,9 @@
     if (me.ro) me.ro.disconnect();
     const inst = me.inst;
     me.inst = null;
-    if (inst && typeof inst.unmount === 'function') { try { inst.unmount(); } catch (e) {} }
+    if (inst && typeof inst.unmount === 'function') { try { inst.unmount(); } catch (e) { SD.log('win', id + ' unmount() threw: ' + e.message, 'e'); } }
     me.win.remove();
+    SD.log('win', 'close ' + id);
     if (root) markActive();
   }
 
@@ -604,7 +702,8 @@
       setWidth: w => { me.w = w; place(me); },
       close: () => closeWin(m.id)
     };
-    try { me.inst = m.mount(ctx) || null; } catch (e) { inner.textContent = 'Error: ' + e.message; }
+    SD.log('win', 'open ' + m.id);
+    try { me.inst = m.mount(ctx) || null; } catch (e) { inner.textContent = 'Error: ' + e.message; SD.log('win', m.id + ' mount() threw: ' + e.message + (e.stack ? ' | ' + String(e.stack).split('\n').slice(1, 3).join(' | ') : ''), 'e'); }
     if (wins.get(m.id) !== me) return;
     place(me);
     // two windows never start on exactly the same spot
@@ -680,6 +779,20 @@
 
     // pakai status terakhir dari cache dulu supaya outline langsung muncul di tiap halaman,
     // lalu satu pengecekan ringan per page load untuk menyegarkannya
+    SD.log('boot', 'start: key=' + (SD.hasKey ? 'yes' : 'NO') + ', native storage=' + (window.__sdStore && window.__sdStore.native ? 'yes' : 'no') + ', page=' + location.pathname, SD.hasKey ? 'i' : 'w');
+
+    // for the Terminal only (events, no timers): page changes inside Torn, and the moment our element leaves or re-enters the page
+    const nav = type => SD.log('nav', type + ' -> ' + location.pathname + location.hash + ' | speed dial ' + (root.isConnected ? 'in page' : 'MISSING'), root.isConnected ? 'i' : 'w');
+    addEventListener('hashchange', () => nav('hashchange'));
+    addEventListener('popstate', () => nav('popstate'));
+    try {
+      let was = true;
+      new MutationObserver(() => {
+        const now = root.isConnected;
+        if (now !== was) { was = now; SD.log('ui', now ? 'Speed Dial is back in the page' : 'Speed Dial was REMOVED from the page', now ? 'i' : 'w'); }
+      }).observe(document.body, { childList: true });
+    } catch (e) { SD.log('ui', 'could not watch the page: ' + e.message, 'w'); }
+
     SD.peek();
     ring();
     SD.data(false);
@@ -848,12 +961,14 @@
         const j = JSON.parse(t);
         msg = j.text || j.msg || j.message || t;
         if (j.success === false || j.error) ok = false;
-      } catch (e) {}
+      } catch (e) { /* reply was not JSON: the raw text is used */ }
       msg = String(msg).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      SD.log('item', 'use ' + it.name + ' (id ' + it.id + ') HTTP ' + r.status + ' -> ' + (ok ? 'ok' : 'FAILED') + ': ' + msg.slice(0, 80), ok ? 'i' : 'w');
       SD.toast(msg ? msg.slice(0, 160) : 'Done');
       if (ok && !it.fac) bump(it.id, -1);                 // update the count right away
       SD.data(true).then(() => { if (ui) ui.status(); });  // fresh status + cooldowns
     } catch (e) {
+      SD.log('item', 'use ' + it.name + ' threw: ' + e.message, 'e');
       SD.toast('Failed: ' + e.message);
     }
     busy = false;
@@ -1334,8 +1449,9 @@
     for (const s of SOURCES) {
       try {
         const r = parseStocks(JSON.parse(await http(s.u)));
+        SD.log('travel', 'stocks from ' + s.n + ': ' + r.rows.length + ' row(s)');
         return { rows: r.rows, ts: r.ts, src: s.n, t: Date.now(), note: failed.join(', ') };
-      } catch (e) { failed.push(s.n + ' failed (' + e.message + ')'); }
+      } catch (e) { failed.push(s.n + ' failed (' + e.message + ')'); SD.log('travel', 'stocks source ' + s.n + ' failed: ' + e.message, 'w'); }
     }
     throw new Error(failed.join(', '));
   }
@@ -2456,7 +2572,7 @@
   });
 })();
 
-// Speed Dial module: Settings v0.6.0
+// Speed Dial module: Settings v0.7.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
@@ -2465,6 +2581,8 @@
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
 //                   The "!" next to a feature opens a small pop-up with a one-line explanation.
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
+//   Terminal      - the debug log (SD.log in core.js): what Speed Dial did, API calls, storage writes, warnings and errors.
+//                   Lines live in memory only; Save keeps a copy in storage so it survives a reload (view it with Saved).
 // Nothing is read from or clicked on the page. Only torn.com pages are accepted.
 (function () {
   'use strict';
@@ -2517,6 +2635,7 @@
   // pages shown in the menu (order = order in the list). show(): optional, runs every time the page opens
   const ICON_MENU = '<svg viewBox="0 0 24 24"><line x1="9" y1="7" x2="20" y2="7"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="17" x2="20" y2="17"/><circle cx="5" cy="7" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="17" r="1"/></svg>';
   const ICON_FEAT = '<svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></svg>';
+  const ICON_TERM = '<svg viewBox="0 0 24 24"><polyline points="4 7 9 12 4 17"/><line x1="12" y1="17" x2="20" y2="17"/></svg>';
   const ICON_ADD = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
 
   const CSS = `
@@ -2578,6 +2697,24 @@
     #sdial .cz .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
     #sdial .cz .fr .sw.on{background:#25360f;border-color:#85b200}
     #sdial .cz .fr .sw.on i{transform:translateX(16px);background:#85b200}
+    #sdial .cz .tm .fr{padding:0 4px 0 6px;min-height:34px;margin-bottom:4px}
+    #sdial .cz .tm .fr .sw{flex:0 0 auto;position:relative;width:40px;height:24px;padding:0;border-radius:12px;border:1px solid #444;background:#1a1a1a;transition:background .12s,border-color .12s}
+    #sdial .cz .tm .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
+    #sdial .cz .tm .fr .sw.on{background:#25360f;border-color:#85b200}
+    #sdial .cz .tm .fr .sw.on i{transform:translateX(16px);background:#85b200}
+    #sdial .cz .tm .bar{display:flex;gap:4px;margin-bottom:4px}
+    #sdial .cz .tm .bar button{flex:1 1 0;min-width:0;height:28px;padding:0 2px;font-size:11px}
+    #sdial .cz .tm .bar button.on{background:#383838;border-color:#5a5a5a;color:#fff}
+    #sdial .cz .tm .bar button:disabled{opacity:.35}
+    #sdial .cz .tm .out{height:34vh;min-height:120px;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;overscroll-behavior:contain;padding:4px 5px;border-radius:8px;background:#0f0f0f;border:1px solid #2c2c2c;font:10px/1.35 ui-monospace,Menlo,Consolas,monospace;margin-bottom:4px;-webkit-user-select:text;user-select:text}
+    #sdial .cz .tm .ln{word-break:break-all;color:#cfcfcf;padding:1px 0}
+    #sdial .cz .tm .ln .tt{color:#6f6f6f}
+    #sdial .cz .tm .ln .tg{color:#7f93b8}
+    #sdial .cz .tm .ln.w{color:#d9a441}
+    #sdial .cz .tm .ln.e{color:#f1807a}
+    #sdial .cz .tm .ln.w .tg,#sdial .cz .tm .ln.e .tg{color:inherit}
+    #sdial .cz .tm .none{padding:10px 4px;text-align:center;color:#6f6f6f}
+    #sdial .cz .tm .ct{margin-bottom:4px;font-size:10px;color:#8a8a8a;text-align:right}
     #sdial .sdtip{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.5)}
     #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
     #sdial .sdtip .th{font-size:13px;font-weight:700}
@@ -2600,6 +2737,13 @@
         '<div class="gh"><span>Show More</span></div><div class="lst lm"></div>' +
         '<button class="edit">Edit</button></div>' +
       '<div class="pg pf"><div class="fl"></div></div>' +
+      '<div class="pg pt"><div class="tm">' +
+        '<div class="fr"><span class="nm">Logging</span><button class="sw" role="switch" aria-label="Logging"><i></i></button></div>' +
+        '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button></div>' +
+        '<div class="bar"><button data-f="i">All</button><button data-f="w">Warn+</button><button data-f="e">Errors</button></div>' +
+        '<div class="out"></div><div class="ct"></div>' +
+        '<div class="bar"><button class="tp">Pause</button><button class="tc">Clear</button><button class="tcp">Copy</button><button class="ts">Save</button></div>' +
+      '</div></div>' +
       '<div class="pg pa">' +
         '<div class="qk"></div>' +
         '<div class="rw"><input class="ie" maxlength="12" placeholder="Emoji" autocomplete="off"><input class="in" maxlength="20" placeholder="Name" autocomplete="off"></div>' +
@@ -2615,6 +2759,7 @@
     const PAGES = [
       { id: 'pm', label: 'Menu', icon: ICON_MENU, show: () => renderList() },
       { id: 'pf', label: 'Features', icon: ICON_FEAT, show: () => renderFeat() },
+      { id: 'pt', label: 'Terminal', icon: ICON_TERM, show: () => startTerm() },
       { id: 'pa', label: 'Shortcut', icon: ICON_ADD }
     ];
 
@@ -2627,6 +2772,7 @@
 
     function showPage(id) {
       const p = PAGES.find(x => x.id === id) || PAGES[0];
+      stopTerm();
       cur.textContent = p.label;
       el.querySelectorAll('.pg').forEach(g => g.classList.toggle('on', g.classList.contains(p.id)));
       mn.querySelectorAll('.mi').forEach(b => b.classList.toggle('on', b.dataset.p === p.id));
@@ -2644,6 +2790,110 @@
       mn.appendChild(b);
     });
     hb.addEventListener('click', () => setNav(!el.classList.contains('nav-open')));
+
+    // ----- terminal page: the debug log. Lines are only drawn while this page is open (no timers: new lines arrive as events) -----
+    const tm = el.querySelector('.tm');
+    const out = tm.querySelector('.out'), ct = tm.querySelector('.ct'), tsw = tm.querySelector('.sw');
+    const bP = tm.querySelector('.tp'), bC = tm.querySelector('.tc'), bCp = tm.querySelector('.tcp'), bS = tm.querySelector('.ts');
+    const T = { view: 'live', lvl: 'i', paused: false, unsub: null, n: 0 };
+    const RANK = { i: 0, w: 1, e: 2 };
+    const MAXLINES = 300;
+
+    const source = () => (T.view === 'saved' ? SD.logSaved() : SD.logs());
+    const passes = e => RANK[e.l] >= RANK[T.lvl];
+    const lineEl = e => {
+      const d = document.createElement('div');
+      d.className = 'ln ' + e.l;
+      const a = document.createElement('span'), b = document.createElement('span');
+      a.className = 'tt'; a.textContent = SD.logTime(e.t) + ' ';
+      b.className = 'tg'; b.textContent = e.g + ' ';
+      d.appendChild(a); d.appendChild(b); d.appendChild(document.createTextNode(e.m));
+      return d;
+    };
+    const count = () => {
+      ct.textContent = T.n + ' line' + (T.n === 1 ? '' : 's') + (T.view === 'live' && T.paused ? ' (paused)' : '') + (T.view === 'live' && !SD.logIsOn() ? ' (logging is off)' : '');
+    };
+    function drawTerm() {
+      out.innerHTML = '';
+      const rows = source().filter(passes);
+      T.n = rows.length;
+      if (!rows.length) {
+        const n = document.createElement('div');
+        n.className = 'none';
+        n.textContent = T.view === 'saved' ? 'Nothing saved yet. Tap Save in Live.' : 'No lines.';
+        out.appendChild(n);
+      } else rows.forEach(e => out.appendChild(lineEl(e)));
+      out.scrollTop = out.scrollHeight;
+      count();
+    }
+    const onLine = e => {
+      if (T.view !== 'live') return;
+      if (e === null) { drawTerm(); return; }                    // Clear
+      if (T.paused || !passes(e)) return;
+      const nearEnd = out.scrollHeight - out.scrollTop - out.clientHeight < 30;
+      const none = out.querySelector('.none');
+      if (none) none.remove();
+      out.appendChild(lineEl(e));
+      T.n++;
+      while (out.children.length > MAXLINES) { out.removeChild(out.firstChild); T.n--; }
+      if (nearEnd) out.scrollTop = out.scrollHeight;
+      count();
+    };
+    function paintTerm() {
+      tm.querySelectorAll('.bar button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === T.view));
+      tm.querySelectorAll('.bar button[data-f]').forEach(b => b.classList.toggle('on', b.dataset.f === T.lvl));
+      const on = SD.logIsOn();
+      tsw.classList.toggle('on', on);
+      tsw.setAttribute('aria-checked', on ? 'true' : 'false');
+      bP.textContent = T.paused ? 'Resume' : 'Pause';
+      bP.disabled = T.view !== 'live';
+      bS.disabled = !SD.logIsOn() && !SD.logs().length;
+    }
+    function startTerm() {
+      stopTerm();
+      T.unsub = SD.logSub(onLine);
+      paintTerm();
+      drawTerm();
+    }
+    function stopTerm() { if (T.unsub) { T.unsub(); T.unsub = null; } }
+
+    tm.querySelectorAll('.bar button[data-v]').forEach(b => b.addEventListener('click', () => { T.view = b.dataset.v; paintTerm(); drawTerm(); }));
+    tm.querySelectorAll('.bar button[data-f]').forEach(b => b.addEventListener('click', () => { T.lvl = b.dataset.f; paintTerm(); drawTerm(); }));
+    tsw.addEventListener('click', () => { SD.logSet(!SD.logIsOn()); paintTerm(); count(); });
+    bP.addEventListener('click', () => { T.paused = !T.paused; if (!T.paused) drawTerm(); paintTerm(); count(); });
+    bC.addEventListener('click', () => {
+      if (T.view === 'saved') { SD.logUnsave(); drawTerm(); SD.toast('Saved log cleared'); } else SD.logClear();
+    });
+    bS.addEventListener('click', () => {
+      const n = SD.logSave();
+      SD.toast('Saved ' + n + ' line' + (n === 1 ? '' : 's'));
+      if (T.view === 'saved') drawTerm();
+    });
+    bCp.addEventListener('click', () => {
+      const rows = source().filter(passes);
+      const head = 'Speed Dial v' + SD.ver + ' | ' + (T.view === 'saved' ? 'saved log' : 'live log') + ' | native storage: ' + (window.__sdStore && window.__sdStore.native ? 'yes' : 'no') + ' | ' + rows.length + ' line(s)';
+      const text = head + '\n' + rows.map(e => SD.logTime(e.t) + ' [' + e.g + '] ' + (e.l === 'e' ? 'ERROR ' : e.l === 'w' ? 'WARN ' : '') + e.m).join('\n');
+      copyText(text).then(ok => SD.toast(ok ? 'Copied ' + rows.length + ' line(s)' : 'Could not copy. Select the text and copy it by hand.'));
+    });
+    // clipboard API when the page allows it, otherwise the old selection trick
+    function copyText(text) {
+      const old = () => {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.cssText = 'position:fixed;left:0;top:0;opacity:0;width:1px;height:1px';
+          (document.getElementById('sdial') || document.body).appendChild(ta);
+          ta.focus(); ta.select();
+          const ok = document.execCommand('copy');
+          ta.remove();
+          return ok;
+        } catch (e) { return false; }
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(() => true, () => old());
+      } catch (e) {}
+      return Promise.resolve(old());
+    }
 
     // ----- features page: on/off per feature, "!" opens a small pop-up -----
     let tip = null;
@@ -2847,7 +3097,7 @@
     });
 
     showPage('pm');
-    return { unmount: closeTip };
+    return { unmount() { closeTip(); stopTerm(); } };
   }
 
   SD.register({

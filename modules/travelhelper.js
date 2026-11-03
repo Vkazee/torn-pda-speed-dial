@@ -83,8 +83,9 @@
     for (const s of SOURCES) {
       try {
         const r = parseStocks(JSON.parse(await http(s.u)));
+        SD.log('travel', 'stocks from ' + s.n + ': ' + r.rows.length + ' row(s)');
         return { rows: r.rows, ts: r.ts, src: s.n, t: Date.now(), note: failed.join(', ') };
-      } catch (e) { failed.push(s.n + ' failed (' + e.message + ')'); }
+      } catch (e) { failed.push(s.n + ' failed (' + e.message + ')'); SD.log('travel', 'stocks source ' + s.n + ' failed: ' + e.message, 'w'); }
     }
     throw new Error(failed.join(', '));
   }

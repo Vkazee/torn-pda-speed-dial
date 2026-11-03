@@ -8,6 +8,17 @@ Everything you save (Targets, menu order and hidden circles, shortcuts, window p
 
 Because the loader is the only script installed in PDA, all data lives in the loader's own namespace (Userscripts > the script's storage button shows what it uses; the default limit is 10 MB, this project needs well under 1 MB). **After updating, paste the new `speed-dial.loader.user.js` into PDA once** (it now hands `PDA_storage` to `store.js`); everything else updates from GitHub as before. Add `store.js` to the repo root next to `core.js`.
 
+## Terminal (debug log)
+
+**Settings > Terminal** shows what Speed Dial has been doing, so errors are no longer hidden: windows opening and closing, every API call (endpoint, time taken, API error code), status checks and the outline colour changing, page changes inside Torn (and whether the Speed Dial element is still in the page), saved-data writes and failures, features starting, stopping or refusing, toasts, and errors thrown by Speed Dial's own code.
+
+- Lines live **in memory only** (the last 300). Nothing is written to storage per line, there is no timer and no API call, and nothing is drawn unless the Terminal page is open (new lines arrive as events).
+- **Save** keeps a copy of the current log under `speedDial.log1`, so it survives a reload; **Saved** shows that copy (Clear there deletes it). Use it when an error happens, you reload, and want to look afterwards.
+- Buttons: Live/Saved, All/Warn+/Errors filter, Pause (stops new lines from appearing, Resume redraws), Clear, Copy (puts the lines on the clipboard with a short header: version, native storage yes/no), Save.
+- The **Logging** switch turns the log off completely (`SD.log` then does nothing). On by default; saved under `speedDial.dbg1`.
+- Your API key is masked (`***`) in every line, so a copied log is safe to share.
+- Limits: errors thrown by Torn's own scripts are not shown, and when you run the single-file bundle instead of the loader, uncaught errors are not recognised as ours (lines written with `SD.log` still appear).
+
 ## Windows
 
 - Each window has a title bar (module name and ✕). Drag it by the title bar only; the content scrolls normally.
@@ -32,7 +43,7 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 | `modules/targets.js` | Targets module |
 | `modules/calculator.js` | Calculator module (lives in Show More by default) |
 | `modules/showmore.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included |
-| `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, and add your own emoji shortcuts |
+| `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, add your own emoji shortcuts, and the Terminal (debug log) |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
 | `build.sh` | Combines `store.js` + `core.js` + every file in `manifest.json` (same order) into the bundle |
@@ -51,6 +62,10 @@ How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps 
 ## Rule for every new module or feature: saved data goes through `SD.read` / `SD.write`
 
 Never touch `localStorage` directly. `SD.read(key, default)` and `SD.write(key, value)` are what keep the data in Torn PDA's native storage (see "Saved data"). The key MUST start with `speedDial.` (or the old prefixes `itemDock.`, `travelHelper.`, `gymGuide.`); `store.js` only saves keys with those prefixes to the app, any other key silently stays in localStorage only. Read once when the module loads, keep it in memory, call `SD.write` after each change. Data that can be re-fetched (API caches) may use `sessionStorage` or memory instead.
+
+## Rule for every new module or feature: log what it does with `SD.log`
+
+`SD.log('tag', 'message')` adds a line to the Terminal (tag = short name, 10 characters at most). Use `SD.log('tag', 'message', 'w')` for a warning and `'e'` for an error. Log module opens that matter, API/HTTP calls (`SD.api` already logs its own), and **every `catch` block**: an empty `catch (e) {}` hides the problem, so log the message or write a short comment on why it is safe to ignore. Never put your API key or other secrets in a message (the key is masked anyway, but do not rely on it).
 
 ## Adding a New Module
 
