@@ -8,6 +8,7 @@
     "modules/calculator.js",
     "modules/showmore.js",
     "modules/settings.js",
-    "features/gymguide.js"
+    "features/gymguide.js",
+    "features/casinohelper.js"
   ]
 }
