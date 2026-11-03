@@ -1,4 +1,4 @@
-// Speed Dial core v0.10.0
+// Speed Dial core v0.11.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -9,7 +9,7 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.10.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.11.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -110,6 +110,11 @@
     return Promise.resolve(p).catch(() => {}).then(() => {
       setTimeout(() => btn.classList.remove('spin'), Math.max(0, 700 - (Date.now() - t0)));
     });
+  };
+  // Edit / Done toggle button: same wording and the same green "on" look in every window
+  SD.editBtn = (btn, on) => {
+    btn.textContent = on ? 'Done' : 'Edit';
+    btn.classList.toggle('sd-on', !!on);
   };
   // shared icons (full <svg> markup, styled by #sdial svg)
   SD.icons = {
@@ -385,6 +390,7 @@
       --st:var(--sd-text2)}
     #sdial *{box-sizing:border-box}
     #sdial svg{width:20px;height:20px;stroke:var(--sd-text2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    #sdial button.sd-on.sd-on.sd-on{border-color:var(--sd-green);background:#25360f;color:#c6e66a}   /* triple class on purpose: must beat every module's own button rule */
     @keyframes sdspin{to{transform:rotate(360deg)}}
     #sdial .spin svg{animation:sdspin .8s linear infinite}
     #sdial .fab{position:relative;z-index:2000;touch-action:none;width:${FAB}px;height:${FAB}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
@@ -422,11 +428,13 @@
     if (!fab) return;
     const d = D;
     const m = SD.mode(d);
-    const red = !!d && (d.state === 'Jail' || d.state === 'Federal' || (d.state === 'Hospital' && d.abroad));
+    // one colour per situation: red = jail / federal, yellow = hospital (at home or abroad), blue = traveling / abroad
+    const red = !!d && (d.state === 'Jail' || d.state === 'Federal');
+    const hosp = !!d && d.state === 'Hospital';
+    const away = !red && !hosp && (m === 'flying' || m === 'abroad');
     fab.classList.toggle('blk', red);
-    fab.classList.toggle('hosp', !!d && d.state === 'Hospital' && !d.abroad);
-    fab.classList.toggle('away', !red && (m === 'flying' || m === 'abroad'));
-    const hosp = !!d && d.state === 'Hospital' && !d.abroad, away = !red && (m === 'flying' || m === 'abroad');
+    fab.classList.toggle('hosp', hosp);
+    fab.classList.toggle('away', away);
     root.dataset.st = red ? 'blk' : hosp ? 'hosp' : away ? 'away' : '';   // the window outline follows the main circle
     const now = root.dataset.st || 'none';
     if (now !== lastRing) { SD.log('ring', 'outline ' + (lastRing || '-') + ' -> ' + now + (d ? ' (state=' + d.state + ')' : ' (no data)')); lastRing = now; }
@@ -561,7 +569,7 @@
     tb.addEventListener('pointercancel', end);
   }
 
-  function openWin(m) {
+  function openWin(m, arg) {
     const el = document.createElement('div');
     el.className = 'win';
     el.innerHTML = '<div class="tb"><span class="tt"></span><button class="cl" aria-label="Close">\u2715</button></div><div class="bd"><div></div></div>';
@@ -579,6 +587,7 @@
     markActive();
     const ctx = {
       el: inner,
+      arg,   // whatever SD.open(id, arg) was called with (or undefined)
       get alive() { return wins.get(m.id) === me; },
       every: (fn, ms) => { if (wins.get(m.id) !== me) return 0; const id = setInterval(fn, ms); me.timers.push(['i', id]); return id; },
       after: (fn, ms) => { if (wins.get(m.id) !== me) return 0; const id = setTimeout(fn, ms); me.timers.push(['t', id]); return id; },
@@ -612,7 +621,13 @@
     if (wins.has(m.id)) closeWin(m.id); else openWin(m);
   }
   // for modules that open other modules (Show More): open or close one window by module id
-  SD.open = id => { const m = SD.mods.find(x => x.id === id); if (m && !m.href && !wins.has(id)) openWin(m); };
+  // arg (optional) is handed to the module as ctx.arg; when given, an already open window is closed and opened again so it can start from it
+  SD.open = (id, arg) => {
+    const m = SD.mods.find(x => x.id === id);
+    if (!m || m.href) return;
+    if (wins.has(id)) { if (arg === undefined) return; closeWin(id); }
+    openWin(m, arg);
+  };
   SD.close = id => closeWin(id);
   SD.isOpen = id => wins.has(id);
 

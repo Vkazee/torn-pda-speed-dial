@@ -518,11 +518,12 @@
     }
 
     el.querySelector('.edit').addEventListener('click', e => {
-      const on = el.classList.toggle('edit');
-      e.target.textContent = on ? 'Done' : 'Edit';
+      SD.editBtn(e.currentTarget, el.classList.toggle('edit'));
     });
 
-    showPage('pm');
+    const a = ctx.arg || {};                         // e.g. { page: 'pm', edit: true } from Show More > Arrange
+    showPage(a.page || 'pm');
+    if (a.edit && el.querySelector('.pm.on')) { el.classList.add('edit'); SD.editBtn(el.querySelector('.edit'), true); }
     return { unmount() { closeTip(); stopTerm(); } };
   }
 

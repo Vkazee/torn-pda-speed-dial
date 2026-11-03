@@ -26,7 +26,7 @@
   const save = () => SD.write(LS, S);
 
   const strip = s => String(s || '').replace(/<[^>]*>/g, '').trim();
-  const COLOR = { Okay: '#7fd08a', Hospital: '#f1807a', Jail: '#d9a441', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
+  const COLOR = { Okay: '#7fd08a', Hospital: '#d9a441', Jail: '#f1807a', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
   const colorOf = s => COLOR[s] || '#cfcfcf';
 
   // one profile request -> { name, st }
@@ -133,7 +133,6 @@
     #sdial .tg .pn{flex:1;text-align:center;color:var(--sd-text2);font-size:13px}
     #sdial .tg .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
     #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
-    #sdial .tg.ed .foot .edit{background:var(--sd-line);color:var(--sd-text);border-color:#5a5a5a}
     #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
     #sdial .tg .foot .fb.act{background:#2a3140;border-color:var(--sd-blue)}
     #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
@@ -383,7 +382,7 @@
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     rf.addEventListener('click', () => refresh(false));
     fb.addEventListener('click', openPop);
-    edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
+    edit.addEventListener('click', () => { SD.editBtn(edit, root.classList.toggle('ed')); });
     prev.addEventListener('click', () => { if (page > 0) { page--; render(); refresh(true); } });
     next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); refresh(true); } });
     lst.addEventListener('click', e => {

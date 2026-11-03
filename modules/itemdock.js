@@ -220,6 +220,7 @@
   const CSS = `
     #sdial .idock .banner{display:none;margin-bottom:6px;padding:8px 10px;border-radius:8px;background:#3a2f1a;border:1px solid #6b5522;color:#f0d9a0;font-size:12px;line-height:1.35;text-align:center;white-space:pre-line}
     #sdial .idock .banner.blk{background:#3a1f1d;border-color:#6b2c28;color:#f1b5b0}
+    #sdial .idock .banner.away{background:#2a3140;border-color:#2d4a73;color:#a9c3e8}
     #sdial .idock .banner.show{display:block}
     #sdial .idock .list{max-height:48vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .idock.blocked .list{opacity:.45}
@@ -416,7 +417,7 @@
     // ----- status banner + cooldown chips -----
     function updateBanner() {
       const d = dd(), blk = isBlocked();
-      if (d.state === 'Okay') { banner.classList.remove('show', 'blk'); return; }
+      if (d.state === 'Okay') { banner.classList.remove('show', 'blk', 'away'); return; }
       let txt = stLabel();
       if (d.until && d.state !== 'Hospital') {
         const s = d.until - Math.floor(Date.now() / 1000);
@@ -425,7 +426,10 @@
       if (blk) txt += "\nItems can't be used right now";
       if (banner.textContent !== txt) banner.textContent = txt;
       banner.classList.add('show');
-      banner.classList.toggle('blk', blk);
+      // same colours as the main circle: red = jail / federal, yellow = hospital, blue = traveling / abroad (the text says when items are blocked)
+      const red = d.state === 'Jail' || d.state === 'Federal', md = SD.mode(d);
+      banner.classList.toggle('blk', red);
+      banner.classList.toggle('away', !red && d.state !== 'Hospital' && (md === 'flying' || md === 'abroad'));
     }
 
     function renderCd() {
@@ -524,8 +528,7 @@
     });
     el.querySelector('.add').addEventListener('click', openAdd);
     el.querySelector('.edit').addEventListener('click', e => {
-      const on = el.classList.toggle('edit');
-      e.target.textContent = on ? 'Done' : 'Edit';
+      SD.editBtn(e.currentTarget, el.classList.toggle('edit'));
     });
 
     // ----- go -----

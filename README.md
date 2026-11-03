@@ -42,7 +42,7 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 | `modules/travelhelper.js` | Travel Helper module |
 | `modules/targets.js` | Targets module |
 | `modules/calculator.js` | Calculator module (lives in Show More by default) |
-| `modules/showmore.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included |
+| `modules/showmore.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included, plus Arrange (opens Settings > Menu in edit mode) and Settings |
 | `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, add your own emoji shortcuts, and the Terminal (debug log) |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
@@ -81,12 +81,14 @@ Never touch `localStorage` directly. `SD.read(key, default)` and `SD.write(key, 
 | `--sd-yel`, `--sd-green` | `#d9a441`, `#85b200` | yellow, green accent |
 | `--sd-h` / `--sd-hi` / `--sd-hl` | 34 / 36 / 38 px | standard button / input / large button height |
 
+**Edit / Done buttons:** call `SD.editBtn(button, on)`; it sets the text and the green `sd-on` look, so every window's Edit mode looks the same. Green = a mode or switch that is on, blue = the chosen option, grey = the current page or tab.
+
 Circle sizes are named constants at the top of `core.js` (`FAB` 40, `MOD` 36, `GAP`, `OFF`). Tinted status backgrounds (chips, warnings) may still use their own hex. Page features outside `#sdial` (Gym Guide) cannot see the tokens and keep their own palette. `store.js` writes a warning to the Terminal when a key has no known prefix.
 
 ## Adding a New Module
 
 1. Create `modules/name.js` that calls `SpeedDial.register({ id, label, icon, width, mount })`. `width` is the window's width in px (about 200-300 fits a phone).
-   - `icon` is inner SVG markup for a 24x24 stroke icon. Use `emoji` instead for an emoji circle; `href` makes the circle open a page instead of a window; `ord` sets the default order; `pinned: true` keeps it as a fixed circle after the on-screen ones (sorted by `ord`) and out of the Show More list. A new unpinned module lands in Show More; the user can pin it to the screen in Settings > Menu. Other modules can be opened from code with `SD.open(id)`, `SD.close(id)`, `SD.isOpen(id)`. `SpeedDial.unregister(id)` removes one.
+   - `icon` is inner SVG markup for a 24x24 stroke icon. Use `emoji` instead for an emoji circle; `href` makes the circle open a page instead of a window; `ord` sets the default order; `pinned: true` keeps it as a fixed circle after the on-screen ones (sorted by `ord`) and out of the Show More list. A new unpinned module lands in Show More; the user can pin it to the screen in Settings > Menu. Other modules can be opened from code with `SD.open(id, arg)` (arg arrives in `mount` as `ctx.arg`; with an arg an open window is reopened), `SD.close(id)`, `SD.isOpen(id)`. `SpeedDial.unregister(id)` removes one.
    - `mount(ctx)` gets `ctx.el`, `ctx.every(fn, ms)`, `ctx.after(fn, ms)`, `ctx.alive`, `ctx.setWidth(px)` and `ctx.close()`; timers are cleared automatically when the window closes. `mount` may return `{ unmount() }`.
    - `ctx.setWidth(px)` changes the window width (for example a wider secondary view); the core keeps the window on screen. Tall content is fine: the window is capped to the screen height and its body scrolls.
    - Style your content under `#sdial` (for example `#sdial .mything{...}`); the window frame, title bar and padding come from the core.
@@ -123,7 +125,7 @@ Features start when the page loads. A feature switched on while you are on anoth
   - **Features** page: a switch per page feature, and a **!** button that opens a pop-up with its one-line explanation.
   - **Shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
   - Your order and hidden list are saved under `speedDial.layout1`; saved shortcuts keep using `speedDial.shortcuts1`, so they carry over from the old Shortcuts module.
-- Show More: a 4-column grid of icons with the name underneath. Tap a tile to open that module (the launcher closes); tap a tile whose window is open to close it. **Edit** (bottom left) lets you drag tiles into a new order; **Done** saves. Anything new (a new shortcut, a module you unpin from the screen) is added at the END. A tile with a small arrow is a shortcut and leaves the page. While a window of something inside Show More is open, the `...` circle shows a dot. Saved under `speedDial.layout1` as `{ order, front }` (an old `hidden` list is ignored).
+- Show More: a 4-column grid of icons with the name underneath. Tap a tile to open that module (the launcher closes); tap a tile whose window is open to close it. **Arrange** (bottom left) opens Settings > Menu already in edit mode, the one place that reorders, pins/unpins and deletes shortcuts. Anything new (a new shortcut, a module you unpin from the screen) is added at the END. A tile with a small arrow is a shortcut and leaves the page. While a window of something inside Show More is open, the `...` circle shows a dot. Saved under `speedDial.layout1` as `{ order, front }` (an old `hidden` list is ignored).
 - Calculator: + − × ÷ with the usual precedence (2+3×4 = 14), %, ±, backspace, AC. `200 + 10%` = 220. Nothing is saved.
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
-- Main circle colours: blue = abroad or traveling, yellow = hospital, red = jail, federal, or hospital abroad. Status is checked once per page load.
+- Main circle colours (the window outline, the Item Dock banner and the Targets status text use the same rule): blue = abroad or traveling, yellow = hospital (at home or abroad), red = jail or federal. Status is checked once per page load.

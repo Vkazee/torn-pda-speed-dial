@@ -130,7 +130,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.10.0
+// Speed Dial core v0.11.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -141,7 +141,7 @@ try {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.10.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.11.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -242,6 +242,11 @@ try {
     return Promise.resolve(p).catch(() => {}).then(() => {
       setTimeout(() => btn.classList.remove('spin'), Math.max(0, 700 - (Date.now() - t0)));
     });
+  };
+  // Edit / Done toggle button: same wording and the same green "on" look in every window
+  SD.editBtn = (btn, on) => {
+    btn.textContent = on ? 'Done' : 'Edit';
+    btn.classList.toggle('sd-on', !!on);
   };
   // shared icons (full <svg> markup, styled by #sdial svg)
   SD.icons = {
@@ -517,6 +522,7 @@ try {
       --st:var(--sd-text2)}
     #sdial *{box-sizing:border-box}
     #sdial svg{width:20px;height:20px;stroke:var(--sd-text2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    #sdial button.sd-on.sd-on.sd-on{border-color:var(--sd-green);background:#25360f;color:#c6e66a}   /* triple class on purpose: must beat every module's own button rule */
     @keyframes sdspin{to{transform:rotate(360deg)}}
     #sdial .spin svg{animation:sdspin .8s linear infinite}
     #sdial .fab{position:relative;z-index:2000;touch-action:none;width:${FAB}px;height:${FAB}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
@@ -554,11 +560,13 @@ try {
     if (!fab) return;
     const d = D;
     const m = SD.mode(d);
-    const red = !!d && (d.state === 'Jail' || d.state === 'Federal' || (d.state === 'Hospital' && d.abroad));
+    // one colour per situation: red = jail / federal, yellow = hospital (at home or abroad), blue = traveling / abroad
+    const red = !!d && (d.state === 'Jail' || d.state === 'Federal');
+    const hosp = !!d && d.state === 'Hospital';
+    const away = !red && !hosp && (m === 'flying' || m === 'abroad');
     fab.classList.toggle('blk', red);
-    fab.classList.toggle('hosp', !!d && d.state === 'Hospital' && !d.abroad);
-    fab.classList.toggle('away', !red && (m === 'flying' || m === 'abroad'));
-    const hosp = !!d && d.state === 'Hospital' && !d.abroad, away = !red && (m === 'flying' || m === 'abroad');
+    fab.classList.toggle('hosp', hosp);
+    fab.classList.toggle('away', away);
     root.dataset.st = red ? 'blk' : hosp ? 'hosp' : away ? 'away' : '';   // the window outline follows the main circle
     const now = root.dataset.st || 'none';
     if (now !== lastRing) { SD.log('ring', 'outline ' + (lastRing || '-') + ' -> ' + now + (d ? ' (state=' + d.state + ')' : ' (no data)')); lastRing = now; }
@@ -693,7 +701,7 @@ try {
     tb.addEventListener('pointercancel', end);
   }
 
-  function openWin(m) {
+  function openWin(m, arg) {
     const el = document.createElement('div');
     el.className = 'win';
     el.innerHTML = '<div class="tb"><span class="tt"></span><button class="cl" aria-label="Close">\u2715</button></div><div class="bd"><div></div></div>';
@@ -711,6 +719,7 @@ try {
     markActive();
     const ctx = {
       el: inner,
+      arg,   // whatever SD.open(id, arg) was called with (or undefined)
       get alive() { return wins.get(m.id) === me; },
       every: (fn, ms) => { if (wins.get(m.id) !== me) return 0; const id = setInterval(fn, ms); me.timers.push(['i', id]); return id; },
       after: (fn, ms) => { if (wins.get(m.id) !== me) return 0; const id = setTimeout(fn, ms); me.timers.push(['t', id]); return id; },
@@ -744,7 +753,13 @@ try {
     if (wins.has(m.id)) closeWin(m.id); else openWin(m);
   }
   // for modules that open other modules (Show More): open or close one window by module id
-  SD.open = id => { const m = SD.mods.find(x => x.id === id); if (m && !m.href && !wins.has(id)) openWin(m); };
+  // arg (optional) is handed to the module as ctx.arg; when given, an already open window is closed and opened again so it can start from it
+  SD.open = (id, arg) => {
+    const m = SD.mods.find(x => x.id === id);
+    if (!m || m.href) return;
+    if (wins.has(id)) { if (arg === undefined) return; closeWin(id); }
+    openWin(m, arg);
+  };
   SD.close = id => closeWin(id);
   SD.isOpen = id => wins.has(id);
 
@@ -1041,6 +1056,7 @@ try {
   const CSS = `
     #sdial .idock .banner{display:none;margin-bottom:6px;padding:8px 10px;border-radius:8px;background:#3a2f1a;border:1px solid #6b5522;color:#f0d9a0;font-size:12px;line-height:1.35;text-align:center;white-space:pre-line}
     #sdial .idock .banner.blk{background:#3a1f1d;border-color:#6b2c28;color:#f1b5b0}
+    #sdial .idock .banner.away{background:#2a3140;border-color:#2d4a73;color:#a9c3e8}
     #sdial .idock .banner.show{display:block}
     #sdial .idock .list{max-height:48vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .idock.blocked .list{opacity:.45}
@@ -1237,7 +1253,7 @@ try {
     // ----- status banner + cooldown chips -----
     function updateBanner() {
       const d = dd(), blk = isBlocked();
-      if (d.state === 'Okay') { banner.classList.remove('show', 'blk'); return; }
+      if (d.state === 'Okay') { banner.classList.remove('show', 'blk', 'away'); return; }
       let txt = stLabel();
       if (d.until && d.state !== 'Hospital') {
         const s = d.until - Math.floor(Date.now() / 1000);
@@ -1246,7 +1262,10 @@ try {
       if (blk) txt += "\nItems can't be used right now";
       if (banner.textContent !== txt) banner.textContent = txt;
       banner.classList.add('show');
-      banner.classList.toggle('blk', blk);
+      // same colours as the main circle: red = jail / federal, yellow = hospital, blue = traveling / abroad (the text says when items are blocked)
+      const red = d.state === 'Jail' || d.state === 'Federal', md = SD.mode(d);
+      banner.classList.toggle('blk', red);
+      banner.classList.toggle('away', !red && d.state !== 'Hospital' && (md === 'flying' || md === 'abroad'));
     }
 
     function renderCd() {
@@ -1345,8 +1364,7 @@ try {
     });
     el.querySelector('.add').addEventListener('click', openAdd);
     el.querySelector('.edit').addEventListener('click', e => {
-      const on = el.classList.toggle('edit');
-      e.target.textContent = on ? 'Done' : 'Edit';
+      SD.editBtn(e.currentTarget, el.classList.toggle('edit'));
     });
 
     // ----- go -----
@@ -1852,7 +1870,7 @@ try {
   const save = () => SD.write(LS, S);
 
   const strip = s => String(s || '').replace(/<[^>]*>/g, '').trim();
-  const COLOR = { Okay: '#7fd08a', Hospital: '#f1807a', Jail: '#d9a441', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
+  const COLOR = { Okay: '#7fd08a', Hospital: '#d9a441', Jail: '#f1807a', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
   const colorOf = s => COLOR[s] || '#cfcfcf';
 
   // one profile request -> { name, st }
@@ -1959,7 +1977,6 @@ try {
     #sdial .tg .pn{flex:1;text-align:center;color:var(--sd-text2);font-size:13px}
     #sdial .tg .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
     #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
-    #sdial .tg.ed .foot .edit{background:var(--sd-line);color:var(--sd-text);border-color:#5a5a5a}
     #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
     #sdial .tg .foot .fb.act{background:#2a3140;border-color:var(--sd-blue)}
     #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
@@ -2209,7 +2226,7 @@ try {
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     rf.addEventListener('click', () => refresh(false));
     fb.addEventListener('click', openPop);
-    edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
+    edit.addEventListener('click', () => { SD.editBtn(edit, root.classList.toggle('ed')); });
     prev.addEventListener('click', () => { if (page > 0) { page--; render(); refresh(true); } });
     next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); refresh(true); } });
     lst.addEventListener('click', e => {
@@ -2462,13 +2479,13 @@ try {
 } catch (e) { console.error('Speed Dial: modules/calculator.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/calculator.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Show More v0.4.0
+// Speed Dial module: Show More v0.5.0
 // The pinned "..." circle (sits just before Settings). It opens a launcher grid with every module that is NOT one of the
 // (max 3) circles on screen: calculator, your own shortcuts, new modules. Tap a tile to open it.
 //   - a module opens in its own window (the launcher closes); tap an already-open tile to close that window
 //   - a shortcut (small arrow in the corner) leaves the page and opens its torn.com page
-//   - Edit: drag a tile to a new place; Done saves it. The newest module or shortcut always lands at the END of the grid.
-// Which modules stay on screen is chosen in Settings > Menu (that page can reorder Show More too).
+//   - Arrange: opens Settings > Menu already in edit mode (the one place that reorders, pins and deletes); Settings: opens Settings
+// Which modules stay on screen, and the order of everything, is chosen in Settings > Menu. The newest module or shortcut always lands at the END of the grid.
 (function () {
   'use strict';
   const SD = window.SpeedDial;
@@ -2484,27 +2501,19 @@ try {
     #sdial .mr .tl .go{position:absolute;right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--sd-bg);border:1px solid var(--sd-line2);display:flex;align-items:center;justify-content:center}
     #sdial .mr .tl .go svg{width:10px;height:10px;stroke:var(--sd-bluet);stroke-width:2.6}
     #sdial .mr .tl .nm{width:100%;font-size:10.5px;line-height:1.15;text-align:center;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-    #sdial .mr.ed .tl{touch-action:none;user-select:none;-webkit-user-select:none}
-    #sdial .mr.ed .tl .bx{border-style:dashed;border-color:#5a5a5a}
-    #sdial .mr .tl.drag{position:relative;z-index:5}
-    #sdial .mr .tl.drag .bx{background:var(--sd-line);border-color:var(--sd-dim);box-shadow:0 4px 12px rgba(0,0,0,.55)}
     #sdial .mr .em{padding:14px 6px;text-align:center;color:var(--sd-dim);font-size:12px;line-height:1.4}
-    #sdial .mr .hn{display:none;margin-top:8px;text-align:center;font-size:11px;color:var(--sd-dim)}
-    #sdial .mr.ed .hn{display:block}
     #sdial .mr .rw{display:flex;gap:6px;margin-top:10px}
-    #sdial .mr .rw button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid #2c2c2c;background:none;color:var(--sd-dim);font-size:11px;padding:0}
-    #sdial .mr .rw button:active{background:var(--sd-hov);color:var(--sd-text2)}
-    #sdial .mr .rw .ed-b.on{border-color:var(--sd-green);background:#25360f;color:#c6e66a}
+    #sdial .mr .rw button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0}
+    #sdial .mr .rw button:active{background:var(--sd-hov)}
   `;
 
   function mount(ctx) {
     SD.css('sd-more', CSS);
     const el = ctx.el;
     el.className = 'mr';
-    el.innerHTML = '<div class="gd"></div><div class="hn">Drag a tile to move it</div>' +
-      '<div class="rw"><button class="ed-b">Edit</button><button class="st-b">Settings</button></div>';
-    const gd = el.querySelector('.gd'), eb = el.querySelector('.ed-b');
-    let edit = false, drag = null;
+    el.innerHTML = '<div class="gd"></div>' +
+      '<div class="rw"><button class="ar-b">Arrange</button><button class="st-b">Settings</button></div>';
+    const gd = el.querySelector('.gd');
 
     function render() {
       gd.innerHTML = '';
@@ -2529,63 +2538,17 @@ try {
         if (m.href) { const g = document.createElement('span'); g.className = 'go'; g.setAttribute('aria-hidden', 'true'); g.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>'; bx.appendChild(g); }
         b.querySelector('.nm').textContent = m.label;
         b.addEventListener('click', () => {
-          if (edit) return;                                             // in Edit a tap does nothing; dragging moves the tile
           if (m.href) { location.href = m.href; return; }
           if (SD.isOpen(m.id)) { SD.close(m.id); render(); return; }   // already open: this tap closes it
           ctx.close();                                                  // launcher out of the way, then open the module
           SD.open(m.id);
         });
-        bindDrag(b);
         gd.appendChild(b);
       });
     }
 
-    // ----- Edit: drag a tile; the others make room. Saved when you let go. -----
-    function bindDrag(b) {
-      b.addEventListener('pointerdown', e => {
-        if (!edit || e.button > 0) return;
-        const r = b.getBoundingClientRect();
-        drag = { b, gx: e.clientX - r.left, gy: e.clientY - r.top };
-        try { b.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone: the drag simply does not start */ }
-        b.classList.add('drag');
-      });
-      b.addEventListener('pointermove', e => {
-        if (!drag || drag.b !== b) return;
-        const tiles = Array.from(gd.children);
-        const over = tiles.find(t => {
-          if (t === b) return false;
-          const r = t.getBoundingClientRect();
-          return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-        });
-        if (over) {
-          if (tiles.indexOf(over) > tiles.indexOf(b)) gd.insertBefore(b, over.nextSibling);
-          else gd.insertBefore(b, over);
-        }
-        b.style.transform = '';                       // natural slot first, then follow the finger from there
-        const n = b.getBoundingClientRect();
-        b.style.transform = 'translate(' + (e.clientX - drag.gx - n.left) + 'px,' + (e.clientY - drag.gy - n.top) + 'px)';
-      });
-      const end = () => {
-        if (!drag || drag.b !== b) return;
-        drag = null;
-        b.style.transform = '';
-        b.classList.remove('drag');
-        const ids = Array.from(gd.children).map(t => t._id).filter(Boolean);
-        const A = SD.front().map(m => m.id);          // on-screen circles stay as they are; only Show More changes order
-        if (ids.length) SD.setLayout(A.concat(ids), A);
-        render();
-      };
-      b.addEventListener('pointerup', end);
-      b.addEventListener('pointercancel', end);
-    }
-
-    eb.addEventListener('click', () => {
-      edit = !edit;
-      el.classList.toggle('ed', edit);
-      eb.classList.toggle('on', edit);
-      eb.textContent = edit ? 'Done' : 'Edit';
-      render();
-    });
+    // Arrange = Settings > Menu in edit mode (it reorders both groups, pins/unpins and deletes shortcuts); this window only launches
+    el.querySelector('.ar-b').addEventListener('click', () => { ctx.close(); SD.open('settings', { page: 'pm', edit: true }); });
     el.querySelector('.st-b').addEventListener('click', () => { ctx.close(); SD.open('settings'); });
     render();
   }
@@ -3126,11 +3089,12 @@ try {
     }
 
     el.querySelector('.edit').addEventListener('click', e => {
-      const on = el.classList.toggle('edit');
-      e.target.textContent = on ? 'Done' : 'Edit';
+      SD.editBtn(e.currentTarget, el.classList.toggle('edit'));
     });
 
-    showPage('pm');
+    const a = ctx.arg || {};                         // e.g. { page: 'pm', edit: true } from Show More > Arrange
+    showPage(a.page || 'pm');
+    if (a.edit && el.querySelector('.pm.on')) { el.classList.add('edit'); SD.editBtn(el.querySelector('.edit'), true); }
     return { unmount() { closeTip(); stopTerm(); } };
   }
 
