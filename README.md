@@ -1,6 +1,6 @@
 # torn-pda-speed-dial
 
-A single floating circle for Torn PDA. Tap the main circle, then one circle appears for each tool. Tap a tool's circle to open it in its own **floating window**. Each tool **only runs while its window is open**: no timers, API calls, or background rendering once it is closed.
+A single floating circle for Torn PDA. Tap the main circle, then circles appear for your (at most 3) favourite tools, a **Show More** circle (`...`) for everything else, and the Settings gear. Tap a tool's circle to open it in its own **floating window**. Each tool **only runs while its window is open**: no timers, API calls, or background rendering once it is closed.
 
 ## Saved data (native storage)
 
@@ -30,10 +30,12 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
 | `modules/targets.js` | Targets module |
-| `modules/settings.js` | Settings module (gear circle, always last): show/hide and reorder circles, switch page features on/off, and add your own emoji shortcuts |
+| `modules/calculator.js` | Calculator module (lives in Show More by default) |
+| `modules/more.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included |
+| `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, and add your own emoji shortcuts |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
-| `build.sh` | Combines `core.js` + `modules/` + `features/` into the bundle |
+| `build.sh` | Combines `store.js` + `core.js` + every file in `manifest.json` (same order) into the bundle |
 
 ## Install
 
@@ -53,7 +55,7 @@ Never touch `localStorage` directly. `SD.read(key, default)` and `SD.write(key, 
 ## Adding a New Module
 
 1. Create `modules/name.js` that calls `SpeedDial.register({ id, label, icon, width, mount })`. `width` is the window's width in px (about 200-300 fits a phone).
-   - `icon` is inner SVG markup for a 24x24 stroke icon. Use `emoji` instead for an emoji circle; `href` makes the circle open a page instead of a window; `ord` sets the default order; `pinned: true` keeps it last and un-hideable. `SpeedDial.unregister(id)` removes one.
+   - `icon` is inner SVG markup for a 24x24 stroke icon. Use `emoji` instead for an emoji circle; `href` makes the circle open a page instead of a window; `ord` sets the default order; `pinned: true` keeps it as a fixed circle after the on-screen ones (sorted by `ord`) and out of the Show More list. A new unpinned module lands in Show More; the user can pin it to the screen in Settings > Menu. Other modules can be opened from code with `SD.open(id)`, `SD.close(id)`, `SD.isOpen(id)`. `SpeedDial.unregister(id)` removes one.
    - `mount(ctx)` gets `ctx.el`, `ctx.every(fn, ms)`, `ctx.after(fn, ms)`, `ctx.alive`, `ctx.setWidth(px)` and `ctx.close()`; timers are cleared automatically when the window closes. `mount` may return `{ unmount() }`.
    - `ctx.setWidth(px)` changes the window width (for example a wider secondary view); the core keeps the window on screen. Tall content is fine: the window is capped to the screen height and its body scrolls.
    - Style your content under `#sdial` (for example `#sdial .mything{...}`); the window frame, title bar and padding come from the core.
@@ -86,9 +88,11 @@ Features start when the page loads. A feature switched on while you are on anoth
 - Travel Helper: tap a country for flight times, the time you will be back, and warnings. "Go to travel agency" only opens Torn's travel page (nothing on the page is clicked or read). The button is disabled while you are in hospital or jail.
 - Targets: bottom bar **Add | Edit | Filter | Refresh**. **Add** opens its own view (like Item Dock) with a back button and one search box: digits, `[123]` or a profile link add that ID directly; anything else is searched by name (Torn API v2 `user/search`) and shows a pick list (name, ID, level, tap to add; every result is checked against what you typed, because the API ignores a wrong filter). Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, Traveling, ...). Tap a row for the status details; tap the name to open the profile. **Edit** shows a ✕ per row. **Filter** (funnel) picks the order: Default (as added), A-Z, or Okay first (then the shortest cooldown); it is remembered. Refresh reloads only the targets on screen and works once every 30 seconds (also across reopening the window). The list scrolls a little inside a height-capped window; from 15 targets on it uses pages (15 each, arrows with `page / total` between them) and Refresh only requests the current page. Max 150 targets, saved under `speedDial.targets1`.
 - Settings (gear circle, always last, cannot be hidden):
-  - **Menu** page: every circle in your order. Tap the eye to hide or show one. Tap **Edit** to drag the handle (≡) to reorder; your own shortcuts also get a ✕ to delete. New modules appear at the bottom until you move them.
+  - **Menu** page: two groups. **On screen** (max 3, default Item Dock, Travel Helper, Targets) and **Show More** (everything else: Calculator, your shortcuts, new modules). Tap the pin to move a module between the groups (a 4th pin is refused with a toast). Tap **Edit** to drag the handle (≡) to reorder inside a group; your own shortcuts also get a ✕ to delete. New modules and new shortcuts start in Show More. The old eye (hide) is gone: nothing needs hiding any more.
   - **Features** page: a switch per page feature, and a **!** button that opens a pop-up with its one-line explanation.
   - **Shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
   - Your order and hidden list are saved under `speedDial.layout1`; saved shortcuts keep using `speedDial.shortcuts1`, so they carry over from the old Shortcuts module.
+- Show More: tap a tile to open that module (the launcher closes); tap a tile whose window is open to close it. A tile with a small arrow is a shortcut and leaves the page. While a window of something inside Show More is open, the `...` circle shows a dot. Saved under `speedDial.layout1` as `{ order, front }` (an old `hidden` list is ignored).
+- Calculator: + − × ÷ with the usual precedence (2+3×4 = 14), %, ±, backspace, AC. `200 + 10%` = 220. Nothing is saved.
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
 - Main circle colours: blue = abroad or traveling, yellow = hospital, red = jail, federal, or hospital abroad. Status is checked once per page load.

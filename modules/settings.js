@@ -1,9 +1,9 @@
-// Speed Dial module: Settings v0.5.0
+// Speed Dial module: Settings v0.6.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
-//   Menu          - every module in your order. Eye = show/hide the circle. Edit mode: drag the handle to reorder,
-//                   and remove your own shortcuts.
+//   Menu          - two groups: "On screen" (max 3 circles) and "Show More" (everything else). The pin moves a module
+//                   between the groups. Edit mode: drag the handle to reorder inside a group, and remove your own shortcuts.
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
 //                   The "!" next to a feature opens a small pop-up with a one-line explanation.
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
@@ -52,8 +52,7 @@
     return PICT.test(g) ? g : '';
   };
 
-  const EYE = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
-  const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7c2 0 3.7.7 5.2 1.7M22 12s-3.6 7-10 7c-2 0-3.7-.7-5.2-1.7"/><path d="M4 4l16 16"/></svg>';
+  const PIN = '<svg viewBox="0 0 24 24"><path d="M9 3.5h6l-.8 5.2 2.8 3.3v1.2H7V12l2.8-3.3z"/><line x1="12" y1="13.2" x2="12" y2="20.5"/></svg>';
   const GRIP = '<svg viewBox="0 0 24 24"><line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="5" y1="16" x2="19" y2="16"/></svg>';
   const HAMB = '<svg viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
 
@@ -86,7 +85,16 @@
     #sdial .cz button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 8px}
     #sdial .cz button:active{background:#2e2e2e}
     #sdial .cz .add,#sdial .cz .edit{width:100%}
-    #sdial .cz .lst{max-height:36vh;overflow-y:auto;touch-action:pan-y;margin-bottom:6px}
+    #sdial .cz .lst{touch-action:pan-y;margin-bottom:6px}
+    #sdial .cz .lst.lm{max-height:30vh;overflow-y:auto}
+    #sdial .cz .gh{display:flex;align-items:center;justify-content:space-between;height:22px;padding:0 4px;margin-bottom:3px;font-size:11px;color:#8a8a8a;letter-spacing:.3px;text-transform:uppercase}
+    #sdial .cz .gh b{font-weight:700;color:#cfcfcf}
+    #sdial .cz .gh b.full{color:#85b200}
+    #sdial .cz .ge{padding:8px 4px 10px;font-size:12px;color:#6f6f6f;text-align:center}
+    #sdial .cz .it .pin{color:#8a8a8a}
+    #sdial .cz .it .pin svg{stroke:#8a8a8a}
+    #sdial .cz .it .pin.on{border-color:#85b200;background:#25360f}
+    #sdial .cz .it .pin.on svg{stroke:#85b200;fill:rgba(133,178,0,.35)}
     #sdial .cz .it{display:flex;align-items:center;gap:8px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:#242424;margin-bottom:3px;user-select:none;-webkit-user-select:none}
     #sdial .cz .it.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55)}
     #sdial .cz .it .ix{width:20px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
@@ -129,7 +137,10 @@
     el.innerHTML =
       '<div class="nav"><button class="hb" aria-label="Pages" aria-expanded="false">' + HAMB + '</button><span class="cur"></span></div>' +
       '<div class="mn"></div>' +
-      '<div class="pg pm on"><div class="lst"></div><button class="edit">Edit</button></div>' +
+      '<div class="pg pm on">' +
+        '<div class="gh"><span>On screen</span><b class="cnt"></b></div><div class="lst lf"></div>' +
+        '<div class="gh"><span>Show More</span></div><div class="lst lm"></div>' +
+        '<button class="edit">Edit</button></div>' +
       '<div class="pg pf"><div class="fl"></div></div>' +
       '<div class="pg pa">' +
         '<div class="qk"></div>' +
@@ -137,7 +148,7 @@
         '<div class="rw"><input class="iu" placeholder="/page.php?sid=..." autocomplete="off" autocapitalize="off" spellcheck="false"><button class="here">This page</button></div>' +
         '<button class="add">Add</button>' +
       '</div>';
-    const qk = el.querySelector('.qk'), lst = el.querySelector('.lst'), fl = el.querySelector('.fl');
+    const qk = el.querySelector('.qk'), lf = el.querySelector('.lf'), lm = el.querySelector('.lm'), cnt = el.querySelector('.cnt'), fl = el.querySelector('.fl');
     const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
     const hb = el.querySelector('.hb'), cur = el.querySelector('.cur'), mn = el.querySelector('.mn');
     let drag = null;
@@ -256,49 +267,72 @@
       SD.toast('Added ' + n);
     });
 
-    // ----- menu page -----
-    const hiddenIds = () => SD.ordered().map(m => m.id).filter(id => SD.isHidden(id));
-    const orderIds = () => SD.ordered().map(m => m.id);
+    // ----- menu page: "On screen" (max SD.maxFront) and "Show More" -----
+    const frontIds = () => SD.front().map(m => m.id);
+    const moreIds = () => SD.more().map(m => m.id);
+
+    function empty(box, txt) {
+      const e = document.createElement('div');
+      e.className = 'ge';
+      e.textContent = txt;
+      box.appendChild(e);
+    }
+
+    function togglePin(id) {
+      const A = frontIds(), B = moreIds();
+      if (A.indexOf(id) > -1) {                         // back to Show More (top of that list, so you can see where it went)
+        A.splice(A.indexOf(id), 1);
+        B.unshift(id);
+      } else {
+        if (A.length >= SD.maxFront) { SD.toast('Max ' + SD.maxFront + ' on screen. Unpin one first.'); return; }
+        B.splice(B.indexOf(id), 1);
+        A.push(id);
+      }
+      SD.setLayout(A.concat(B), A);
+      renderList();
+    }
+
+    function row(m, box, front) {
+      const custom = list.some(s => sid(s) === m.id);
+      const r = document.createElement('div');
+      r.className = 'it' + (custom ? ' cu' : '');
+      r._id = m.id;
+      r.innerHTML = '<span class="grip" aria-label="Drag to reorder">' + GRIP + '</span><span class="ix"></span><span class="nm"></span>' +
+        '<button class="btn del" aria-label="Delete">\u2715</button><button class="btn pin' + (front ? ' on' : '') + '" aria-label="' + (front ? 'Move to Show More' : 'Show on screen') + '">' + PIN + '</button>';
+      const ix = r.querySelector('.ix');
+      if (m.emoji) ix.textContent = m.emoji; else ix.innerHTML = '<svg viewBox="0 0 24 24">' + m.icon + '</svg>';
+      r.querySelector('.nm').textContent = m.label;
+      r.querySelector('.pin').addEventListener('click', () => togglePin(m.id));
+      r.querySelector('.del').addEventListener('click', () => {
+        list = list.filter(s => sid(s) !== m.id);
+        save();
+        SD.unregister(m.id);
+        renderList();
+      });
+      bindDrag(r, box);
+      box.appendChild(r);
+    }
 
     function renderList() {
       if (drag) return;
-      lst.innerHTML = '';
-      SD.ordered().forEach(m => {
-        const off = SD.isHidden(m.id);
-        const custom = list.some(s => sid(s) === m.id);
-        const r = document.createElement('div');
-        r.className = 'it' + (off ? ' off' : '') + (custom ? ' cu' : '');
-        r._id = m.id;
-        r.innerHTML = '<span class="grip" aria-label="Drag to reorder">' + GRIP + '</span><span class="ix"></span><span class="nm"></span>' +
-          '<button class="btn del" aria-label="Delete">\u2715</button><button class="btn eye" aria-label="Show or hide"></button>';
-        const ix = r.querySelector('.ix');
-        if (m.emoji) ix.textContent = m.emoji; else ix.innerHTML = '<svg viewBox="0 0 24 24">' + m.icon + '</svg>';
-        r.querySelector('.nm').textContent = m.label;
-        r.querySelector('.eye').innerHTML = off ? EYE_OFF : EYE;
-        r.querySelector('.eye').addEventListener('click', () => {
-          const h = hiddenIds().filter(id => id !== m.id);
-          if (!off) h.push(m.id);
-          SD.setLayout(orderIds(), h);
-          renderList();
-        });
-        r.querySelector('.del').addEventListener('click', () => {
-          list = list.filter(s => sid(s) !== m.id);
-          save();
-          SD.unregister(m.id);
-          renderList();
-        });
-        bindDrag(r);
-        lst.appendChild(r);
-      });
+      lf.innerHTML = '';
+      lm.innerHTML = '';
+      const A = SD.front(), B = SD.more();
+      cnt.textContent = A.length + '/' + SD.maxFront;
+      cnt.classList.toggle('full', A.length >= SD.maxFront);
+      A.forEach(m => row(m, lf, true));
+      B.forEach(m => row(m, lm, false));
+      if (!A.length) empty(lf, 'Nothing on screen. Pin up to ' + SD.maxFront + '.');
+      if (!B.length) empty(lm, 'Empty');
     }
 
     // ----- drag the grip handle (edit mode only) to reorder; the list scrolls itself near its top/bottom edge -----
-    function bindDrag(row) {
+    function bindDrag(row, box) {
       const grip = row.querySelector('.grip');
       grip.addEventListener('pointerdown', e => {
         if (e.button > 0 || !el.classList.contains('edit')) return;
         e.preventDefault();
-        drag = { row, startY: e.clientY, y: e.clientY, raf: 0 };
+        drag = { row, box, startY: e.clientY, y: e.clientY, raf: 0 };
         try { grip.setPointerCapture(e.pointerId); } catch (err) {}
         row.classList.add('drag');
         drag.raf = requestAnimationFrame(autoScroll);
@@ -309,7 +343,7 @@
     }
 
     function moveDrag() {
-      const row = drag.row;
+      const row = drag.row, lst = drag.box;
       const h = row.offsetHeight + 3;
       let dy = drag.y - drag.startY;
       while (dy > h / 2 && row.nextElementSibling) {
@@ -325,6 +359,7 @@
     function autoScroll() {
       if (!drag) return;
       if (!ctx.alive) { drag = null; return; }
+      const lst = drag.box;
       const r = lst.getBoundingClientRect();
       let v = 0;
       if (drag.y < r.top + EDGE) v = -(2 + 10 * Math.min(1, (r.top + EDGE - drag.y) / EDGE));
@@ -341,9 +376,10 @@
     function endDrag() {
       if (!drag) return;
       cancelAnimationFrame(drag.raf);
-      const order = Array.from(lst.children).map(r => r._id).filter(Boolean);
+      const ids = box => Array.from(box.children).map(r => r._id).filter(Boolean);
+      const A = ids(lf), B = ids(lm);   // a row only moves inside its own group; the pin moves it between groups
       drag = null;
-      if (order.length) SD.setLayout(order, hiddenIds());
+      if (A.length + B.length) SD.setLayout(A.concat(B), A);
       renderList();
     }
 
@@ -361,6 +397,7 @@
     label: 'Settings',
     width: 250,
     pinned: true,
+    ord: 1000,
     // gear
     icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
     mount

@@ -114,22 +114,23 @@
 })();
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
-// Speed Dial core v0.7.0
+// Speed Dial core v0.8.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
-// The Settings module (pinned) lets you hide/show modules and drag them into your own order.
+// At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
+// lives in the pinned "Show More" circle. The Settings module (pinned, always last) lets you choose which 3 stay on screen and drag them into your own order.
 // A module only builds its UI, timers and API calls while its window is open (lazy).
 // A feature (SD.feature) runs on a Torn page itself, outside the circles. It only runs while it is switched on in Settings and the page matches.
 (function () {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.8.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.9.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
   const GAP = 46;
-  const LAY = 'speedDial.layout1';   // { order: [ids], hidden: [ids] }
+  const LAY = 'speedDial.layout1';   // { order: [ids], front: [ids] | null }
 
   // ---------- helpers shared by modules ----------
   // saved data goes through store.js (Torn PDA native storage, with localStorage as copy/fallback).
@@ -248,7 +249,8 @@
   // ---------- module registry ----------
   // m = { id, label, icon (inner SVG markup, 24x24, stroke style) | emoji, width, mount(ctx) -> { unmount() }?, href?, ord? }
   // emoji replaces the SVG icon; href makes the circle a shortcut (no panel); ord sorts circles (default 0, same ord = order of registering)
-  // pinned: true keeps the circle last and always visible (used by Settings, so you can never lock yourself out)
+  // pinned: true keeps the circle last and always visible (Show More and Settings); pinned circles sit after the 3 on-screen ones, sorted by ord
+  // more: true marks the Show More circle itself (it gets a dot while a window of something inside Show More is open)
   SD.register = m => {
     SD.mods.push(m);
     if (stack) refreshCircles();
@@ -261,22 +263,27 @@
     SD.mods.splice(i, 1);
     const ly = layout0();                       // forget a removed module in the saved layout
     ly.order = ly.order.filter(x => x !== id);
-    ly.hidden = ly.hidden.filter(x => x !== id);
+    if (ly.front) ly.front = ly.front.filter(x => x !== id);
     SD.write(LAY, ly);
     if (stack) refreshCircles();
   };
 
-  // ---------- menu layout: your order + hidden modules (edited in Settings) ----------
+  // ---------- menu layout: your order + which modules stay on screen (edited in Settings) ----------
+  // front = ids of the (max 3) modules shown as circles. null = never chosen yet, so the default three are used.
+  // Every other module is listed in Show More. (An old saved "hidden" list is ignored: nothing is hidden any more.)
+  const MAXF = 3;
+  const HOME = ['itemdock', 'travel', 'targets'];   // default on-screen modules
+  SD.maxFront = MAXF;
   let LY = null;
   const layout0 = () => {
     if (!LY) {
       const v = SD.read(LAY, {}) || {};
       const ids = a => (Array.isArray(a) ? a.filter(x => typeof x === 'string') : []);
-      LY = { order: ids(v.order), hidden: ids(v.hidden) };
+      LY = { order: ids(v.order), front: Array.isArray(v.front) ? ids(v.front) : null };
     }
     return LY;
   };
-  // every module except pinned ones, in menu order, hidden ones included.
+  // every module except pinned ones, in menu order.
   // modules you never placed (new ones) come after the placed ones, in their default order.
   SD.ordered = () => {
     const ly = layout0();
@@ -289,14 +296,24 @@
         return ((a[0].ord || 0) - (b[0].ord || 0)) || (a[1] - b[1]);
       }).map(x => x[0]);
   };
-  SD.isHidden = id => layout0().hidden.indexOf(id) > -1;
-  // order / hidden = arrays of module ids. Ids of modules that are not loaded right now are kept as they were.
-  SD.setLayout = (order, hidden) => {
+  // modules shown as circles (max 3), in menu order
+  SD.front = () => {
+    const ly = layout0(), ids = ly.front || HOME;
+    return SD.ordered().filter(m => ids.indexOf(m.id) > -1).slice(0, MAXF);
+  };
+  // modules inside Show More, in menu order
+  SD.more = () => {
+    const f = SD.front().map(m => m.id);
+    return SD.ordered().filter(m => f.indexOf(m.id) < 0);
+  };
+  SD.isFront = id => SD.front().some(m => m.id === id);
+  // order / front = arrays of module ids (front: max 3). Ids of modules that are not loaded right now are kept as they were.
+  SD.setLayout = (order, front) => {
     const ly = layout0();
     const here = id => SD.mods.some(m => m.id === id);
     LY = {
       order: order.concat(ly.order.filter(id => order.indexOf(id) < 0 && !here(id))),
-      hidden: hidden.filter(id => here(id)).concat(ly.hidden.filter(id => !here(id)))
+      front: front.filter(here).slice(0, MAXF).concat((ly.front || []).filter(id => !here(id)))
     };
     SD.write(LAY, LY);
     if (stack) refreshCircles();
@@ -406,6 +423,7 @@
     #sdial[data-st="blk"]{--st:#e5534b}
     #sdial .mod.act{border-color:var(--st)}
     #sdial .mod:active{background:#2e2e2e}
+    #sdial .mod.sub::after{content:'';position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--st);border:1px solid #1c1c1c}
     #sdial .emo{font-size:18px;line-height:1;pointer-events:none}
     #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
     #sdial.r .lb{left:auto;right:40px}
@@ -465,8 +483,9 @@
   // rebuild every circle in order (after a module is added or removed)
   function refreshCircles() {
     circles.splice(0).forEach(c => c.b.remove());
-    SD.ordered().filter(m => !SD.isHidden(m.id))
-      .concat(SD.mods.filter(m => m.pinned))
+    SD.front()
+      .concat(SD.mods.map((m, i) => [m, i]).filter(x => x[0].pinned)
+        .sort((a, b) => ((a[0].ord || 0) - (b[0].ord || 0)) || (a[1] - b[1])).map(x => x[0]))
       .forEach(addCircle);
     markActive();
     layout();
@@ -474,6 +493,8 @@
 
   function markActive() {
     circles.forEach(c => c.b.classList.toggle('act', wins.has(c.m.id)));
+    const sub = SD.more().some(m => wins.has(m.id));   // something that lives in Show More is open
+    circles.forEach(c => c.b.classList.toggle('sub', !!c.m.more && sub));
     root.classList.toggle('pnl', wins.size > 0);
   }
 
@@ -608,6 +629,10 @@
   function pick(m) {
     if (wins.has(m.id)) closeWin(m.id); else openWin(m);
   }
+  // for modules that open other modules (Show More): open or close one window by module id
+  SD.open = id => { const m = SD.mods.find(x => x.id === id); if (m && !m.href && !wins.has(id)) openWin(m); };
+  SD.close = id => closeWin(id);
+  SD.isOpen = id => wins.has(id);
 
   SD.start = function (opts) {
     if (SD.started) return;
@@ -1224,749 +1249,6 @@
   });
 })();
 
-// Speed Dial module: Settings v0.4.0
-// The pinned gear circle (always last, cannot be hidden). Three pages:
-//   Menu          - every module in your order. Eye = show/hide the circle. Edit mode: drag the handle to reorder,
-//                   and remove your own shortcuts.
-//   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
-//                   The "!" next to a feature opens a small pop-up with a one-line explanation.
-//   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
-// Nothing is read from or clicked on the page. Only torn.com pages are accepted.
-(function () {
-  'use strict';
-  const SD = window.SpeedDial;
-  if (!SD) return;
-
-  const LS = 'speedDial.shortcuts1';   // same key as the old Shortcuts module, so saved shortcuts carry over
-  const MAX = 8;
-  const QUICK = ['\u{1F3E0}', '\u{1F6D2}', '\u{1F3E6}', '\u{1F3B0}', '\u2694\uFE0F', '\u{1F3E5}', '\u{1F4BC}', '\u{1F4E6}', '\u{1F3AF}', '\u2B50'];
-  let list = SD.read(LS, []);
-  if (!Array.isArray(list)) list = [];
-  const save = () => SD.write(LS, list);
-
-  const sid = s => 'sc-' + s.id;
-  const reg = s => SD.register({ id: sid(s), label: s.n, emoji: s.e, href: s.u, ord: 500 });
-  list.forEach(reg);
-
-  // torn.com page only: "/bazaar.php", "torn.com/bazaar.php" or "https://www.torn.com/bazaar.php"
-  const fixUrl = raw => {
-    let u = String(raw || '').trim();
-    if (!u) return '';
-    if (u[0] === '/') return (u[1] === '/' || u[1] === '\\') ? '' : u;
-    if (/^(www\.)?torn\.com\//i.test(u)) u = 'https://' + u;
-    return /^https:\/\/(www\.)?torn\.com\//i.test(u) ? u : '';
-  };
-
-  // first emoji of the input (keeps skin tones and combined emoji in one piece)
-  let PICT;
-  try { PICT = new RegExp('\\p{Extended_Pictographic}', 'u'); } catch (e) { PICT = /[^\x00-\x7F]/; }
-  const firstChar = s => {
-    try {
-      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-        const it = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s)[Symbol.iterator]().next();
-        return it.done ? '' : it.value.segment;
-      }
-    } catch (e) {}
-    return Array.from(s)[0] || '';
-  };
-  const emojiOf = raw => {
-    const s = String(raw || '').trim();
-    if (!s) return '\u2B50';
-    const g = firstChar(s);
-    return PICT.test(g) ? g : '';
-  };
-
-  const EYE = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
-  const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7c2 0 3.7.7 5.2 1.7M22 12s-3.6 7-10 7c-2 0-3.7-.7-5.2-1.7"/><path d="M4 4l16 16"/></svg>';
-  const GRIP = '<svg viewBox="0 0 24 24"><line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="5" y1="16" x2="19" y2="16"/></svg>';
-
-  const CSS = `
-    #sdial .cz .tabs{display:flex;gap:4px;margin-bottom:6px}
-    #sdial .cz .tabs button{flex:1}
-    #sdial .cz .tabs button.on{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
-    #sdial .cz .pg{display:none}
-    #sdial .cz .pg.on{display:block}
-    #sdial .cz .qk{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
-    #sdial .cz .qk button{flex:0 0 auto;width:30px;height:30px;font-size:16px;padding:0}
-    #sdial .cz .rw{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .cz input{min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:13px;padding:0 8px}
-    #sdial .cz .ie{flex:0 0 64px;text-align:center;font-size:16px}
-    #sdial .cz .in,#sdial .cz .iu{flex:1}
-    #sdial .cz button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 8px}
-    #sdial .cz button:active{background:#2e2e2e}
-    #sdial .cz .add,#sdial .cz .edit{width:100%}
-    #sdial .cz .lst{max-height:36vh;overflow-y:auto;touch-action:pan-y;margin-bottom:6px}
-    #sdial .cz .it{display:flex;align-items:center;gap:8px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:#242424;margin-bottom:3px;user-select:none;-webkit-user-select:none}
-    #sdial .cz .it.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55)}
-    #sdial .cz .it .ix{width:20px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
-    #sdial .cz .it .ix svg{width:18px;height:18px}
-    #sdial .cz .it .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .cz .it.off .ix,#sdial .cz .it.off .nm{opacity:.4}
-    #sdial .cz .it .grip{display:none;align-items:center;justify-content:center;width:30px;height:34px;margin:0 0 0 -10px;touch-action:none;cursor:grab;flex:0 0 auto}
-    #sdial .cz .it .grip svg{width:18px;height:18px;stroke:#8a8a8a}
-    #sdial .cz.edit .it .grip{display:flex}
-    #sdial .cz .it.drag .grip svg{stroke:#e6e6e6}
-    #sdial .cz .it .btn{height:26px;width:30px;padding:0;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
-    #sdial .cz .it .btn svg{width:16px;height:16px}
-    #sdial .cz .it .del{display:none;color:#f1807a}
-    #sdial .cz.edit .it.cu .del{display:flex}
-    #sdial .cz .fl{max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
-    #sdial .cz .fe{padding:10px 4px;color:#8a8a8a;font-size:12px;text-align:center}
-    #sdial .cz .fw{border-radius:8px;background:#242424;margin-bottom:3px}
-    #sdial .cz .fr{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 10px}
-    #sdial .cz .fr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .cz .fr .inf{flex:0 0 auto;width:26px;height:26px;padding:0;border-radius:50%;border:1px solid #4a4a4a;background:none;color:#9a9a9a;font-size:13px;font-weight:700;line-height:1}
-    #sdial .cz .fr .inf:active{background:#383838;border-color:#8a8a8a;color:#e6e6e6}
-    #sdial .cz .fr .sw{flex:0 0 auto;position:relative;width:40px;height:24px;padding:0;border-radius:12px;border:1px solid #444;background:#1a1a1a;transition:background .12s,border-color .12s}
-    #sdial .cz .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
-    #sdial .cz .fr .sw.on{background:#25360f;border-color:#85b200}
-    #sdial .cz .fr .sw.on i{transform:translateX(16px);background:#85b200}
-    #sdial .sdtip{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.5)}
-    #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
-    #sdial .sdtip .th{font-size:13px;font-weight:700}
-    #sdial .sdtip .tx{margin-top:4px;font-size:12px;line-height:1.4;color:#bdbdbd}
-    #sdial .sdtip .tp{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#6fa3dc}
-    #sdial .sdtip .tp svg{flex:0 0 auto;width:16px;height:16px;stroke:#6fa3dc}
-    #sdial .sdtip .tk{width:100%;height:32px;margin-top:10px;padding:0 8px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px}
-    #sdial .sdtip .tk:active{background:#2e2e2e}
-  `;
-
-  function mount(ctx) {
-    SD.css('sd-settings', CSS);
-    const el = ctx.el;
-    el.className = 'cz';
-    el.innerHTML =
-      '<div class="tabs"><button class="tb on" data-p="pm">Menu</button><button class="tb" data-p="pf">Features</button><button class="tb" data-p="pa">Shortcut</button></div>' +
-      '<div class="pg pm on"><div class="lst"></div><button class="edit">Edit</button></div>' +
-      '<div class="pg pf"><div class="fl"></div></div>' +
-      '<div class="pg pa">' +
-        '<div class="qk"></div>' +
-        '<div class="rw"><input class="ie" maxlength="12" placeholder="Emoji" autocomplete="off"><input class="in" maxlength="20" placeholder="Name" autocomplete="off"></div>' +
-        '<div class="rw"><input class="iu" placeholder="/page.php?sid=..." autocomplete="off" autocapitalize="off" spellcheck="false"><button class="here">This page</button></div>' +
-        '<button class="add">Add</button>' +
-      '</div>';
-    const qk = el.querySelector('.qk'), lst = el.querySelector('.lst'), fl = el.querySelector('.fl');
-    const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
-    let drag = null;
-
-    // ----- pages -----
-    el.querySelectorAll('.tb').forEach(b => b.addEventListener('click', () => {
-      closeTip();
-      el.querySelectorAll('.tb').forEach(x => x.classList.toggle('on', x === b));
-      el.querySelectorAll('.pg').forEach(p => p.classList.toggle('on', p.classList.contains(b.dataset.p)));
-      if (b.dataset.p === 'pm') renderList();
-      if (b.dataset.p === 'pf') renderFeat();
-    }));
-
-    // ----- features page: on/off per feature, "!" opens a small pop-up -----
-    let tip = null;
-    function closeTip() { if (tip) { tip.remove(); tip = null; } }
-    // lives in #sdial (not inside the window, which clips and moves), so it is centred on the screen
-    function openTip(f) {
-      closeTip();
-      const t = document.createElement('div');
-      t.className = 'sdtip';
-      t.innerHTML = '<div class="tc" role="dialog"><div class="th"></div><div class="tx"></div><div class="tp"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.2a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.8" r="2.5"/></svg><span></span></div><button class="tk">OK</button></div>';
-      t.querySelector('.th').textContent = f.label;
-      t.querySelector('.tx').textContent = f.info || '';
-      const tp = t.querySelector('.tp');
-      if (f.where) tp.querySelector('span').textContent = f.where; else tp.remove();
-      t.addEventListener('click', e => { if (e.target === t || e.target.closest('.tk')) closeTip(); });
-      (document.getElementById('sdial') || document.body).appendChild(t);
-      tip = t;
-    }
-
-    function renderFeat() {
-      closeTip();
-      fl.innerHTML = '';
-      if (!SD.features.length) {
-        const e = document.createElement('div');
-        e.className = 'fe';
-        e.textContent = 'No features installed yet.';
-        fl.appendChild(e);
-        return;
-      }
-      SD.features.forEach(f => {
-        const w = document.createElement('div');
-        w.className = 'fw';
-        w.innerHTML = '<div class="fr"><span class="nm"></span><button class="inf" aria-label="About this feature">!</button>' +
-          '<button class="sw" role="switch"><i></i></button></div>';
-        w.querySelector('.nm').textContent = f.label;
-        const sw = w.querySelector('.sw');
-        const paint = () => {
-          const on = SD.featureOn(f.id);
-          sw.classList.toggle('on', on);
-          sw.setAttribute('aria-checked', on ? 'true' : 'false');
-        };
-        paint();
-        w.querySelector('.inf').addEventListener('click', () => openTip(f));
-        sw.addEventListener('click', () => {
-          const now = !SD.featureOn(f.id);
-          SD.setFeature(f.id, now);
-          paint();
-          if (now && !SD.featureFits(f.id) && f.where) SD.toast(f.label + ' is on. It starts on: ' + f.where);
-        });
-        fl.appendChild(w);
-      });
-    }
-
-    // ----- add shortcut page -----
-    QUICK.forEach(e => {
-      const b = document.createElement('button');
-      b.textContent = e;
-      b.addEventListener('click', () => { inE.value = e; });
-      qk.appendChild(b);
-    });
-
-    // fill the form from the page you are on right now (address only, nothing else is read)
-    el.querySelector('.here').addEventListener('click', () => {
-      inU.value = location.pathname + location.search + location.hash;
-      if (!inN.value) inN.value = (document.title || '').replace(/\s*[|\u2013-]\s*TORN.*$/i, '').trim().slice(0, 20);
-    });
-
-    el.querySelector('.add').addEventListener('click', () => {
-      if (list.length >= MAX) { SD.toast('Maximum ' + MAX + ' shortcuts'); return; }
-      const e = emojiOf(inE.value), n = inN.value.trim().slice(0, 20), u = fixUrl(inU.value);
-      if (!e) { SD.toast('Emoji must be an emoji'); return; }
-      if (!n) { SD.toast('Enter a name'); return; }
-      if (!u) { SD.toast('Use a torn.com page'); return; }
-      const s = { id: Date.now().toString(36), e, n, u };
-      list.push(s);
-      save();
-      reg(s);
-      inE.value = inN.value = inU.value = '';
-      SD.toast('Added ' + n);
-    });
-
-    // ----- menu page -----
-    const hiddenIds = () => SD.ordered().map(m => m.id).filter(id => SD.isHidden(id));
-    const orderIds = () => SD.ordered().map(m => m.id);
-
-    function renderList() {
-      if (drag) return;
-      lst.innerHTML = '';
-      SD.ordered().forEach(m => {
-        const off = SD.isHidden(m.id);
-        const custom = list.some(s => sid(s) === m.id);
-        const r = document.createElement('div');
-        r.className = 'it' + (off ? ' off' : '') + (custom ? ' cu' : '');
-        r._id = m.id;
-        r.innerHTML = '<span class="grip" aria-label="Drag to reorder">' + GRIP + '</span><span class="ix"></span><span class="nm"></span>' +
-          '<button class="btn del" aria-label="Delete">\u2715</button><button class="btn eye" aria-label="Show or hide"></button>';
-        const ix = r.querySelector('.ix');
-        if (m.emoji) ix.textContent = m.emoji; else ix.innerHTML = '<svg viewBox="0 0 24 24">' + m.icon + '</svg>';
-        r.querySelector('.nm').textContent = m.label;
-        r.querySelector('.eye').innerHTML = off ? EYE_OFF : EYE;
-        r.querySelector('.eye').addEventListener('click', () => {
-          const h = hiddenIds().filter(id => id !== m.id);
-          if (!off) h.push(m.id);
-          SD.setLayout(orderIds(), h);
-          renderList();
-        });
-        r.querySelector('.del').addEventListener('click', () => {
-          list = list.filter(s => sid(s) !== m.id);
-          save();
-          SD.unregister(m.id);
-          renderList();
-        });
-        bindDrag(r);
-        lst.appendChild(r);
-      });
-    }
-
-    // ----- drag the grip handle (edit mode only) to reorder; the list scrolls itself near its top/bottom edge -----
-    function bindDrag(row) {
-      const grip = row.querySelector('.grip');
-      grip.addEventListener('pointerdown', e => {
-        if (e.button > 0 || !el.classList.contains('edit')) return;
-        e.preventDefault();
-        drag = { row, startY: e.clientY, y: e.clientY, raf: 0 };
-        try { grip.setPointerCapture(e.pointerId); } catch (err) {}
-        row.classList.add('drag');
-        drag.raf = requestAnimationFrame(autoScroll);
-      });
-      grip.addEventListener('pointermove', e => { if (drag && drag.row === row) { drag.y = e.clientY; moveDrag(); } });
-      grip.addEventListener('pointerup', endDrag);
-      grip.addEventListener('pointercancel', endDrag);
-    }
-
-    function moveDrag() {
-      const row = drag.row;
-      const h = row.offsetHeight + 3;
-      let dy = drag.y - drag.startY;
-      while (dy > h / 2 && row.nextElementSibling) {
-        lst.insertBefore(row.nextElementSibling, row); drag.startY += h; dy -= h;
-      }
-      while (dy < -h / 2 && row.previousElementSibling) {
-        lst.insertBefore(row.previousElementSibling, row.nextSibling); drag.startY -= h; dy += h;   // move the neighbour, not the dragged row
-      }
-      row.style.transform = 'translateY(' + dy + 'px)';
-    }
-
-    const EDGE = 36;   // px from the list's top/bottom edge where scrolling starts
-    function autoScroll() {
-      if (!drag) return;
-      if (!ctx.alive) { drag = null; return; }
-      const r = lst.getBoundingClientRect();
-      let v = 0;
-      if (drag.y < r.top + EDGE) v = -(2 + 10 * Math.min(1, (r.top + EDGE - drag.y) / EDGE));
-      else if (drag.y > r.bottom - EDGE) v = 2 + 10 * Math.min(1, (drag.y - (r.bottom - EDGE)) / EDGE);
-      if (v) {
-        const before = lst.scrollTop;
-        lst.scrollTop = before + v;
-        const moved = lst.scrollTop - before;
-        if (moved) { drag.startY -= moved; moveDrag(); }   // the row keeps following the finger
-      }
-      drag.raf = requestAnimationFrame(autoScroll);
-    }
-
-    function endDrag() {
-      if (!drag) return;
-      cancelAnimationFrame(drag.raf);
-      const order = Array.from(lst.children).map(r => r._id).filter(Boolean);
-      drag = null;
-      if (order.length) SD.setLayout(order, hiddenIds());
-      renderList();
-    }
-
-    el.querySelector('.edit').addEventListener('click', e => {
-      const on = el.classList.toggle('edit');
-      e.target.textContent = on ? 'Done' : 'Edit';
-    });
-
-    renderList();
-    return { unmount: closeTip };
-  }
-
-  SD.register({
-    id: 'settings',
-    label: 'Settings',
-    width: 250,
-    pinned: true,
-    // gear
-    icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
-    mount
-  });
-})();
-
-// Speed Dial module: Targets v0.5.1
-// Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
-// anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
-// Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
-// Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
-// Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
-// Auto-refresh: the targets on screen are also refreshed when the window opens, when you change page and when you change the sort.
-// It only loads targets whose data is older than 30 seconds, does not start the Refresh button cooldown and stays silent unless something fails.
-// From 15 targets on, the list switches to pages (15 per page, arrows with "page / total" in the middle) instead of scrolling,
-// and Refresh only asks for the current page, so the number of API requests stays small.
-// Nothing runs while the window is closed.
-(function () {
-  'use strict';
-  const SD = window.SpeedDial;
-  if (!SD) return;
-
-  const LS = 'speedDial.targets1';   // { list: [{ id, name, st }], rt: last refresh (ms) }
-  const PER = 15;                    // targets per page; from this many targets on, pages replace scrolling
-  const MAX = 150;                   // most targets you can save
-  const COOL = 30000;                // Refresh button cooldown (also the age after which auto-refresh reloads a target)
-  const BATCH = 5;                   // parallel requests while refreshing
-
-  const S = SD.read(LS, null) || {};
-  if (!Array.isArray(S.list)) S.list = [];
-  if (typeof S.rt !== 'number') S.rt = 0;
-  const save = () => SD.write(LS, S);
-
-  const strip = s => String(s || '').replace(/<[^>]*>/g, '').trim();
-  const COLOR = { Okay: '#7fd08a', Hospital: '#f1807a', Jail: '#d9a441', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
-  const colorOf = s => COLOR[s] || '#cfcfcf';
-
-  // one profile request -> { name, st }
-  async function pull(id) {
-    const j = await SD.api('https://api.torn.com/user/' + id + '?selections=profile');
-    const s = j.status || {};
-    return {
-      name: String(j.name || ('#' + id)),
-      lv: typeof j.level === 'number' ? j.level : 0,
-      st: { state: s.state || 'Okay', desc: strip(s.description), det: strip(s.details), until: s.until || 0, t: Date.now() }
-    };
-  }
-
-  // ---- name search (Torn API v2 user/search, flagged Unstable by Torn) ----
-  // The name filter syntax could not be checked against Torn's docs, and a wrong one is NOT an error: the API just ignores it
-  // and returns unrelated players. So every result is checked against what you typed, and a try only counts when it gives matches.
-  // Each try = the query string part for the typed name. The first one that works is remembered (S.nt) and used first next time.
-  const NAME_TRIES = [
-    q => 'filters=' + encodeURIComponent('name:=:' + q),
-    q => 'filters=' + encodeURIComponent('name:like:' + q),
-    q => 'filters=' + encodeURIComponent('name:contains:' + q),
-    q => 'name=' + encodeURIComponent(q)
-  ];
-  const arr = j => {   // first list of objects in the response, whatever the key is called
-    if (Array.isArray(j)) return j;
-    for (const v of Object.values(j || {})) {
-      if (Array.isArray(v) && (!v.length || typeof v[0] === 'object')) return v;
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        const o = Object.values(v);
-        if (o.length && typeof o[0] === 'object' && o[0] && (o[0].name || o[0].id || o[0].player_id)) return o;
-      }
-    }
-    return [];
-  };
-  async function findName(q) {
-    const low = q.toLowerCase();
-    const order = NAME_TRIES.map((t, i) => i);
-    if (typeof S.nt === 'number' && S.nt >= 0 && S.nt < order.length) order.unshift(order.splice(S.nt, 1)[0]);
-    let err = null, ok = false, empty = false, junk = false;
-    for (const i of order) {
-      try {
-        const j = await SD.api('https://api.torn.com/v2/user/search?' + NAME_TRIES[i](q));
-        ok = true;
-        const all = arr(j).map(o => ({ id: +(o.id || o.player_id || o.user_id || 0), name: String(o.name || ''), level: o.level || 0 })).filter(o => o.id && o.name);
-        const hit = all.filter(o => o.name.toLowerCase().indexOf(low) > -1).slice(0, 15);
-        if (hit.length) { if (S.nt !== i) { S.nt = i; save(); } return hit; }
-        if (all.length) junk = true; else empty = true;   // unrelated players = filter ignored; nobody = filter works
-      } catch (e) { err = e; }
-    }
-    if (!ok) throw err || new Error('search failed');
-    if (empty) return [];
-    if (junk) throw new Error('the API ignored the name filter');
-    return [];
-  }
-
-  // what to show right now: the saved status, but once the cooldown has run out it counts as Okay
-  function view(st) {
-    if (!st) return { label: '...', color: '#8a8a8a', rem: 0 };
-    const rem = st.until ? st.until - Date.now() / 1000 : 0;
-    if (st.state !== 'Okay' && st.until && rem <= 0) return { label: 'Okay', color: COLOR.Okay, rem: 0 };
-    return { label: st.state, color: colorOf(st.state), rem: Math.max(0, rem) };
-  }
-
-  const CSS = `
-    #sdial .tg button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 10px}
-    #sdial .tg button:active{background:#2e2e2e}
-    #sdial .tg button:disabled{opacity:.4}
-    #sdial .tg input{flex:1;min-width:0;height:36px;border-radius:8px;border:1px solid #3a3a3a;background:#242424;color:#e6e6e6;font-size:16px;padding:0 10px;outline:none}
-    #sdial .tg input:focus{border-color:#4a8fd9}
-    #sdial .tg .addv{display:none}
-    #sdial .tg.adding .addv{display:block}
-    #sdial .tg.adding .main{display:none}
-    #sdial .tg .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#e6e6e6;font-size:13px}
-    #sdial .tg .ah .back{flex:0 0 32px;width:32px;padding:0;display:flex;align-items:center;justify-content:center}
-    #sdial .tg .ad{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .tg .ad .go{flex:0 0 auto;height:36px;padding:0 14px}
-    #sdial .tg .res{max-height:44vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
-    #sdial .tg .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #4a8fd9}
-    #sdial .tg .res .r:active{background:#2e2e2e}
-    #sdial .tg .res .r.have{opacity:.5}
-    #sdial .tg .res .lv{flex:0 0 auto;color:#9a9a9a;font-size:11px}
-    #sdial .tg .res .pl{flex:0 0 18px;text-align:center;color:#7fd08a;font-size:18px;line-height:1}
-    #sdial .tg .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
-    #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
-    #sdial .tg .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
-    #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
-    #sdial .tg .tr:active{background:#2e2e2e}
-    #sdial .tg .r1{display:flex;align-items:center;gap:8px}
-    #sdial .tg .who{flex:1;min-width:0}
-    #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e6e6e6;text-decoration:none;font-size:13px}
-    #sdial .tg .id{display:block;color:#6b6b6b;font-size:11px;margin-top:1px}
-    #sdial .tg .id em{font-style:normal;color:#9a9a9a;margin-left:8px}
-    #sdial .tg .sx{flex:0 0 auto;text-align:right;max-width:46%}
-    #sdial .tg .sl{display:block;font-weight:600;font-size:12px;color:var(--c)}
-    #sdial .tg .cd{display:block;color:#cfcfcf;font-size:11px;margin-top:1px;min-height:13px}
-    #sdial .tg .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid #2f2f2f;color:#9a9a9a;font-size:11px;line-height:1.35;word-break:break-word}
-    #sdial .tg .tr.open .dt{display:block}
-    #sdial .tg .rm{display:none;flex:0 0 30px;width:30px;height:30px;padding:0;color:#f1807a}
-    #sdial .tg.ed .rm{display:block}
-    #sdial .tg .pg{display:none;align-items:center;gap:6px;margin:6px 0 0}
-    #sdial .tg.pgd .pg{display:flex}
-    #sdial .tg .pg button{flex:0 0 44px;padding:0}
-    #sdial .tg .pg button svg{width:18px;height:18px}
-    #sdial .tg .pn{flex:1;text-align:center;color:#cfcfcf;font-size:13px}
-    #sdial .tg .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
-    #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
-    #sdial .tg.ed .foot .edit{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
-    #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
-    #sdial .tg .foot .fb.act{background:#2a3140;border-color:#4a8fd9}
-    #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
-    #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
-    #sdial .tgpop{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
-    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
-    #sdial .tgpop .th{padding:2px 4px 8px;font-size:14px;font-weight:700}
-    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:44px;margin-top:4px;padding:0 12px;border-radius:10px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:14px;text-align:left}
-    #sdial .tgpop .op:active{background:#2e2e2e}
-    #sdial .tgpop .op i{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid #5a5a5a}
-    #sdial .tgpop .op.on{border-color:#4a8fd9;background:#2a3140}
-    #sdial .tgpop .op.on i{border-color:#4a8fd9;background:radial-gradient(circle,#4a8fd9 0 40%,transparent 45%)}
-    #sdial .tgpop .op span{flex:1}
-    #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid #333;background:none;color:#cfcfcf;font-size:13px}
-    #sdial .tgpop .cx:active{background:#2e2e2e}
-  `;
-
-  const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
-  const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
-  const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
-  const SORTS = [['def', 'Sort by Default'], ['name', 'Sort by A-Z'], ['okay', 'Sort by Time']];
-
-  function mount(ctx) {
-    SD.css('sd-targets', CSS);
-    const el = ctx.el;
-    el.innerHTML =
-      '<div class="tg">' +
-        '<div class="addv">' +
-          '<div class="ah"><button class="back" aria-label="Back">' + ARROW_L + '</button><span>Add target</span></div>' +
-          '<div class="ad"><input class="in" type="text" placeholder="Name or ID" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="go">Go</button></div>' +
-          '<div class="res"></div>' +
-        '</div>' +
-        '<div class="main">' +
-          '<div class="lst"></div>' +
-          '<div class="pg"><button class="pp" aria-label="Previous page">' + ARROW_L + '</button><span class="pn"></span><button class="pnx" aria-label="Next page">' + ARROW_R + '</button></div>' +
-          '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="fb" aria-label="Sort">' + FUNNEL + '</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
-        '</div>' +
-      '</div>';
-    const q = s => el.querySelector(s);
-    const root = q('.tg'), lst = q('.lst'), res = q('.res'), inp = q('.in'), goB = q('.go'), pn = q('.pn');
-    const prev = q('.pp'), next = q('.pnx'), edit = q('.edit'), rf = q('.rf'), rs = q('.rs'), fb = q('.fb');
-    let page = 0, busy = false, found = [];
-
-    // ---- order: Default (as added), A-Z, Okay first (then the shortest cooldown first) ----
-    const sortKey = () => (S.sort === 'name' || S.sort === 'okay') ? S.sort : 'def';
-    function sorted() {
-      const l = S.list.slice();
-      const k = sortKey();
-      if (k === 'name') l.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-      else if (k === 'okay') {
-        const w = t => { const v = view(t.st); return v.label === 'Okay' ? 0 : v.label === '...' ? 2 : 1; };
-        l.sort((a, b) => (w(a) - w(b)) || (view(a.st).rem - view(b.st).rem) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-      }
-      return l;
-    }
-    const paged = () => S.list.length >= PER;
-    const pages = () => Math.max(1, Math.ceil(S.list.length / PER));
-    const shown = () => { const l = sorted(); return paged() ? l.slice(page * PER, page * PER + PER) : l; };
-
-    function render() {
-      if (page > pages() - 1) page = pages() - 1;
-      if (page < 0) page = 0;
-      root.classList.toggle('pgd', paged());
-      fb.classList.toggle('act', sortKey() !== 'def');
-      if (!SD.hasKey) { lst.innerHTML = '<div class="em">No API key available.</div>'; return; }
-      if (!S.list.length) { lst.innerHTML = '<div class="em">No targets yet.<br>Tap Add.</div>'; return; }
-      const keep = lst.scrollTop;
-      lst.innerHTML = shown().map(t => {
-        const v = view(t.st);
-        const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
-        return '<div class="tr" data-id="' + t.id + '" style="--c:' + v.color + '">' +
-          '<div class="r1">' +
-            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
-            '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
-            '<button class="rm" aria-label="Remove">\u2715</button>' +
-          '</div>' +
-          '<div class="dt">' + SD.esc(det || 'No details') + '</div>' +
-        '</div>';
-      }).join('');
-      lst.scrollTop = keep;
-      pn.textContent = (page + 1) + ' / ' + pages();
-      prev.disabled = page <= 0;
-      next.disabled = page >= pages() - 1;
-    }
-
-    // every second: cooldown numbers + Refresh button; a row whose cooldown just ended is redrawn as Okay
-    function tick() {
-      const now = Date.now() / 1000;
-      let redraw = false;
-      lst.querySelectorAll('.cd[data-u]').forEach(c => {
-        const u = +c.dataset.u;
-        if (!u) return;
-        const rem = u - now;
-        if (rem <= 0) redraw = true; else c.textContent = SD.durS(rem);
-      });
-      if (redraw && !root.classList.contains('adding')) render();
-      const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
-      rs.textContent = left > 0 ? left + 's' : '';
-      rf.disabled = left > 0 || busy;
-    }
-
-    // ---- add view (like Item Dock: its own view with a back button) ----
-    function renderRes(msg) {
-      if (msg) { res.innerHTML = '<div class="hint">' + SD.esc(msg) + '</div>'; return; }
-      if (!found.length) { res.innerHTML = '<div class="hint">Type a name or an ID, then tap Go.</div>'; return; }
-      res.innerHTML = '';
-      found.forEach(o => {
-        const have = S.list.some(t => t.id === o.id);
-        const r = document.createElement('div');
-        r.className = 'r' + (have ? ' have' : '');
-        r.innerHTML = '<div class="who"><span class="nm"></span><span class="id">[' + o.id + ']</span></div>' + (o.level ? '<span class="lv">Lv ' + o.level + '</span>' : '') + '<span class="pl">' + (have ? '\u2713' : '+') + '</span>';
-        r.querySelector('.nm').textContent = o.name;
-        if (!have) r.addEventListener('click', () => { if (!busy) addId(o.id); });
-        res.appendChild(r);
-      });
-    }
-
-    function openAdd() {
-      if (!SD.hasKey) return SD.toast('No API key available');
-      root.classList.add('adding');
-      found = [];
-      inp.value = '';
-      renderRes();
-      inp.focus();
-    }
-    function closeAdd() {
-      root.classList.remove('adding');
-      inp.blur();
-      render();
-      tick();
-    }
-
-    async function addId(id) {
-      if (S.list.some(t => t.id === id)) return SD.toast('Already in your list');
-      if (S.list.length >= MAX) return SD.toast('Max ' + MAX + ' targets');
-      busy = true; goB.disabled = true;
-      try {
-        const r = await pull(id);
-        S.list.push({ id, name: r.name, lv: r.lv, st: r.st });
-        save();
-        if (ctx.alive) {
-          if (sortKey() === 'def') page = pages() - 1;   // show the new one at the end
-          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: r.lv }];   // typed an ID: show it as added
-          inp.value = '';
-          renderRes();
-        }
-        SD.toast(r.name + ' added');
-      } catch (e) {
-        SD.toast('Could not add: ' + e.message);
-      }
-      busy = false;
-      if (ctx.alive) { goB.disabled = false; tick(); }
-    }
-
-    async function byName(name) {
-      busy = true; goB.disabled = true;
-      renderRes('Searching...');
-      let list = null;
-      try { list = await findName(name); }
-      catch (e) { found = []; if (ctx.alive) renderRes('Name search is not working (' + e.message + '). Use the player ID instead.'); }
-      busy = false;
-      if (!ctx.alive) return;
-      goB.disabled = false;
-      tick();
-      if (!list) return;
-      found = list;
-      renderRes(list.length ? '' : 'No player found for "' + name + '".');
-    }
-
-    // one box: a profile link, "[123]" or plain digits = ID; anything else = a name
-    function go() {
-      if (busy) return;
-      const raw = String(inp.value).trim();
-      if (!raw) return SD.toast('Enter a name or ID');
-      const m = raw.match(/XID=(\d+)/i) || raw.match(/^\[?\s*(\d+)\s*\]?$/);
-      if (m) return addId(+m[1]);
-      if (raw.length < 2) return SD.toast('Type at least 2 letters');
-      byName(raw.replace(/^[@\s]+|\s+$/g, ''));
-    }
-
-    // ---- refresh: only the targets on screen ----
-    // manual (button): at most once per 30 seconds, starts the cooldown, always shows a toast.
-    // auto (window open, page change, sort change): only targets whose data is older than 30 seconds,
-    // no button cooldown, and a toast only when something failed.
-    async function refresh(auto) {
-      if (busy) return;
-      if (!SD.hasKey) return auto ? undefined : SD.toast('No API key available');
-      if (!auto) {
-        const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
-        if (left > 0) return SD.toast('Wait ' + left + 's');
-      }
-      let todo = shown().slice();
-      if (auto) todo = todo.filter(t => !t.st || Date.now() - t.st.t > COOL);   // only stale ones
-      if (!todo.length) return;
-      busy = true;
-      if (!auto) {
-        S.rt = Date.now();   // manual refresh starts the cooldown right away, so a double tap cannot send twice
-        save();
-      }
-      tick();
-      let failed = 0, last = '';
-      const job = (async () => {
-        for (let i = 0; i < todo.length; i += BATCH) {
-          await Promise.all(todo.slice(i, i + BATCH).map(async t => {
-            try {
-              const r = await pull(t.id);
-              t.name = r.name;
-              if (r.lv) t.lv = r.lv;
-              t.st = r.st;
-            } catch (e) { failed++; last = e.message; }   // keep the old status when one request fails
-          }));
-        }
-        save();
-      })();
-      await SD.spin(rf, job);
-      busy = false;
-      if (!ctx.alive) return;
-      render();
-      tick();
-      if (!auto || failed) SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
-    }
-
-    // ---- sort pop-up: lives in #sdial (not inside the window, which clips and moves), so it dims the whole screen ----
-    let pop = null;
-    function closePop() { if (pop) { pop.remove(); pop = null; } }
-    function openPop() {
-      closePop();
-      const t = document.createElement('div');
-      t.className = 'tgpop';
-      t.innerHTML = '<div class="tc" role="dialog"><div class="th">Sort</div>' +
-        SORTS.map(x => '<button class="op' + (x[0] === sortKey() ? ' on' : '') + '" data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span></button>').join('') +
-        '<button class="cx">Cancel</button></div>';
-      t.addEventListener('click', e => {
-        const op = e.target.closest('.op');
-        if (op) { S.sort = op.dataset.s; save(); page = 0; closePop(); render(); refresh(true); return; }
-        if (e.target === t || e.target.closest('.cx')) closePop();
-      });
-      (document.getElementById('sdial') || document.body).appendChild(t);
-      pop = t;
-    }
-
-    // ---- events ----
-    q('.add').addEventListener('click', openAdd);
-    q('.back').addEventListener('click', closeAdd);
-    goB.addEventListener('click', go);
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-    rf.addEventListener('click', () => refresh(false));
-    fb.addEventListener('click', openPop);
-    edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
-    prev.addEventListener('click', () => { if (page > 0) { page--; render(); refresh(true); } });
-    next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); refresh(true); } });
-    lst.addEventListener('click', e => {
-      const row = e.target.closest('.tr');
-      if (!row) return;
-      if (e.target.closest('.rm')) {
-        const id = +row.dataset.id;
-        S.list = S.list.filter(t => t.id !== id);
-        save();
-        render();
-        return;
-      }
-      if (e.target.closest('a')) return;   // the name opens the profile
-      row.classList.toggle('open');
-    });
-
-    render();
-    tick();
-    ctx.every(tick, 1000);
-    refresh(true);   // refresh on open
-    return { unmount() { busy = false; closePop(); } };
-  }
-
-  SD.register({
-    id: 'targets',
-    label: 'Targets',
-    width: 270,
-    // crosshair
-    icon: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/>',
-    mount
-  });
-})();
-
 // Speed Dial module: Travel Helper v0.6.4
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
@@ -2402,10 +1684,1113 @@
   });
 })();
 
-// Speed Dial feature: Gym Guide v0.7.0
+// Speed Dial module: Targets v0.5.1
+// Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
+// anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
+// Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
+// Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
+// Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
+// Auto-refresh: the targets on screen are also refreshed when the window opens, when you change page and when you change the sort.
+// It only loads targets whose data is older than 30 seconds, does not start the Refresh button cooldown and stays silent unless something fails.
+// From 15 targets on, the list switches to pages (15 per page, arrows with "page / total" in the middle) instead of scrolling,
+// and Refresh only asks for the current page, so the number of API requests stays small.
+// Nothing runs while the window is closed.
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const LS = 'speedDial.targets1';   // { list: [{ id, name, st }], rt: last refresh (ms) }
+  const PER = 15;                    // targets per page; from this many targets on, pages replace scrolling
+  const MAX = 150;                   // most targets you can save
+  const COOL = 30000;                // Refresh button cooldown (also the age after which auto-refresh reloads a target)
+  const BATCH = 5;                   // parallel requests while refreshing
+
+  const S = SD.read(LS, null) || {};
+  if (!Array.isArray(S.list)) S.list = [];
+  if (typeof S.rt !== 'number') S.rt = 0;
+  const save = () => SD.write(LS, S);
+
+  const strip = s => String(s || '').replace(/<[^>]*>/g, '').trim();
+  const COLOR = { Okay: '#7fd08a', Hospital: '#f1807a', Jail: '#d9a441', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
+  const colorOf = s => COLOR[s] || '#cfcfcf';
+
+  // one profile request -> { name, st }
+  async function pull(id) {
+    const j = await SD.api('https://api.torn.com/user/' + id + '?selections=profile');
+    const s = j.status || {};
+    return {
+      name: String(j.name || ('#' + id)),
+      lv: typeof j.level === 'number' ? j.level : 0,
+      st: { state: s.state || 'Okay', desc: strip(s.description), det: strip(s.details), until: s.until || 0, t: Date.now() }
+    };
+  }
+
+  // ---- name search (Torn API v2 user/search, flagged Unstable by Torn) ----
+  // The name filter syntax could not be checked against Torn's docs, and a wrong one is NOT an error: the API just ignores it
+  // and returns unrelated players. So every result is checked against what you typed, and a try only counts when it gives matches.
+  // Each try = the query string part for the typed name. The first one that works is remembered (S.nt) and used first next time.
+  const NAME_TRIES = [
+    q => 'filters=' + encodeURIComponent('name:=:' + q),
+    q => 'filters=' + encodeURIComponent('name:like:' + q),
+    q => 'filters=' + encodeURIComponent('name:contains:' + q),
+    q => 'name=' + encodeURIComponent(q)
+  ];
+  const arr = j => {   // first list of objects in the response, whatever the key is called
+    if (Array.isArray(j)) return j;
+    for (const v of Object.values(j || {})) {
+      if (Array.isArray(v) && (!v.length || typeof v[0] === 'object')) return v;
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        const o = Object.values(v);
+        if (o.length && typeof o[0] === 'object' && o[0] && (o[0].name || o[0].id || o[0].player_id)) return o;
+      }
+    }
+    return [];
+  };
+  async function findName(q) {
+    const low = q.toLowerCase();
+    const order = NAME_TRIES.map((t, i) => i);
+    if (typeof S.nt === 'number' && S.nt >= 0 && S.nt < order.length) order.unshift(order.splice(S.nt, 1)[0]);
+    let err = null, ok = false, empty = false, junk = false;
+    for (const i of order) {
+      try {
+        const j = await SD.api('https://api.torn.com/v2/user/search?' + NAME_TRIES[i](q));
+        ok = true;
+        const all = arr(j).map(o => ({ id: +(o.id || o.player_id || o.user_id || 0), name: String(o.name || ''), level: o.level || 0 })).filter(o => o.id && o.name);
+        const hit = all.filter(o => o.name.toLowerCase().indexOf(low) > -1).slice(0, 15);
+        if (hit.length) { if (S.nt !== i) { S.nt = i; save(); } return hit; }
+        if (all.length) junk = true; else empty = true;   // unrelated players = filter ignored; nobody = filter works
+      } catch (e) { err = e; }
+    }
+    if (!ok) throw err || new Error('search failed');
+    if (empty) return [];
+    if (junk) throw new Error('the API ignored the name filter');
+    return [];
+  }
+
+  // what to show right now: the saved status, but once the cooldown has run out it counts as Okay
+  function view(st) {
+    if (!st) return { label: '...', color: '#8a8a8a', rem: 0 };
+    const rem = st.until ? st.until - Date.now() / 1000 : 0;
+    if (st.state !== 'Okay' && st.until && rem <= 0) return { label: 'Okay', color: COLOR.Okay, rem: 0 };
+    return { label: st.state, color: colorOf(st.state), rem: Math.max(0, rem) };
+  }
+
+  const CSS = `
+    #sdial .tg button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 10px}
+    #sdial .tg button:active{background:#2e2e2e}
+    #sdial .tg button:disabled{opacity:.4}
+    #sdial .tg input{flex:1;min-width:0;height:36px;border-radius:8px;border:1px solid #3a3a3a;background:#242424;color:#e6e6e6;font-size:16px;padding:0 10px;outline:none}
+    #sdial .tg input:focus{border-color:#4a8fd9}
+    #sdial .tg .addv{display:none}
+    #sdial .tg.adding .addv{display:block}
+    #sdial .tg.adding .main{display:none}
+    #sdial .tg .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#e6e6e6;font-size:13px}
+    #sdial .tg .ah .back{flex:0 0 32px;width:32px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .tg .ad{display:flex;gap:6px;margin-bottom:6px}
+    #sdial .tg .ad .go{flex:0 0 auto;height:36px;padding:0 14px}
+    #sdial .tg .res{max-height:44vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
+    #sdial .tg .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #4a8fd9}
+    #sdial .tg .res .r:active{background:#2e2e2e}
+    #sdial .tg .res .r.have{opacity:.5}
+    #sdial .tg .res .lv{flex:0 0 auto;color:#9a9a9a;font-size:11px}
+    #sdial .tg .res .pl{flex:0 0 18px;text-align:center;color:#7fd08a;font-size:18px;line-height:1}
+    #sdial .tg .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
+    #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
+    #sdial .tg .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
+    #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
+    #sdial .tg .tr:active{background:#2e2e2e}
+    #sdial .tg .r1{display:flex;align-items:center;gap:8px}
+    #sdial .tg .who{flex:1;min-width:0}
+    #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e6e6e6;text-decoration:none;font-size:13px}
+    #sdial .tg .id{display:block;color:#6b6b6b;font-size:11px;margin-top:1px}
+    #sdial .tg .id em{font-style:normal;color:#9a9a9a;margin-left:8px}
+    #sdial .tg .sx{flex:0 0 auto;text-align:right;max-width:46%}
+    #sdial .tg .sl{display:block;font-weight:600;font-size:12px;color:var(--c)}
+    #sdial .tg .cd{display:block;color:#cfcfcf;font-size:11px;margin-top:1px;min-height:13px}
+    #sdial .tg .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid #2f2f2f;color:#9a9a9a;font-size:11px;line-height:1.35;word-break:break-word}
+    #sdial .tg .tr.open .dt{display:block}
+    #sdial .tg .rm{display:none;flex:0 0 30px;width:30px;height:30px;padding:0;color:#f1807a}
+    #sdial .tg.ed .rm{display:block}
+    #sdial .tg .pg{display:none;align-items:center;gap:6px;margin:6px 0 0}
+    #sdial .tg.pgd .pg{display:flex}
+    #sdial .tg .pg button{flex:0 0 44px;padding:0}
+    #sdial .tg .pg button svg{width:18px;height:18px}
+    #sdial .tg .pn{flex:1;text-align:center;color:#cfcfcf;font-size:13px}
+    #sdial .tg .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
+    #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
+    #sdial .tg.ed .foot .edit{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
+    #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .tg .foot .fb.act{background:#2a3140;border-color:#4a8fd9}
+    #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
+    #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
+    #sdial .tgpop{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
+    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .tgpop .th{padding:2px 4px 8px;font-size:14px;font-weight:700}
+    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:44px;margin-top:4px;padding:0 12px;border-radius:10px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:14px;text-align:left}
+    #sdial .tgpop .op:active{background:#2e2e2e}
+    #sdial .tgpop .op i{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid #5a5a5a}
+    #sdial .tgpop .op.on{border-color:#4a8fd9;background:#2a3140}
+    #sdial .tgpop .op.on i{border-color:#4a8fd9;background:radial-gradient(circle,#4a8fd9 0 40%,transparent 45%)}
+    #sdial .tgpop .op span{flex:1}
+    #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid #333;background:none;color:#cfcfcf;font-size:13px}
+    #sdial .tgpop .cx:active{background:#2e2e2e}
+  `;
+
+  const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
+  const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
+  const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
+  const SORTS = [['def', 'Sort by Default'], ['name', 'Sort by A-Z'], ['okay', 'Sort by Time']];
+
+  function mount(ctx) {
+    SD.css('sd-targets', CSS);
+    const el = ctx.el;
+    el.innerHTML =
+      '<div class="tg">' +
+        '<div class="addv">' +
+          '<div class="ah"><button class="back" aria-label="Back">' + ARROW_L + '</button><span>Add target</span></div>' +
+          '<div class="ad"><input class="in" type="text" placeholder="Name or ID" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="go">Go</button></div>' +
+          '<div class="res"></div>' +
+        '</div>' +
+        '<div class="main">' +
+          '<div class="lst"></div>' +
+          '<div class="pg"><button class="pp" aria-label="Previous page">' + ARROW_L + '</button><span class="pn"></span><button class="pnx" aria-label="Next page">' + ARROW_R + '</button></div>' +
+          '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="fb" aria-label="Sort">' + FUNNEL + '</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
+        '</div>' +
+      '</div>';
+    const q = s => el.querySelector(s);
+    const root = q('.tg'), lst = q('.lst'), res = q('.res'), inp = q('.in'), goB = q('.go'), pn = q('.pn');
+    const prev = q('.pp'), next = q('.pnx'), edit = q('.edit'), rf = q('.rf'), rs = q('.rs'), fb = q('.fb');
+    let page = 0, busy = false, found = [];
+
+    // ---- order: Default (as added), A-Z, Okay first (then the shortest cooldown first) ----
+    const sortKey = () => (S.sort === 'name' || S.sort === 'okay') ? S.sort : 'def';
+    function sorted() {
+      const l = S.list.slice();
+      const k = sortKey();
+      if (k === 'name') l.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      else if (k === 'okay') {
+        const w = t => { const v = view(t.st); return v.label === 'Okay' ? 0 : v.label === '...' ? 2 : 1; };
+        l.sort((a, b) => (w(a) - w(b)) || (view(a.st).rem - view(b.st).rem) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      }
+      return l;
+    }
+    const paged = () => S.list.length >= PER;
+    const pages = () => Math.max(1, Math.ceil(S.list.length / PER));
+    const shown = () => { const l = sorted(); return paged() ? l.slice(page * PER, page * PER + PER) : l; };
+
+    function render() {
+      if (page > pages() - 1) page = pages() - 1;
+      if (page < 0) page = 0;
+      root.classList.toggle('pgd', paged());
+      fb.classList.toggle('act', sortKey() !== 'def');
+      if (!SD.hasKey) { lst.innerHTML = '<div class="em">No API key available.</div>'; return; }
+      if (!S.list.length) { lst.innerHTML = '<div class="em">No targets yet.<br>Tap Add.</div>'; return; }
+      const keep = lst.scrollTop;
+      lst.innerHTML = shown().map(t => {
+        const v = view(t.st);
+        const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
+        return '<div class="tr" data-id="' + t.id + '" style="--c:' + v.color + '">' +
+          '<div class="r1">' +
+            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
+            '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
+            '<button class="rm" aria-label="Remove">\u2715</button>' +
+          '</div>' +
+          '<div class="dt">' + SD.esc(det || 'No details') + '</div>' +
+        '</div>';
+      }).join('');
+      lst.scrollTop = keep;
+      pn.textContent = (page + 1) + ' / ' + pages();
+      prev.disabled = page <= 0;
+      next.disabled = page >= pages() - 1;
+    }
+
+    // every second: cooldown numbers + Refresh button; a row whose cooldown just ended is redrawn as Okay
+    function tick() {
+      const now = Date.now() / 1000;
+      let redraw = false;
+      lst.querySelectorAll('.cd[data-u]').forEach(c => {
+        const u = +c.dataset.u;
+        if (!u) return;
+        const rem = u - now;
+        if (rem <= 0) redraw = true; else c.textContent = SD.durS(rem);
+      });
+      if (redraw && !root.classList.contains('adding')) render();
+      const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
+      rs.textContent = left > 0 ? left + 's' : '';
+      rf.disabled = left > 0 || busy;
+    }
+
+    // ---- add view (like Item Dock: its own view with a back button) ----
+    function renderRes(msg) {
+      if (msg) { res.innerHTML = '<div class="hint">' + SD.esc(msg) + '</div>'; return; }
+      if (!found.length) { res.innerHTML = '<div class="hint">Type a name or an ID, then tap Go.</div>'; return; }
+      res.innerHTML = '';
+      found.forEach(o => {
+        const have = S.list.some(t => t.id === o.id);
+        const r = document.createElement('div');
+        r.className = 'r' + (have ? ' have' : '');
+        r.innerHTML = '<div class="who"><span class="nm"></span><span class="id">[' + o.id + ']</span></div>' + (o.level ? '<span class="lv">Lv ' + o.level + '</span>' : '') + '<span class="pl">' + (have ? '\u2713' : '+') + '</span>';
+        r.querySelector('.nm').textContent = o.name;
+        if (!have) r.addEventListener('click', () => { if (!busy) addId(o.id); });
+        res.appendChild(r);
+      });
+    }
+
+    function openAdd() {
+      if (!SD.hasKey) return SD.toast('No API key available');
+      root.classList.add('adding');
+      found = [];
+      inp.value = '';
+      renderRes();
+      inp.focus();
+    }
+    function closeAdd() {
+      root.classList.remove('adding');
+      inp.blur();
+      render();
+      tick();
+    }
+
+    async function addId(id) {
+      if (S.list.some(t => t.id === id)) return SD.toast('Already in your list');
+      if (S.list.length >= MAX) return SD.toast('Max ' + MAX + ' targets');
+      busy = true; goB.disabled = true;
+      try {
+        const r = await pull(id);
+        S.list.push({ id, name: r.name, lv: r.lv, st: r.st });
+        save();
+        if (ctx.alive) {
+          if (sortKey() === 'def') page = pages() - 1;   // show the new one at the end
+          if (!found.some(o => o.id === id)) found = [{ id, name: r.name, level: r.lv }];   // typed an ID: show it as added
+          inp.value = '';
+          renderRes();
+        }
+        SD.toast(r.name + ' added');
+      } catch (e) {
+        SD.toast('Could not add: ' + e.message);
+      }
+      busy = false;
+      if (ctx.alive) { goB.disabled = false; tick(); }
+    }
+
+    async function byName(name) {
+      busy = true; goB.disabled = true;
+      renderRes('Searching...');
+      let list = null;
+      try { list = await findName(name); }
+      catch (e) { found = []; if (ctx.alive) renderRes('Name search is not working (' + e.message + '). Use the player ID instead.'); }
+      busy = false;
+      if (!ctx.alive) return;
+      goB.disabled = false;
+      tick();
+      if (!list) return;
+      found = list;
+      renderRes(list.length ? '' : 'No player found for "' + name + '".');
+    }
+
+    // one box: a profile link, "[123]" or plain digits = ID; anything else = a name
+    function go() {
+      if (busy) return;
+      const raw = String(inp.value).trim();
+      if (!raw) return SD.toast('Enter a name or ID');
+      const m = raw.match(/XID=(\d+)/i) || raw.match(/^\[?\s*(\d+)\s*\]?$/);
+      if (m) return addId(+m[1]);
+      if (raw.length < 2) return SD.toast('Type at least 2 letters');
+      byName(raw.replace(/^[@\s]+|\s+$/g, ''));
+    }
+
+    // ---- refresh: only the targets on screen ----
+    // manual (button): at most once per 30 seconds, starts the cooldown, always shows a toast.
+    // auto (window open, page change, sort change): only targets whose data is older than 30 seconds,
+    // no button cooldown, and a toast only when something failed.
+    async function refresh(auto) {
+      if (busy) return;
+      if (!SD.hasKey) return auto ? undefined : SD.toast('No API key available');
+      if (!auto) {
+        const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
+        if (left > 0) return SD.toast('Wait ' + left + 's');
+      }
+      let todo = shown().slice();
+      if (auto) todo = todo.filter(t => !t.st || Date.now() - t.st.t > COOL);   // only stale ones
+      if (!todo.length) return;
+      busy = true;
+      if (!auto) {
+        S.rt = Date.now();   // manual refresh starts the cooldown right away, so a double tap cannot send twice
+        save();
+      }
+      tick();
+      let failed = 0, last = '';
+      const job = (async () => {
+        for (let i = 0; i < todo.length; i += BATCH) {
+          await Promise.all(todo.slice(i, i + BATCH).map(async t => {
+            try {
+              const r = await pull(t.id);
+              t.name = r.name;
+              if (r.lv) t.lv = r.lv;
+              t.st = r.st;
+            } catch (e) { failed++; last = e.message; }   // keep the old status when one request fails
+          }));
+        }
+        save();
+      })();
+      await SD.spin(rf, job);
+      busy = false;
+      if (!ctx.alive) return;
+      render();
+      tick();
+      if (!auto || failed) SD.toast(failed ? 'Updated, ' + failed + ' failed (' + last + ')' : 'Updated');
+    }
+
+    // ---- sort pop-up: lives in #sdial (not inside the window, which clips and moves), so it dims the whole screen ----
+    let pop = null;
+    function closePop() { if (pop) { pop.remove(); pop = null; } }
+    function openPop() {
+      closePop();
+      const t = document.createElement('div');
+      t.className = 'tgpop';
+      t.innerHTML = '<div class="tc" role="dialog"><div class="th">Sort</div>' +
+        SORTS.map(x => '<button class="op' + (x[0] === sortKey() ? ' on' : '') + '" data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span></button>').join('') +
+        '<button class="cx">Cancel</button></div>';
+      t.addEventListener('click', e => {
+        const op = e.target.closest('.op');
+        if (op) { S.sort = op.dataset.s; save(); page = 0; closePop(); render(); refresh(true); return; }
+        if (e.target === t || e.target.closest('.cx')) closePop();
+      });
+      (document.getElementById('sdial') || document.body).appendChild(t);
+      pop = t;
+    }
+
+    // ---- events ----
+    q('.add').addEventListener('click', openAdd);
+    q('.back').addEventListener('click', closeAdd);
+    goB.addEventListener('click', go);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    rf.addEventListener('click', () => refresh(false));
+    fb.addEventListener('click', openPop);
+    edit.addEventListener('click', () => { root.classList.toggle('ed'); edit.textContent = root.classList.contains('ed') ? 'Done' : 'Edit'; });
+    prev.addEventListener('click', () => { if (page > 0) { page--; render(); refresh(true); } });
+    next.addEventListener('click', () => { if (page < pages() - 1) { page++; render(); refresh(true); } });
+    lst.addEventListener('click', e => {
+      const row = e.target.closest('.tr');
+      if (!row) return;
+      if (e.target.closest('.rm')) {
+        const id = +row.dataset.id;
+        S.list = S.list.filter(t => t.id !== id);
+        save();
+        render();
+        return;
+      }
+      if (e.target.closest('a')) return;   // the name opens the profile
+      row.classList.toggle('open');
+    });
+
+    render();
+    tick();
+    ctx.every(tick, 1000);
+    refresh(true);   // refresh on open
+    return { unmount() { busy = false; closePop(); } };
+  }
+
+  SD.register({
+    id: 'targets',
+    label: 'Targets',
+    width: 270,
+    // crosshair
+    icon: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/>',
+    mount
+  });
+})();
+
+// Speed Dial module: Calculator v0.1.0
+// A plain calculator: + - x / with the usual precedence (2+3x4 = 14), %, +/-, backspace, AC.
+// % after + or - is a percentage of the number before it (200+10% = 220); otherwise it divides by 100.
+// Nothing is saved and nothing is sent anywhere. No eval (Torn's CSP blocks it): the sum is worked out by hand below.
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const CSS = `
+    #sdial .calc{user-select:none;-webkit-user-select:none}
+    #sdial .calc .dp{height:58px;padding:4px 8px;margin-bottom:6px;border-radius:8px;background:#242424;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;overflow:hidden}
+    #sdial .calc .ex{max-width:100%;height:15px;font-size:11px;color:#8a8a8a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl}
+    #sdial .calc .rs{max-width:100%;font-size:24px;line-height:30px;color:#f0f0f0;white-space:nowrap;overflow:hidden}
+    #sdial .calc .rs.sm{font-size:17px}
+    #sdial .calc .rs.xs{font-size:13px}
+    #sdial .calc .gr{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+    #sdial .calc .gr button{height:38px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:16px;padding:0;touch-action:manipulation}
+    #sdial .calc .gr button:active{background:#383838}
+    #sdial .calc .gr .fn{background:#2b2b2b;color:#cfcfcf;font-size:14px}
+    #sdial .calc .gr .op{background:#2f2f2f;border-color:#444;color:#d4d4d4;font-size:18px}
+    #sdial .calc .gr .op.cur{background:#383838;border-color:#8a8a8a;color:#fff}
+    #sdial .calc .gr .eq{background:#25360f;border-color:#85b200;color:#c6e66a}
+    #sdial .calc .gr .eq:active{background:#33491a}
+  `;
+
+  const SYM = { '+': '+', '-': '\u2212', '*': '\u00D7', '/': '\u00F7' };
+  const MAXLEN = 15;
+
+  // 12 significant digits hides 0.1+0.2 = 0.30000000000000004
+  const clean = n => parseFloat(n.toPrecision(12));
+  const group = s => {                              // 1234567.5 -> 1,234,567.5 (display only)
+    if (/e/i.test(s)) return s;
+    const m = /^(-?)(\d*)(\.?.*)$/.exec(s);
+    return m[1] + m[2].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + m[3];
+  };
+
+  // t = [number, op, number, op, number ...] ; x and / first, then + and -
+  function calc(t) {
+    const a = [t[0]];
+    for (let i = 1; i < t.length; i += 2) {
+      const op = t[i], n = t[i + 1];
+      if (op === '*' || op === '/') {
+        const p = a.pop();
+        if (op === '/' && n === 0) throw new Error('div0');
+        a.push(op === '*' ? p * n : p / n);
+      } else a.push(op, n);
+    }
+    let r = a[0];
+    for (let i = 1; i < a.length; i += 2) r = a[i] === '+' ? r + a[i + 1] : r - a[i + 1];
+    if (!isFinite(r)) throw new Error('range');
+    return clean(r);
+  }
+  const toNums = t => t.map((x, i) => (i % 2 ? x : Number(x)));
+
+  function mount(ctx) {
+    SD.css('sd-calc', CSS);
+    const el = ctx.el;
+    el.className = 'calc';
+    const KEYS = [
+      ['AC', 'fn'], ['\u232B', 'fn'], ['%', 'fn'], ['/', 'op'],
+      ['7'], ['8'], ['9'], ['*', 'op'],
+      ['4'], ['5'], ['6'], ['-', 'op'],
+      ['1'], ['2'], ['3'], ['+', 'op'],
+      ['\u00B1', 'fn'], ['0'], ['.'], ['=', 'eq']
+    ];
+    el.innerHTML = '<div class="dp"><div class="ex"></div><div class="rs">0</div></div><div class="gr"></div>';
+    const ex = el.querySelector('.ex'), rs = el.querySelector('.rs'), gr = el.querySelector('.gr');
+    const btn = {};
+    KEYS.forEach(k => {
+      const b = document.createElement('button');
+      b.className = k[1] || '';
+      b.textContent = SYM[k[0]] || k[0];
+      b.dataset.k = k[0];
+      if (k[0] === '\u232B') b.setAttribute('aria-label', 'Backspace');
+      gr.appendChild(b);
+      btn[k[0]] = b;
+    });
+
+    let exp = [];       // finished part: number strings and operators
+    let cur = '';       // number being typed
+    let res = null;     // result string right after "="
+    let err = false;
+    let line = '';      // top line after "="
+
+    const text = () => exp.map(x => (SYM[x] || group(x))).concat(cur !== '' ? [group(cur)] : []).join(' ');
+    const fit = s => {
+      rs.className = 'rs' + (s.length > 17 ? ' xs' : s.length > 11 ? ' sm' : '');
+      rs.textContent = s;
+    };
+
+    function paint() {
+      let big;
+      if (err) big = 'Error';
+      else if (res !== null) big = group(res);
+      else if (cur !== '') big = group(cur);
+      else {
+        big = '0';
+        const t = exp.slice();                       // running total while an operator is waiting for its number
+        if (t.length && t.length % 2 === 0) t.pop();
+        if (t.length > 2) { try { big = group(String(calc(toNums(t)))); } catch (e) { big = '0'; } }
+        else if (t.length === 1) big = group(t[0]);
+      }
+      ex.textContent = err ? '' : (res !== null ? line : text());
+      fit(big);
+      const last = exp[exp.length - 1];
+      Object.keys(SYM).forEach(o => btn[o].classList.toggle('cur', cur === '' && res === null && last === o));
+    }
+
+    const reset = () => { exp = []; cur = ''; res = null; err = false; line = ''; };
+    const fresh = () => { if (res !== null || err) reset(); };   // typing after "=" starts over
+
+    function digit(d) {
+      fresh();
+      if (cur.replace(/[-.]/g, '').length >= MAXLEN) return;
+      if (cur === '0' || cur === '-0') cur = cur.replace('0', d);
+      else cur += d;
+    }
+    function dot() {
+      fresh();
+      if (cur.indexOf('.') > -1) return;
+      cur = (cur === '' ? '0' : cur === '-' ? '-0' : cur) + '.';
+    }
+    function op(o) {
+      if (err) reset();
+      if (res !== null) { exp = [res]; res = null; line = ''; cur = ''; }
+      if (cur !== '') {
+        exp.push(cur.replace(/\.$/, ''));
+        cur = '';
+      } else if (!exp.length) { exp.push('0'); }
+      if (exp.length % 2 === 0) exp[exp.length - 1] = o;   // operator pressed twice: replace it
+      else exp.push(o);
+    }
+    function equals() {
+      if (err || res !== null) return;
+      const t = exp.slice();
+      if (cur !== '') t.push(cur.replace(/\.$/, ''));
+      if (t.length && t.length % 2 === 0) t.pop();         // trailing operator is dropped
+      if (!t.length) return;
+      try {
+        const r = calc(toNums(t));
+        line = t.map(x => (SYM[x] || group(x))).join(' ') + ' =';
+        res = String(r);
+        exp = []; cur = '';
+      } catch (e) { err = true; exp = []; cur = ''; res = null; }
+    }
+    function percent() {
+      if (err) return;
+      let n;
+      if (res !== null) { n = Number(res); exp = []; res = null; line = ''; }
+      else if (cur !== '') n = Number(cur);
+      else return;
+      const o = exp[exp.length - 1];
+      if ((o === '+' || o === '-') && exp.length >= 2) {
+        try { n = Number(calc(toNums(exp.slice(0, -1)))) * n / 100; } catch (e) { n = n / 100; }   // 200 + 10% = 200 + 20
+      } else n = n / 100;
+      cur = String(clean(n));
+    }
+    function sign() {
+      if (err) return;
+      if (res !== null) { cur = res; res = null; exp = []; line = ''; }
+      if (cur === '') cur = '-0';
+      else cur = cur[0] === '-' ? cur.slice(1) : '-' + cur;
+      if (cur === '-' ) cur = '';
+    }
+    function back() {
+      if (res !== null || err) { reset(); return; }
+      if (cur !== '') { cur = cur.slice(0, -1); if (cur === '-' || cur === '-0') cur = ''; }
+      else if (exp.length) {
+        exp.pop();                                          // drop the operator and carry on editing the number before it
+        if (exp.length) cur = exp.pop();
+      }
+    }
+
+    gr.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b || !ctx.alive) return;
+      const k = b.dataset.k;
+      if (/^\d$/.test(k)) digit(k);
+      else if (k === '.') dot();
+      else if (SYM[k]) op(k);
+      else if (k === '=') equals();
+      else if (k === '%') percent();
+      else if (k === '\u00B1') sign();
+      else if (k === '\u232B') back();
+      else if (k === 'AC') reset();
+      paint();
+    });
+    paint();
+  }
+
+  SD.register({
+    id: 'calculator',
+    label: 'Calculator',
+    width: 224,
+    // calculator: rounded body, screen, key dots
+    icon: '<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><rect x="8" y="5.5" width="8" height="3.5" rx=".8"/><circle cx="9" cy="13" r=".6"/><circle cx="12" cy="13" r=".6"/><circle cx="15" cy="13" r=".6"/><circle cx="9" cy="16.5" r=".6"/><circle cx="12" cy="16.5" r=".6"/><circle cx="15" cy="16.5" r=".6"/>',
+    mount
+  });
+})();
+
+// Speed Dial module: Show More v0.1.0
+// The pinned "..." circle (sits just before Settings). It opens a launcher grid with every module that is NOT one of the
+// (max 3) circles on screen: calculator, your own shortcuts, new modules. Tap a tile to open it.
+//   - a module opens in its own window (the launcher closes); tap an already-open tile to close that window
+//   - a shortcut (small arrow in the corner) leaves the page and opens its torn.com page
+// Which modules stay on screen is chosen in Settings > Menu.
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const CSS = `
+    #sdial .mr .gd{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+    #sdial .mr .tl{position:relative;height:62px;min-width:0;padding:6px 2px 4px;border-radius:10px;border:1px solid #333;background:#242424;color:#cfcfcf;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;touch-action:manipulation}
+    #sdial .mr .tl:active{background:#2e2e2e}
+    #sdial .mr .tl.act{border-color:var(--st);background:#2b2b2b}
+    #sdial .mr .tl .ic{height:24px;display:flex;align-items:center;justify-content:center;font-size:21px;line-height:1}
+    #sdial .mr .tl .ic svg{width:22px;height:22px}
+    #sdial .mr .tl .nm{max-width:100%;padding:0 2px;font-size:11px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .mr .tl .go{position:absolute;top:3px;right:5px;font-size:10px;color:#6fa3dc;line-height:1}
+    #sdial .mr .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
+    #sdial .mr .ft{width:100%;height:30px;margin-top:6px;border-radius:8px;border:1px solid #2c2c2c;background:none;color:#8a8a8a;font-size:11px;padding:0}
+    #sdial .mr .ft:active{background:#2e2e2e;color:#cfcfcf}
+  `;
+
+  function mount(ctx) {
+    SD.css('sd-more', CSS);
+    const el = ctx.el;
+    el.className = 'mr';
+    el.innerHTML = '<div class="gd"></div><button class="ft">Choose what stays on screen</button>';
+    const gd = el.querySelector('.gd');
+
+    function render() {
+      gd.innerHTML = '';
+      gd.style.display = '';
+      const list = SD.more();
+      if (!list.length) {
+        gd.style.display = 'block';
+        const e = document.createElement('div');
+        e.className = 'em';
+        e.textContent = 'Nothing here. Every module is on screen.';
+        gd.appendChild(e);
+        return;
+      }
+      list.forEach(m => {
+        const b = document.createElement('button');
+        b.className = 'tl' + (SD.isOpen(m.id) ? ' act' : '');
+        b.setAttribute('aria-label', m.label);
+        b.innerHTML = '<span class="ic"></span><span class="nm"></span>' + (m.href ? '<span class="go" aria-hidden="true">\u2197</span>' : '');
+        const ic = b.querySelector('.ic');
+        if (m.emoji) ic.textContent = m.emoji; else ic.innerHTML = '<svg viewBox="0 0 24 24">' + m.icon + '</svg>';
+        b.querySelector('.nm').textContent = m.label;
+        b.addEventListener('click', () => {
+          if (m.href) { location.href = m.href; return; }
+          if (SD.isOpen(m.id)) { SD.close(m.id); render(); return; }   // already open: this tap closes it
+          ctx.close();                                                  // launcher out of the way, then open the module
+          SD.open(m.id);
+        });
+        gd.appendChild(b);
+      });
+    }
+
+    el.querySelector('.ft').addEventListener('click', () => { ctx.close(); SD.open('settings'); });
+    render();
+  }
+
+  SD.register({
+    id: 'more',
+    label: 'Show More',
+    width: 232,
+    pinned: true,
+    more: true,
+    ord: 900,
+    // three dots
+    icon: '<circle cx="5" cy="12" r="1.1"/><circle cx="12" cy="12" r="1.1"/><circle cx="19" cy="12" r="1.1"/>',
+    mount
+  });
+})();
+
+// Speed Dial module: Settings v0.6.0
+// The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
+// tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
+// to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
+//   Menu          - two groups: "On screen" (max 3 circles) and "Show More" (everything else). The pin moves a module
+//                   between the groups. Edit mode: drag the handle to reorder inside a group, and remove your own shortcuts.
+//   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
+//                   The "!" next to a feature opens a small pop-up with a one-line explanation.
+//   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
+// Nothing is read from or clicked on the page. Only torn.com pages are accepted.
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const LS = 'speedDial.shortcuts1';   // same key as the old Shortcuts module, so saved shortcuts carry over
+  const MAX = 8;
+  const QUICK = ['\u{1F3E0}', '\u{1F6D2}', '\u{1F3E6}', '\u{1F3B0}', '\u2694\uFE0F', '\u{1F3E5}', '\u{1F4BC}', '\u{1F4E6}', '\u{1F3AF}', '\u2B50'];
+  let list = SD.read(LS, []);
+  if (!Array.isArray(list)) list = [];
+  const save = () => SD.write(LS, list);
+
+  const sid = s => 'sc-' + s.id;
+  const reg = s => SD.register({ id: sid(s), label: s.n, emoji: s.e, href: s.u, ord: 500 });
+  list.forEach(reg);
+
+  // torn.com page only: "/bazaar.php", "torn.com/bazaar.php" or "https://www.torn.com/bazaar.php"
+  const fixUrl = raw => {
+    let u = String(raw || '').trim();
+    if (!u) return '';
+    if (u[0] === '/') return (u[1] === '/' || u[1] === '\\') ? '' : u;
+    if (/^(www\.)?torn\.com\//i.test(u)) u = 'https://' + u;
+    return /^https:\/\/(www\.)?torn\.com\//i.test(u) ? u : '';
+  };
+
+  // first emoji of the input (keeps skin tones and combined emoji in one piece)
+  let PICT;
+  try { PICT = new RegExp('\\p{Extended_Pictographic}', 'u'); } catch (e) { PICT = /[^\x00-\x7F]/; }
+  const firstChar = s => {
+    try {
+      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        const it = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s)[Symbol.iterator]().next();
+        return it.done ? '' : it.value.segment;
+      }
+    } catch (e) {}
+    return Array.from(s)[0] || '';
+  };
+  const emojiOf = raw => {
+    const s = String(raw || '').trim();
+    if (!s) return '\u2B50';
+    const g = firstChar(s);
+    return PICT.test(g) ? g : '';
+  };
+
+  const PIN = '<svg viewBox="0 0 24 24"><path d="M9 3.5h6l-.8 5.2 2.8 3.3v1.2H7V12l2.8-3.3z"/><line x1="12" y1="13.2" x2="12" y2="20.5"/></svg>';
+  const GRIP = '<svg viewBox="0 0 24 24"><line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="5" y1="16" x2="19" y2="16"/></svg>';
+  const HAMB = '<svg viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
+
+  // pages shown in the menu (order = order in the list). show(): optional, runs every time the page opens
+  const ICON_MENU = '<svg viewBox="0 0 24 24"><line x1="9" y1="7" x2="20" y2="7"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="17" x2="20" y2="17"/><circle cx="5" cy="7" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="17" r="1"/></svg>';
+  const ICON_FEAT = '<svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></svg>';
+  const ICON_ADD = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
+
+  const CSS = `
+    #sdial .cz .nav{display:flex;align-items:center;gap:8px;height:34px;margin-bottom:6px}
+    #sdial .cz .nav .hb{flex:0 0 auto;width:38px;height:32px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .cz .nav .hb svg{width:20px;height:20px;fill:none;stroke:#cfcfcf;stroke-width:2;stroke-linecap:round}
+    #sdial .cz .nav .hb.on{background:#383838;border-color:#5a5a5a}
+    #sdial .cz .nav .cur{flex:1;min-width:0;font-size:13px;font-weight:700;color:#e6e6e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .cz .mn{display:none;max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
+    #sdial .cz.nav-open .mn{display:block}
+    #sdial .cz.nav-open .pg{display:none !important}
+    #sdial .cz .mn .mi{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;margin-bottom:3px;border-radius:8px;border:1px solid transparent;background:#242424;color:#cfcfcf;font-size:13px;text-align:left}
+    #sdial .cz .mn .mi.on{background:#383838;color:#fff;border-color:#5a5a5a}
+    #sdial .cz .mn .mi svg{flex:0 0 auto;width:18px;height:18px;fill:none;stroke:#9a9a9a;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    #sdial .cz .mn .mi.on svg{stroke:#e6e6e6}
+    #sdial .cz .pg{display:none}
+    #sdial .cz .pg.on{display:block}
+    #sdial .cz .qk{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+    #sdial .cz .qk button{flex:0 0 auto;width:30px;height:30px;font-size:16px;padding:0}
+    #sdial .cz .rw{display:flex;gap:6px;margin-bottom:6px}
+    #sdial .cz input{min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:13px;padding:0 8px}
+    #sdial .cz .ie{flex:0 0 64px;text-align:center;font-size:16px}
+    #sdial .cz .in,#sdial .cz .iu{flex:1}
+    #sdial .cz button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 8px}
+    #sdial .cz button:active{background:#2e2e2e}
+    #sdial .cz .add,#sdial .cz .edit{width:100%}
+    #sdial .cz .lst{touch-action:pan-y;margin-bottom:6px}
+    #sdial .cz .lst.lm{max-height:30vh;overflow-y:auto}
+    #sdial .cz .gh{display:flex;align-items:center;justify-content:space-between;height:22px;padding:0 4px;margin-bottom:3px;font-size:11px;color:#8a8a8a;letter-spacing:.3px;text-transform:uppercase}
+    #sdial .cz .gh b{font-weight:700;color:#cfcfcf}
+    #sdial .cz .gh b.full{color:#85b200}
+    #sdial .cz .ge{padding:8px 4px 10px;font-size:12px;color:#6f6f6f;text-align:center}
+    #sdial .cz .it .pin{color:#8a8a8a}
+    #sdial .cz .it .pin svg{stroke:#8a8a8a}
+    #sdial .cz .it .pin.on{border-color:#85b200;background:#25360f}
+    #sdial .cz .it .pin.on svg{stroke:#85b200;fill:rgba(133,178,0,.35)}
+    #sdial .cz .it{display:flex;align-items:center;gap:8px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:#242424;margin-bottom:3px;user-select:none;-webkit-user-select:none}
+    #sdial .cz .it.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55)}
+    #sdial .cz .it .ix{width:20px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
+    #sdial .cz .it .ix svg{width:18px;height:18px}
+    #sdial .cz .it .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .cz .it.off .ix,#sdial .cz .it.off .nm{opacity:.4}
+    #sdial .cz .it .grip{display:none;align-items:center;justify-content:center;width:30px;height:34px;margin:0 0 0 -10px;touch-action:none;cursor:grab;flex:0 0 auto}
+    #sdial .cz .it .grip svg{width:18px;height:18px;stroke:#8a8a8a}
+    #sdial .cz.edit .it .grip{display:flex}
+    #sdial .cz .it.drag .grip svg{stroke:#e6e6e6}
+    #sdial .cz .it .btn{height:26px;width:30px;padding:0;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+    #sdial .cz .it .btn svg{width:16px;height:16px}
+    #sdial .cz .it .del{display:none;color:#f1807a}
+    #sdial .cz.edit .it.cu .del{display:flex}
+    #sdial .cz .fl{max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
+    #sdial .cz .fe{padding:10px 4px;color:#8a8a8a;font-size:12px;text-align:center}
+    #sdial .cz .fw{border-radius:8px;background:#242424;margin-bottom:3px}
+    #sdial .cz .fr{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 10px}
+    #sdial .cz .fr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .cz .fr .inf{flex:0 0 auto;width:26px;height:26px;padding:0;border-radius:50%;border:1px solid #4a4a4a;background:none;color:#9a9a9a;font-size:13px;font-weight:700;line-height:1}
+    #sdial .cz .fr .inf:active{background:#383838;border-color:#8a8a8a;color:#e6e6e6}
+    #sdial .cz .fr .sw{flex:0 0 auto;position:relative;width:40px;height:24px;padding:0;border-radius:12px;border:1px solid #444;background:#1a1a1a;transition:background .12s,border-color .12s}
+    #sdial .cz .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
+    #sdial .cz .fr .sw.on{background:#25360f;border-color:#85b200}
+    #sdial .cz .fr .sw.on i{transform:translateX(16px);background:#85b200}
+    #sdial .sdtip{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.5)}
+    #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .sdtip .th{font-size:13px;font-weight:700}
+    #sdial .sdtip .tx{margin-top:4px;font-size:12px;line-height:1.4;color:#bdbdbd}
+    #sdial .sdtip .tp{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#6fa3dc}
+    #sdial .sdtip .tp svg{flex:0 0 auto;width:16px;height:16px;stroke:#6fa3dc}
+    #sdial .sdtip .tk{width:100%;height:32px;margin-top:10px;padding:0 8px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px}
+    #sdial .sdtip .tk:active{background:#2e2e2e}
+  `;
+
+  function mount(ctx) {
+    SD.css('sd-settings', CSS);
+    const el = ctx.el;
+    el.className = 'cz';
+    el.innerHTML =
+      '<div class="nav"><button class="hb" aria-label="Pages" aria-expanded="false">' + HAMB + '</button><span class="cur"></span></div>' +
+      '<div class="mn"></div>' +
+      '<div class="pg pm on">' +
+        '<div class="gh"><span>On screen</span><b class="cnt"></b></div><div class="lst lf"></div>' +
+        '<div class="gh"><span>Show More</span></div><div class="lst lm"></div>' +
+        '<button class="edit">Edit</button></div>' +
+      '<div class="pg pf"><div class="fl"></div></div>' +
+      '<div class="pg pa">' +
+        '<div class="qk"></div>' +
+        '<div class="rw"><input class="ie" maxlength="12" placeholder="Emoji" autocomplete="off"><input class="in" maxlength="20" placeholder="Name" autocomplete="off"></div>' +
+        '<div class="rw"><input class="iu" placeholder="/page.php?sid=..." autocomplete="off" autocapitalize="off" spellcheck="false"><button class="here">This page</button></div>' +
+        '<button class="add">Add</button>' +
+      '</div>';
+    const qk = el.querySelector('.qk'), lf = el.querySelector('.lf'), lm = el.querySelector('.lm'), cnt = el.querySelector('.cnt'), fl = el.querySelector('.fl');
+    const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
+    const hb = el.querySelector('.hb'), cur = el.querySelector('.cur'), mn = el.querySelector('.mn');
+    let drag = null;
+
+    // ----- page navigation: 3-line button opens the list of pages, tapping one opens that page -----
+    const PAGES = [
+      { id: 'pm', label: 'Menu', icon: ICON_MENU, show: () => renderList() },
+      { id: 'pf', label: 'Features', icon: ICON_FEAT, show: () => renderFeat() },
+      { id: 'pa', label: 'Shortcut', icon: ICON_ADD }
+    ];
+
+    function setNav(open) {
+      el.classList.toggle('nav-open', open);
+      hb.classList.toggle('on', open);
+      hb.setAttribute('aria-expanded', open ? 'true' : 'false');
+      closeTip();
+    }
+
+    function showPage(id) {
+      const p = PAGES.find(x => x.id === id) || PAGES[0];
+      cur.textContent = p.label;
+      el.querySelectorAll('.pg').forEach(g => g.classList.toggle('on', g.classList.contains(p.id)));
+      mn.querySelectorAll('.mi').forEach(b => b.classList.toggle('on', b.dataset.p === p.id));
+      setNav(false);
+      if (p.show) p.show();
+    }
+
+    PAGES.forEach(p => {
+      const b = document.createElement('button');
+      b.className = 'mi';
+      b.dataset.p = p.id;
+      b.innerHTML = p.icon + '<span></span>';
+      b.querySelector('span').textContent = p.label;
+      b.addEventListener('click', () => showPage(p.id));
+      mn.appendChild(b);
+    });
+    hb.addEventListener('click', () => setNav(!el.classList.contains('nav-open')));
+
+    // ----- features page: on/off per feature, "!" opens a small pop-up -----
+    let tip = null;
+    function closeTip() { if (tip) { tip.remove(); tip = null; } }
+    // lives in #sdial (not inside the window, which clips and moves), so it is centred on the screen
+    function openTip(f) {
+      closeTip();
+      const t = document.createElement('div');
+      t.className = 'sdtip';
+      t.innerHTML = '<div class="tc" role="dialog"><div class="th"></div><div class="tx"></div><div class="tp"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.2a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.8" r="2.5"/></svg><span></span></div><button class="tk">OK</button></div>';
+      t.querySelector('.th').textContent = f.label;
+      t.querySelector('.tx').textContent = f.info || '';
+      const tp = t.querySelector('.tp');
+      if (f.where) tp.querySelector('span').textContent = f.where; else tp.remove();
+      t.addEventListener('click', e => { if (e.target === t || e.target.closest('.tk')) closeTip(); });
+      (document.getElementById('sdial') || document.body).appendChild(t);
+      tip = t;
+    }
+
+    function renderFeat() {
+      closeTip();
+      fl.innerHTML = '';
+      if (!SD.features.length) {
+        const e = document.createElement('div');
+        e.className = 'fe';
+        e.textContent = 'No features installed yet.';
+        fl.appendChild(e);
+        return;
+      }
+      SD.features.forEach(f => {
+        const w = document.createElement('div');
+        w.className = 'fw';
+        w.innerHTML = '<div class="fr"><span class="nm"></span><button class="inf" aria-label="About this feature">!</button>' +
+          '<button class="sw" role="switch"><i></i></button></div>';
+        w.querySelector('.nm').textContent = f.label;
+        const sw = w.querySelector('.sw');
+        const paint = () => {
+          const on = SD.featureOn(f.id);
+          sw.classList.toggle('on', on);
+          sw.setAttribute('aria-checked', on ? 'true' : 'false');
+        };
+        paint();
+        w.querySelector('.inf').addEventListener('click', () => openTip(f));
+        sw.addEventListener('click', () => {
+          const now = !SD.featureOn(f.id);
+          SD.setFeature(f.id, now);
+          paint();
+          if (now && !SD.featureFits(f.id) && f.where) SD.toast(f.label + ' is on. It starts on: ' + f.where);
+        });
+        fl.appendChild(w);
+      });
+    }
+
+    // ----- add shortcut page -----
+    QUICK.forEach(e => {
+      const b = document.createElement('button');
+      b.textContent = e;
+      b.addEventListener('click', () => { inE.value = e; });
+      qk.appendChild(b);
+    });
+
+    // fill the form from the page you are on right now (address only, nothing else is read)
+    el.querySelector('.here').addEventListener('click', () => {
+      inU.value = location.pathname + location.search + location.hash;
+      if (!inN.value) inN.value = (document.title || '').replace(/\s*[|\u2013-]\s*TORN.*$/i, '').trim().slice(0, 20);
+    });
+
+    el.querySelector('.add').addEventListener('click', () => {
+      if (list.length >= MAX) { SD.toast('Maximum ' + MAX + ' shortcuts'); return; }
+      const e = emojiOf(inE.value), n = inN.value.trim().slice(0, 20), u = fixUrl(inU.value);
+      if (!e) { SD.toast('Emoji must be an emoji'); return; }
+      if (!n) { SD.toast('Enter a name'); return; }
+      if (!u) { SD.toast('Use a torn.com page'); return; }
+      const s = { id: Date.now().toString(36), e, n, u };
+      list.push(s);
+      save();
+      reg(s);
+      inE.value = inN.value = inU.value = '';
+      SD.toast('Added ' + n);
+    });
+
+    // ----- menu page: "On screen" (max SD.maxFront) and "Show More" -----
+    const frontIds = () => SD.front().map(m => m.id);
+    const moreIds = () => SD.more().map(m => m.id);
+
+    function empty(box, txt) {
+      const e = document.createElement('div');
+      e.className = 'ge';
+      e.textContent = txt;
+      box.appendChild(e);
+    }
+
+    function togglePin(id) {
+      const A = frontIds(), B = moreIds();
+      if (A.indexOf(id) > -1) {                         // back to Show More (top of that list, so you can see where it went)
+        A.splice(A.indexOf(id), 1);
+        B.unshift(id);
+      } else {
+        if (A.length >= SD.maxFront) { SD.toast('Max ' + SD.maxFront + ' on screen. Unpin one first.'); return; }
+        B.splice(B.indexOf(id), 1);
+        A.push(id);
+      }
+      SD.setLayout(A.concat(B), A);
+      renderList();
+    }
+
+    function row(m, box, front) {
+      const custom = list.some(s => sid(s) === m.id);
+      const r = document.createElement('div');
+      r.className = 'it' + (custom ? ' cu' : '');
+      r._id = m.id;
+      r.innerHTML = '<span class="grip" aria-label="Drag to reorder">' + GRIP + '</span><span class="ix"></span><span class="nm"></span>' +
+        '<button class="btn del" aria-label="Delete">\u2715</button><button class="btn pin' + (front ? ' on' : '') + '" aria-label="' + (front ? 'Move to Show More' : 'Show on screen') + '">' + PIN + '</button>';
+      const ix = r.querySelector('.ix');
+      if (m.emoji) ix.textContent = m.emoji; else ix.innerHTML = '<svg viewBox="0 0 24 24">' + m.icon + '</svg>';
+      r.querySelector('.nm').textContent = m.label;
+      r.querySelector('.pin').addEventListener('click', () => togglePin(m.id));
+      r.querySelector('.del').addEventListener('click', () => {
+        list = list.filter(s => sid(s) !== m.id);
+        save();
+        SD.unregister(m.id);
+        renderList();
+      });
+      bindDrag(r, box);
+      box.appendChild(r);
+    }
+
+    function renderList() {
+      if (drag) return;
+      lf.innerHTML = '';
+      lm.innerHTML = '';
+      const A = SD.front(), B = SD.more();
+      cnt.textContent = A.length + '/' + SD.maxFront;
+      cnt.classList.toggle('full', A.length >= SD.maxFront);
+      A.forEach(m => row(m, lf, true));
+      B.forEach(m => row(m, lm, false));
+      if (!A.length) empty(lf, 'Nothing on screen. Pin up to ' + SD.maxFront + '.');
+      if (!B.length) empty(lm, 'Empty');
+    }
+
+    // ----- drag the grip handle (edit mode only) to reorder; the list scrolls itself near its top/bottom edge -----
+    function bindDrag(row, box) {
+      const grip = row.querySelector('.grip');
+      grip.addEventListener('pointerdown', e => {
+        if (e.button > 0 || !el.classList.contains('edit')) return;
+        e.preventDefault();
+        drag = { row, box, startY: e.clientY, y: e.clientY, raf: 0 };
+        try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+        row.classList.add('drag');
+        drag.raf = requestAnimationFrame(autoScroll);
+      });
+      grip.addEventListener('pointermove', e => { if (drag && drag.row === row) { drag.y = e.clientY; moveDrag(); } });
+      grip.addEventListener('pointerup', endDrag);
+      grip.addEventListener('pointercancel', endDrag);
+    }
+
+    function moveDrag() {
+      const row = drag.row, lst = drag.box;
+      const h = row.offsetHeight + 3;
+      let dy = drag.y - drag.startY;
+      while (dy > h / 2 && row.nextElementSibling) {
+        lst.insertBefore(row.nextElementSibling, row); drag.startY += h; dy -= h;
+      }
+      while (dy < -h / 2 && row.previousElementSibling) {
+        lst.insertBefore(row.previousElementSibling, row.nextSibling); drag.startY -= h; dy += h;   // move the neighbour, not the dragged row
+      }
+      row.style.transform = 'translateY(' + dy + 'px)';
+    }
+
+    const EDGE = 36;   // px from the list's top/bottom edge where scrolling starts
+    function autoScroll() {
+      if (!drag) return;
+      if (!ctx.alive) { drag = null; return; }
+      const lst = drag.box;
+      const r = lst.getBoundingClientRect();
+      let v = 0;
+      if (drag.y < r.top + EDGE) v = -(2 + 10 * Math.min(1, (r.top + EDGE - drag.y) / EDGE));
+      else if (drag.y > r.bottom - EDGE) v = 2 + 10 * Math.min(1, (drag.y - (r.bottom - EDGE)) / EDGE);
+      if (v) {
+        const before = lst.scrollTop;
+        lst.scrollTop = before + v;
+        const moved = lst.scrollTop - before;
+        if (moved) { drag.startY -= moved; moveDrag(); }   // the row keeps following the finger
+      }
+      drag.raf = requestAnimationFrame(autoScroll);
+    }
+
+    function endDrag() {
+      if (!drag) return;
+      cancelAnimationFrame(drag.raf);
+      const ids = box => Array.from(box.children).map(r => r._id).filter(Boolean);
+      const A = ids(lf), B = ids(lm);   // a row only moves inside its own group; the pin moves it between groups
+      drag = null;
+      if (A.length + B.length) SD.setLayout(A.concat(B), A);
+      renderList();
+    }
+
+    el.querySelector('.edit').addEventListener('click', e => {
+      const on = el.classList.toggle('edit');
+      e.target.textContent = on ? 'Done' : 'Edit';
+    });
+
+    showPage('pm');
+    return { unmount: closeTip };
+  }
+
+  SD.register({
+    id: 'settings',
+    label: 'Settings',
+    width: 250,
+    pinned: true,
+    ord: 1000,
+    // gear
+    icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    mount
+  });
+})();
+
+// Speed Dial feature: Gym Guide v0.7.2
 // Highlights the gym tile to train next (Baldr / Hank ratios) and shows a progress panel under the gym icons.
 // Reads only what the page shows. No API. Switch it on or off in Settings > Features.
-//
 // Ratio logic (roles, eligibility checks, recommendation order) is adapted from
 // GymIQ by ClasixTV, MIT License: https://github.com/CLASIX/GymIQ---Torn-Ratio-Helper
 (function () {
@@ -2447,10 +2832,12 @@
   const KEYMAP = { str: 'str', strength: 'str', def: 'def', defense: 'def', defence: 'def', spd: 'spd', speed: 'spd', dex: 'dex', dexterity: 'dex' };
 
   const CSS = `
-    .ggd-hl{position:relative !important;outline:3px solid #85b200 !important;outline-offset:-3px;
+    .ggd-hl{outline:3px solid #85b200 !important;outline-offset:-3px;
       box-shadow:inset 0 0 8px rgba(133,178,0,.3), 0 0 4px rgba(133,178,0,.45) !important}
-    .ggd-hl::after{content:"Recommended";position:absolute;right:6px;bottom:4px;height:12px;line-height:12px;padding:0 5px;
+    .ggd-tag{position:absolute;right:6px;bottom:4px;height:12px;line-height:12px;padding:0 5px;
       font-size:8px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;color:#111;background:#85b200;border-radius:2px;pointer-events:none;z-index:2}
+    .ggd-hl.bad{outline-color:#e0584a !important;box-shadow:inset 0 0 8px rgba(224,88,74,.3), 0 0 4px rgba(224,88,74,.45) !important}
+    .ggd-tag.bad{background:#e0584a;color:#fff}
     #ggd,#ggd-b{box-sizing:border-box;max-width:100%;font-family:inherit;font-size:12px;line-height:1.4;color:#ccc;text-align:left;font-weight:400}
     #ggd *,#ggd-b *{box-sizing:border-box;font-family:inherit}
     #ggd button,#ggd-b button{font-family:inherit;font-size:12px;font-weight:400;cursor:pointer}
@@ -2468,6 +2855,7 @@
     #ggd .sr.n .k,#ggd .sr.n .p{color:#85b200}
     #ggd .sr.n .bar i{background:#85b200}
     #ggd .sr .bar i.over{background:#d9a441}
+    #ggd .sr.x{opacity:.45}
     #ggd .why{margin-top:6px;padding-top:6px;border-top:1px solid #3a3a3a;color:#ddd}
     #ggd-b{width:100%;padding:10px 12px 12px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
     #ggd-b .bt{margin-bottom:4px;color:#fff;font-weight:700}
@@ -2599,17 +2987,22 @@
     }
 
     // ---------- read stats (from the page only) ----------
-    function tileOf(el) {
+    // Tile of a stat = the biggest ancestor of its number element that does not contain
+    // the number element of any other stat (so it works whatever the tile's inner markup is).
+    function tileOf(el, k) {
+      const others = [];
+      KEYS.forEach(o => { if (o !== k) (tiles[o] || []).forEach(x => others.push(x)); });
       let node = el;
       while (node.parentElement && node.parentElement !== document.body) {
-        const n = (node.parentElement.textContent.match(/energy per train/gi) || []).length;
-        if (n >= 2) break;
-        node = node.parentElement;
+        const p = node.parentElement;
+        if (others.some(x => p.contains(x))) break;
+        node = p;
       }
       return node;
     }
 
     let tiles = { str: [], def: [], spd: [], dex: [] };
+    let blocked = {};   // stats shown as "Unavailable" in the current gym
 
     function readDom() {
       const out = {}, found = { str: [], def: [], spd: [], dex: [] };
@@ -2622,14 +3015,44 @@
       });
       if (!KEYS.every(k => typeof out[k] === 'number')) return null;
       tiles = found;
+      const bl = {};
+      KEYS.forEach(k => {
+        bl[k] = found[k].some(el => {
+          const t = tileOf(el, k);
+          return !!(t && /unavailable/i.test(t.textContent));
+        });
+      });
+      blocked = bl;
       return out;
     }
 
     let curRec = null;
+
+    function clearHighlight() {
+      document.querySelectorAll('.ggd-hl').forEach(n => {
+        n.classList.remove('ggd-hl', 'bad');
+        if (n.dataset.ggdPos) { n.style.position = ''; delete n.dataset.ggdPos; }
+      });
+      document.querySelectorAll('.ggd-tag').forEach(n => n.remove());
+    }
+
     function applyHighlight() {
-      document.querySelectorAll('.ggd-hl').forEach(n => n.classList.remove('ggd-hl'));
+      clearHighlight();
       if (!curRec) return;
-      (tiles[curRec] || []).forEach(el => { const t = tileOf(el); if (t) t.classList.add('ggd-hl'); });
+      const done = [];
+      (tiles[curRec] || []).forEach(el => {
+        const t = tileOf(el, curRec);
+        if (!t || done.indexOf(t) > -1) return;
+        done.push(t);
+        const bad = !!blocked[curRec];
+        if (getComputedStyle(t).position === 'static') { t.style.position = 'relative'; t.dataset.ggdPos = '1'; }
+        t.classList.add('ggd-hl');
+        if (bad) t.classList.add('bad');
+        const tag = document.createElement('span');
+        tag.className = 'ggd-tag' + (bad ? ' bad' : '');
+        tag.textContent = bad ? 'Not Available' : 'Recommended';
+        t.appendChild(tag);
+      });
     }
 
     // ---------- UI ----------
@@ -2659,7 +3082,8 @@
       curRec = rec.stat;
 
       const why =
-        rec.reason === 'below' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
+        blocked[rec.stat] ? '<b>' + NAMES[rec.stat] + '</b> is recommended but not available in this gym'
+        : rec.reason === 'below' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 ' + rec.pct + '% of target'
         : rec.reason === 'access' ? 'Train <b>' + NAMES[rec.stat] + '</b> to restore ' + rec.gym
         : rec.reason === 'prepare' ? 'Train <b>' + NAMES[rec.stat] + '</b> before raising ' + SHORT[high]
         : rec.reason === 'raise' ? 'Train <b>' + NAMES[rec.stat] + '</b> \u00b7 other stats are over target'
@@ -2672,8 +3096,8 @@
         const rp = t[k] > 0 ? stats[k] / t[k] : 0;
         const pct = Math.round(rp * 100);
         const over = k !== high && (dump ? rp > 1 : rp > 1.05);
-        const lbl = k === high ? 'High' : dump ? 'max' : pct + '%';
-        top += '<div class="sr' + (k === rec.stat ? ' n' : '') + '"><span class="k">' + SHORT[k] + '</span>' +
+        const lbl = blocked[k] ? 'n/a' : k === high ? 'High' : dump ? 'max' : pct + '%';
+        top += '<div class="sr' + (k === rec.stat ? ' n' : '') + (blocked[k] ? ' x' : '') + '"><span class="k">' + SHORT[k] + '</span>' +
           '<div class="bar"><i class="' + (over ? 'over' : '') + '" style="width:' + Math.min(pct, 100) + '%"></i></div><span class="p">' + lbl + '</span></div>';
       });
       top += '<div class="why">' + why + '</div></div>';
@@ -2758,7 +3182,8 @@
       mount();
       const s = readDom();
       if (!s) { if (box.isConnected && !stats) render(); return; }
-      const key = KEYS.map(k => s[k]).join('|');
+      // include which stats are unavailable, so switching gyms re-renders even when the numbers are the same
+      const key = KEYS.map(k => s[k]).join('|') + '#' + KEYS.map(k => (blocked[k] ? 1 : 0)).join('');
       if (key !== last) { last = key; stats = s; render(); }
       applyHighlight();
     }
@@ -2773,7 +3198,7 @@
       stop() {
         box.remove();
         bbox.remove();
-        document.querySelectorAll('.ggd-hl').forEach(n => n.classList.remove('ggd-hl'));
+        clearHighlight();
         delete window.__gymGuide;
       }
     };

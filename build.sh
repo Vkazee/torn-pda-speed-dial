@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds dist/speed-dial.bundle.user.js (single file, no hosting needed)
-# from core.js + every file in modules/ and features/.
+# from store.js + core.js + every module/feature listed in manifest.json (same order as the loader).
 cd "$(dirname "$0")" || exit 1
 mkdir -p dist
 {
@@ -51,7 +51,7 @@ cat <<'MID'
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 MID
 cat core.js
-for f in modules/*.js features/*.js; do
+for f in $(grep -o '"[^"]*\.js"' manifest.json | tr -d '"' | grep -v '^store\.js$' | grep -v '^core\.js$'); do
   echo
   cat "$f"
 done

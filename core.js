@@ -1,19 +1,20 @@
-// Speed Dial core v0.7.0
+// Speed Dial core v0.8.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
-// The Settings module (pinned) lets you hide/show modules and drag them into your own order.
+// At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
+// lives in the pinned "Show More" circle. The Settings module (pinned, always last) lets you choose which 3 stay on screen and drag them into your own order.
 // A module only builds its UI, timers and API calls while its window is open (lazy).
 // A feature (SD.feature) runs on a Torn page itself, outside the circles. It only runs while it is switched on in Settings and the page matches.
 (function () {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.8.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.9.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
   const GAP = 46;
-  const LAY = 'speedDial.layout1';   // { order: [ids], hidden: [ids] }
+  const LAY = 'speedDial.layout1';   // { order: [ids], front: [ids] | null }
 
   // ---------- helpers shared by modules ----------
   // saved data goes through store.js (Torn PDA native storage, with localStorage as copy/fallback).
@@ -132,7 +133,8 @@
   // ---------- module registry ----------
   // m = { id, label, icon (inner SVG markup, 24x24, stroke style) | emoji, width, mount(ctx) -> { unmount() }?, href?, ord? }
   // emoji replaces the SVG icon; href makes the circle a shortcut (no panel); ord sorts circles (default 0, same ord = order of registering)
-  // pinned: true keeps the circle last and always visible (used by Settings, so you can never lock yourself out)
+  // pinned: true keeps the circle last and always visible (Show More and Settings); pinned circles sit after the 3 on-screen ones, sorted by ord
+  // more: true marks the Show More circle itself (it gets a dot while a window of something inside Show More is open)
   SD.register = m => {
     SD.mods.push(m);
     if (stack) refreshCircles();
@@ -145,22 +147,27 @@
     SD.mods.splice(i, 1);
     const ly = layout0();                       // forget a removed module in the saved layout
     ly.order = ly.order.filter(x => x !== id);
-    ly.hidden = ly.hidden.filter(x => x !== id);
+    if (ly.front) ly.front = ly.front.filter(x => x !== id);
     SD.write(LAY, ly);
     if (stack) refreshCircles();
   };
 
-  // ---------- menu layout: your order + hidden modules (edited in Settings) ----------
+  // ---------- menu layout: your order + which modules stay on screen (edited in Settings) ----------
+  // front = ids of the (max 3) modules shown as circles. null = never chosen yet, so the default three are used.
+  // Every other module is listed in Show More. (An old saved "hidden" list is ignored: nothing is hidden any more.)
+  const MAXF = 3;
+  const HOME = ['itemdock', 'travel', 'targets'];   // default on-screen modules
+  SD.maxFront = MAXF;
   let LY = null;
   const layout0 = () => {
     if (!LY) {
       const v = SD.read(LAY, {}) || {};
       const ids = a => (Array.isArray(a) ? a.filter(x => typeof x === 'string') : []);
-      LY = { order: ids(v.order), hidden: ids(v.hidden) };
+      LY = { order: ids(v.order), front: Array.isArray(v.front) ? ids(v.front) : null };
     }
     return LY;
   };
-  // every module except pinned ones, in menu order, hidden ones included.
+  // every module except pinned ones, in menu order.
   // modules you never placed (new ones) come after the placed ones, in their default order.
   SD.ordered = () => {
     const ly = layout0();
@@ -173,14 +180,24 @@
         return ((a[0].ord || 0) - (b[0].ord || 0)) || (a[1] - b[1]);
       }).map(x => x[0]);
   };
-  SD.isHidden = id => layout0().hidden.indexOf(id) > -1;
-  // order / hidden = arrays of module ids. Ids of modules that are not loaded right now are kept as they were.
-  SD.setLayout = (order, hidden) => {
+  // modules shown as circles (max 3), in menu order
+  SD.front = () => {
+    const ly = layout0(), ids = ly.front || HOME;
+    return SD.ordered().filter(m => ids.indexOf(m.id) > -1).slice(0, MAXF);
+  };
+  // modules inside Show More, in menu order
+  SD.more = () => {
+    const f = SD.front().map(m => m.id);
+    return SD.ordered().filter(m => f.indexOf(m.id) < 0);
+  };
+  SD.isFront = id => SD.front().some(m => m.id === id);
+  // order / front = arrays of module ids (front: max 3). Ids of modules that are not loaded right now are kept as they were.
+  SD.setLayout = (order, front) => {
     const ly = layout0();
     const here = id => SD.mods.some(m => m.id === id);
     LY = {
       order: order.concat(ly.order.filter(id => order.indexOf(id) < 0 && !here(id))),
-      hidden: hidden.filter(id => here(id)).concat(ly.hidden.filter(id => !here(id)))
+      front: front.filter(here).slice(0, MAXF).concat((ly.front || []).filter(id => !here(id)))
     };
     SD.write(LAY, LY);
     if (stack) refreshCircles();
@@ -290,6 +307,7 @@
     #sdial[data-st="blk"]{--st:#e5534b}
     #sdial .mod.act{border-color:var(--st)}
     #sdial .mod:active{background:#2e2e2e}
+    #sdial .mod.sub::after{content:'';position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--st);border:1px solid #1c1c1c}
     #sdial .emo{font-size:18px;line-height:1;pointer-events:none}
     #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
     #sdial.r .lb{left:auto;right:40px}
@@ -349,8 +367,9 @@
   // rebuild every circle in order (after a module is added or removed)
   function refreshCircles() {
     circles.splice(0).forEach(c => c.b.remove());
-    SD.ordered().filter(m => !SD.isHidden(m.id))
-      .concat(SD.mods.filter(m => m.pinned))
+    SD.front()
+      .concat(SD.mods.map((m, i) => [m, i]).filter(x => x[0].pinned)
+        .sort((a, b) => ((a[0].ord || 0) - (b[0].ord || 0)) || (a[1] - b[1])).map(x => x[0]))
       .forEach(addCircle);
     markActive();
     layout();
@@ -358,6 +377,8 @@
 
   function markActive() {
     circles.forEach(c => c.b.classList.toggle('act', wins.has(c.m.id)));
+    const sub = SD.more().some(m => wins.has(m.id));   // something that lives in Show More is open
+    circles.forEach(c => c.b.classList.toggle('sub', !!c.m.more && sub));
     root.classList.toggle('pnl', wins.size > 0);
   }
 
@@ -492,6 +513,10 @@
   function pick(m) {
     if (wins.has(m.id)) closeWin(m.id); else openWin(m);
   }
+  // for modules that open other modules (Show More): open or close one window by module id
+  SD.open = id => { const m = SD.mods.find(x => x.id === id); if (m && !m.href && !wins.has(id)) openWin(m); };
+  SD.close = id => closeWin(id);
+  SD.isOpen = id => wins.has(id);
 
   SD.start = function (opts) {
     if (SD.started) return;
