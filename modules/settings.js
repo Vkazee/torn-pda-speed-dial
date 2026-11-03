@@ -280,9 +280,9 @@
 
     function togglePin(id) {
       const A = frontIds(), B = moreIds();
-      if (A.indexOf(id) > -1) {                         // back to Show More (top of that list, so you can see where it went)
+      if (A.indexOf(id) > -1) {                         // back to Show More: it goes to the END, like anything new
         A.splice(A.indexOf(id), 1);
-        B.unshift(id);
+        B.push(id);
       } else {
         if (A.length >= SD.maxFront) { SD.toast('Max ' + SD.maxFront + ' on screen. Unpin one first.'); return; }
         B.splice(B.indexOf(id), 1);
