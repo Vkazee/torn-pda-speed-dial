@@ -185,8 +185,8 @@
     const PAGES = [
       { id: 'pm', label: 'Menu', icon: ICON_MENU, show: () => renderList() },
       { id: 'pf', label: 'Features', icon: ICON_FEAT, show: () => renderFeat() },
-      { id: 'pt', label: 'Terminal', icon: ICON_TERM, show: () => startTerm() },
-      { id: 'pa', label: 'Shortcut', icon: ICON_ADD }
+      { id: 'pa', label: 'Shortcut', icon: ICON_ADD },
+      { id: 'pt', label: 'Terminal', icon: ICON_TERM, show: () => startTerm() }
     ];
 
     function setNav(open) {

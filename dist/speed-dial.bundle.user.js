@@ -3578,12 +3578,13 @@ try {
 } catch (e) { console.error('Speed Dial: features/gymguide.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/gymguide.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial feature: Casino Helper v0.2.0
+// Speed Dial feature: Casino Helper v0.3.0
 // High-Low and Blackjack advisor. Shows the chance of every choice and which one to take next.
 // Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API. Switch it on or off in Settings > Features.
 //   - Blackjack: exact odds (win / push / lose) for Stand, Hit, Double and Split, worked out for the dealer card you see.
 //     Infinite deck, dealer stands on all 17 and checks for blackjack (all changeable in Rules). Only actions whose buttons are enabled on the page are recommended.
-//   - High-Low: chance that the next card is higher, lower or the same as the card on the table (full deck minus the shown card).
+//   - High-Low: chance that YOUR (face-down) card is higher, lower or the same as the DEALER's card (full deck minus the dealer card).
+//     The dealer card is picked by name (dealer ancestor), then by position; face-down, hidden, faded-out and covered cards are ignored.
 //   - Manual mode: tap the ranks yourself if the page markup is not recognised. Settings > Terminal tells what was (not) read.
 //   - Between rounds (play buttons gone or greyed out) the panel goes back to its standard "waiting" state and typed-in cards are cleared.
 // No strategy beats the house over time. This only stops you from making a worse choice than necessary.
@@ -3611,14 +3612,19 @@ try {
     const cn = el.className && typeof el.className === 'object' ? (el.className.baseVal || '') : (el.className || '');
     const g = n => (el.getAttribute && el.getAttribute(n)) || '';
     const src = String(g('src')).split('/').pop();
-    const s = [cn, g('aria-label'), g('alt'), g('title'), g('data-card'), g('data-rank') + ' ' + g('data-suit'), src].join(' ');
-    let m = RA.exec(s);
-    if (m) { const r = rankOf(m[2]); if (r >= 1 && r <= 13) return { r, s: m[1][0].toLowerCase() }; }
-    m = RB.exec(s);
-    if (m) { const r = rankOf(m[1]); if (r >= 1 && r <= 13) return { r, s: m[2][0].toLowerCase() }; }
+    // every attribute is tested on its own: joining them could glue a suit from one onto a rank from another
+    const fields = [cn, g('aria-label'), g('alt'), g('title'), g('data-card'), (g('data-rank') + ' ' + g('data-suit')).trim(), src];
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      if (!f) continue;
+      let m = RA.exec(f);
+      if (m) { const r = rankOf(m[2]); if (r >= 1 && r <= 13) return { r, s: m[1][0].toLowerCase() }; }
+      m = RB.exec(f);
+      if (m) { const r = rankOf(m[1]); if (r >= 1 && r <= 13) return { r, s: m[2][0].toLowerCase() }; }
+    }
     const tx = String(el.textContent || '').trim();
     if (tx.length && tx.length <= 4) {
-      m = /^(10|[2-9]|[AJQK])\s*([\u2660\u2665\u2666\u2663])$/.exec(tx) || /^([\u2660\u2665\u2666\u2663])\s*(10|[2-9]|[AJQK])$/.exec(tx);
+      const m = /^(10|[2-9]|[AJQK])\s*([\u2660\u2665\u2666\u2663])$/.exec(tx) || /^([\u2660\u2665\u2666\u2663])\s*(10|[2-9]|[AJQK])$/.exec(tx);
       if (m) { const rk = /^[\u2660-\u2666]$/.test(m[1]) ? m[2] : m[1]; const r = rankOf(rk); if (r) return { r, s: '?' }; }
     }
     return null;
@@ -3772,14 +3778,61 @@ try {
   const mine = el => !!el.closest('#csh, #sdial');
   const seen = el => !!(el.getClientRects && el.getClientRects().length);
 
+  const BACKS = /^(back|facedown|face-down|cardback|card-back)$/i;   // class token of a card lying face down
+  const faceDown = el => String(typeof el.className === 'string' ? el.className : '').split(/\s+/).some(t => BACKS.test(t));
+
+  function shown(el) {   // really on screen: has a size, not hidden, not (almost) transparent
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return false;
+    for (let n = el, i = 0; n && n.nodeType === 1 && i < 6; i++, n = n.parentElement) {
+      let cs;
+      try { cs = getComputedStyle(n); } catch (e) { break; }
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.1) return false;
+    }
+    return true;
+  }
+
+  function onTop(el) {   // nothing unrelated is painted over the middle of the card (an old card under a new one, a flipped-away face)
+    const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return true;   // cannot test off screen
+    const hit = document.elementFromPoint(x, y);
+    return !hit || el.contains(hit) || hit.contains(el) || mine(hit);
+  }
+
   function readCards() {
+    const root = document.querySelector('.content-wrapper') || document;   // the game only: not Torn's sidebar, chat or header
     const list = [];
-    document.querySelectorAll(SEL).forEach(el => {
-      if (mine(el) || !seen(el)) return;
+    root.querySelectorAll(SEL).forEach(el => {
+      if (mine(el) || !seen(el) || faceDown(el)) return;
       const c = parseCard(el);
       if (c) list.push({ el, r: c.r, s: c.s });
     });
-    return list.filter(a => !list.some(b => b !== a && a.el.contains(b.el)));   // innermost element of each card only
+    const inner = list.filter(a => !list.some(b => b !== a && a.el.contains(b.el)));   // innermost element of each card only
+    inner.forEach((c, i) => {
+      const b = c.el.getBoundingClientRect();
+      c.i = i; c.x = b.left + b.width / 2;
+      c.shown = shown(c.el); c.top = c.shown && onTop(c.el); c.role = roleOf(c.el);
+    });
+    return inner;
+  }
+
+  // High-Low: the card the odds are about is the DEALER's face-up card (yours is face down until you choose).
+  // Order: visible cards only, then not-yours, then named "dealer", then on top, then leftmost (the dealer sits left), then newest in the page.
+  function pickDealer(cards) {
+    if (!cards.length) return null;
+    const vis = cards.filter(c => c.shown), pool = vis.length ? vis : cards;
+    const notMine = pool.filter(c => c.role !== 'p'), base = notMine.length ? notMine : pool;
+    const named = base.filter(c => c.role === 'd'), from = named.length ? named : base;
+    const better = (a, b) => {
+      if (a.top !== b.top) return a.top;
+      if (!named.length && Math.abs(a.x - b.x) > 8) return a.x < b.x;
+      return a.i > b.i;
+    };
+    return from.reduce((x, c) => (x === null || better(c, x) ? c : x), null);
+  }
+
+  function describe(cards, pick) {   // one short line for Settings > Terminal: what was seen and which one was used
+    return cards.slice(0, 6).map(c => (c === pick ? '*' : '') + RL[c.r] + (c.s !== '?' ? c.s : '') + '/' + (c.role || '-') + (c.shown ? '' : '!hid') + (c.shown && !c.top ? '!cov' : '') + '@' + Math.round(c.x)).join(' ');
   }
 
   function roleOf(el) {
@@ -3919,8 +3972,11 @@ try {
       if (over) return { game, src: 'idle' };
       const cards = readCards();
       if (!cards.length) return { game, src: 'none' };
-      if (game === 'highlow') return { game, src: 'page', cur: cards[cards.length - 1].r, count: cards.length };
-      const sp = split2(cards), hs = hands(sp.player);
+      if (game === 'highlow') {
+        const pk = pickDealer(cards);
+        return { game, src: 'page', cur: pk.r, count: cards.length, sig: describe(cards, pk) };
+      }
+      const vis = cards.filter(c => c.shown), sp = split2(vis.length ? vis : cards), hs = hands(sp.player);
       if (sp.dealer.length > 1 && !turn) return { game, src: 'idle' };   // dealer turned his second card and you cannot act: round over
       const h = hs.list[hs.active] || [];
       return {
@@ -3960,11 +4016,12 @@ try {
     }
 
     function renderHL(s) {
-      if (!s.cur) return '<div class="bd"><span class="dim">' + (s.src === 'manual' ? 'Tap the card on the table.' : 'Waiting for the card...') + '</span></div>';
+      if (!s.cur) return '<div class="bd"><span class="dim">' + (s.src === 'manual' ? 'Tap the dealer card.' : 'Waiting for the dealer card...') + '</span></div>';
       const r = highLow(s.cur, P), top = r.pick === 'Higher' ? r.higher : r.lower;
       const row = (k, v, best) => '<div class="hl' + (best ? ' n' : '') + '"><span class="k">' + k + '</span><div class="t"><i style="width:' + v * 100 + '%"></i></div><span class="v ' + (best ? cls(v) : 'dim') + '">' + pc(v) + '%</span></div>';
-      return '<div class="bd"><div class="big ' + cls(top) + '">' + r.pick.toUpperCase() + '<small>' + pc(top) + '% \u00b7 card ' + RL[s.cur] + '</small></div>' +
+      return '<div class="bd"><div class="big ' + cls(top) + '">' + r.pick.toUpperCase() + '<small>' + pc(top) + '% \u00b7 dealer ' + RL[s.cur] + '</small></div>' +
         '<div style="margin-top:6px">' + row('Higher', r.higher, r.pick === 'Higher') + row('Lower', r.lower, r.pick === 'Lower') + '</div>' +
+        '<div class="why dim">Same rank: ' + pc(r.tie) + '%' + (P.aceHigh ? ' \u00b7 ace = high' : ' \u00b7 ace = low') + '</div>' +
         (top < 0.5 ? '<div class="nt">Under 50%: if the game lets you take your winnings now, that is the safer move.</div>' : '') +
         '</div>';
     }
@@ -4048,11 +4105,11 @@ try {
           SD.log('casino', 'no cards read. card-like elements: ' + (sample.join(' | ') || 'none'), 'w');
         }
       } else misses = 0;
-      const key = JSON.stringify([game, s.src, s.cur, s.dealer, s.extraDealer, s.hand, s.multi, s.blocked ? Array.from(s.blocked).sort() : null, M.on, M.tgt, rulesOpen, P]);
+      const key = JSON.stringify([game, s.src, s.cur, s.dealer, s.extraDealer, s.hand, s.multi, s.blocked ? Array.from(s.blocked).sort() : null, s.sig, M.on, M.tgt, rulesOpen, P]);
       if (key === last) return;
       last = key;
       if (s.src !== 'none') {
-        const line = s.src === 'idle' ? 'round over: panel reset' : game === 'highlow' ? 'highlow card=' + (s.cur ? RL[s.cur] : '?') + ' (' + (s.count || 1) + ' on page, ' + s.src + ')'
+        const line = s.src === 'idle' ? 'round over: panel reset' : game === 'highlow' ? 'highlow dealer=' + (s.cur ? RL[s.cur] : '?') + ' (' + (s.count || 1) + ' on page, ' + s.src + ')' + (s.sig ? ' [' + s.sig + ']' : '')
           : 'blackjack dealer=' + (s.dealer && s.dealer.length ? s.dealer.map(r => RL[r]) : '?') + ' you=' + (s.hand && s.hand.length ? s.hand.map(r => RL[r]).join(',') : '?') + ' greyed=' + (s.blocked && s.blocked.size ? Array.from(s.blocked).join('') : '-') + ' (' + s.src + ')';
         if (line !== readCount) { readCount = line; SD.log('casino', line); }
       }
@@ -4072,7 +4129,7 @@ try {
     info: 'Win chance and the best next move for High-Low and Blackjack. Reads the page, never clicks.',
     match: /^\/page\.php$/,
     start,
-    engine: { parseCard, highLow, analyze, dealerDist }   // exposed for tests only
+    engine: { parseCard, highLow, analyze, dealerDist, pickDealer }   // exposed for tests only
   });
 })();
 
