@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.6.0
+// @version      0.7.0
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -130,7 +130,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.12.0
+// Speed Dial core v0.13.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -141,7 +141,7 @@ try {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.12.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.13.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -829,39 +829,40 @@ try {
     ring();
     SD.data(false, 5000);   // cached outline first, then a fresh check unless the cache is under 5s old
 
-    // Live status: keeps the circle colour current WITHOUT reloading the page. Costs one light API call per POLL while the page is visible.
-    // It also looks again right when the current status should end (hospital / jail timer, flight landing) and when you come back to the app.
-    SD.feature({
-      id: 'livestatus', label: 'Live status', def: true, where: 'Every page',
-      info: 'Updates the circle colour without reloading',
-      start(ctx) {
-        if (!SD.hasKey) { SD.log('live', 'no API key: not watching', 'w'); return null; }
-        const POLL = 10000;        // ms between checks while nothing is about to change
-        const key = d => d ? d.state + '|' + (d.abroad ? 'abroad' : '') + '|' + d.dest : '-';
-        const endsAt = d => !d ? 0 : (d.state === 'Traveling' && d.left) ? d.t + d.left * 1000 : (d.until ? d.until * 1000 : 0);
-        const gap = () => {
-          const x = endsAt(SD.peek()), now = Date.now();
-          if (!x) return POLL;
-          if (x > now) return Math.max(3000, Math.min(POLL, x - now + 1500));   // check right after it should end
-          return now - x < 120000 ? 4000 : POLL;                                // just overdue: look again soon
-        };
-        let next = Date.now() + gap(), busy = false;
-        const tick = async () => {
-          if (busy || document.hidden || Date.now() < next) return;
-          busy = true;
-          const was = key(SD.peek());
-          try { await SD.data(false, 3000); } finally { busy = false; }
-          const now = key(SD.peek());
-          if (now !== was) SD.log('live', 'status changed: ' + was + ' -> ' + now);
-          next = Date.now() + (SD.error() ? (SD.errorCode() === 2 ? 600000 : 60000) : gap());   // back off on API errors (bad key: 10 min)
-        };
-        const wake = () => { next = 0; tick(); };
-        ctx.every(tick, 2000);
-        ctx.on(document, 'visibilitychange', () => { if (!document.hidden) wake(); });
-        ctx.on(window, 'pageshow', wake);
-        return { stop() {} };
-      }
-    });
+    // Live status (always on, no switch): keeps the circle colour current WITHOUT reloading the page. One light API call per POLL while the page is visible.
+    // It looks again right when the current status should end (hospital / jail timer, flight landing), 1.5 s after any tap on the page
+    // (attacking, travelling, using items change your status), and when you come back to the app or the connection returns.
+    (function live() {
+      if (!SD.hasKey) { SD.log('live', 'no API key: not watching', 'w'); return; }
+      const POLL = 5000;         // ms between checks while nothing is about to change
+      const MIN = 2500;          // never fetch more often than this (shared cache, API rate limit)
+      const key = d => d ? d.state + '|' + (d.abroad ? 'abroad' : '') + '|' + d.dest : '-';
+      const endsAt = d => !d ? 0 : (d.state === 'Traveling' && d.left) ? d.t + d.left * 1000 : (d.until ? d.until * 1000 : 0);
+      const gap = () => {
+        const x = endsAt(SD.peek()), now = Date.now();
+        if (!x) return POLL;
+        if (x > now) return Math.max(3000, Math.min(POLL, x - now + 1500));   // check right after it should end
+        return now - x < 120000 ? 3000 : POLL;                                // just overdue: look again soon
+      };
+      let next = Date.now() + gap(), busy = false;
+      const tick = async () => {
+        if (busy || document.hidden || Date.now() < next) return;
+        busy = true;
+        const was = key(SD.peek());
+        try { await SD.data(false, MIN); } finally { busy = false; }
+        const now = key(SD.peek());
+        if (now !== was) SD.log('live', 'status changed: ' + was + ' -> ' + now);
+        next = Date.now() + (SD.error() ? (SD.errorCode() === 2 ? 600000 : 60000) : gap());   // back off on API errors (bad key: 10 min)
+      };
+      const wake = () => { next = 0; tick(); };
+      setInterval(tick, 1000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+      addEventListener('pageshow', wake);
+      addEventListener('focus', wake);
+      addEventListener('online', wake);
+      document.addEventListener('click', () => { if (!SD.error()) next = Math.min(next, Date.now() + 1500); }, { capture: true, passive: true });   // not while backing off after an API error
+      SD.log('live', 'always on: every ' + POLL / 1000 + 's while the page is visible');
+    })();
 
     SD.features.forEach(fsync);   // switched-on features whose page matches start now
   };
@@ -3577,13 +3578,14 @@ try {
 } catch (e) { console.error('Speed Dial: features/gymguide.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/gymguide.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial feature: Casino Helper v0.1.0
+// Speed Dial feature: Casino Helper v0.2.0
 // High-Low and Blackjack advisor. Shows the chance of every choice and which one to take next.
 // Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API. Switch it on or off in Settings > Features.
 //   - Blackjack: exact odds (win / push / lose) for Stand, Hit, Double and Split, worked out for the dealer card you see.
 //     Infinite deck, dealer stands on all 17 and checks for blackjack (all changeable in Rules). Only actions whose buttons are enabled on the page are recommended.
 //   - High-Low: chance that the next card is higher, lower or the same as the card on the table (full deck minus the shown card).
 //   - Manual mode: tap the ranks yourself if the page markup is not recognised. Settings > Terminal tells what was (not) read.
+//   - Between rounds (play buttons gone or greyed out) the panel goes back to its standard "waiting" state and typed-in cards are cleared.
 // No strategy beats the house over time. This only stops you from making a worse choice than necessary.
 (function () {
   'use strict';
@@ -3730,8 +3732,8 @@ try {
     return api;
   }
 
-  // ranks = your cards (1..13), upRank = dealer card, avail = Set of 'S','H','D','P' that the page offers (null = unknown)
-  function analyze(ranks, upRank, o, avail) {
+  // ranks = your cards (1..13), upRank = dealer card, blocked = Set of 'S','H','D','P' that the page shows greyed out (null = none known)
+  function analyze(ranks, upRank, o, blocked) {
     const vals = ranks.map(r => PV[r]);
     let h = 0, a = false;
     vals.forEach(v => { h += v === 11 ? 1 : v; if (v === 11) a = true; });
@@ -3745,7 +3747,7 @@ try {
     if (b.H) opts.H = b.H;
     if (n === 2 && t < 21) opts.D = S.dbl(h, a);
     if (n === 2 && vals[0] === vals[1]) opts.P = S.split(vals[0]);
-    const ok = k => !avail || avail.has(k);
+    const ok = k => !blocked || !blocked.has(k);
     const pickBest = list => list.filter(k => opts[k]).reduce((x, k) => (x === null || opts[k].ev > opts[x].ev ? k : x), null);
     let pick = pickBest(Object.keys(opts).filter(ok)) || pickBest(Object.keys(opts));
     out.opts = opts;
@@ -3762,8 +3764,10 @@ try {
     '[class*="card" i],img[alt],[aria-label],[data-card],[title]';
   const DEALER = /dealer|croupier/i;
   const PLAYER = /(^|[^a-z])(player|you|your|user)([^a-z]|$)/i;
-  const BTN = 'button,a,[role="button"],input[type="button"],input[type="submit"],[class*="btn" i],[class*="button" i]';
-  const ACT = { hit: 'H', stand: 'S', double: 'D', 'double down': 'D', split: 'P' };
+  const BTN = 'button,a,li,[role="button"],input[type="button"],input[type="submit"],[class*="btn" i],[class*="button" i],[class*="action" i]';
+  // label = letters only, so "HIT ME", "Double<br>Down" and "double down" all match. Exact words only (a "Hit list" link must not count).
+  const LABEL = { hit: 'H', hitme: 'H', stand: 'S', double: 'D', doubledown: 'D', split: 'P', higher: 'U', high: 'U', lower: 'L', low: 'L' };
+  const OFF = /(^|[\s_-])(disabled|inactive|unavailable)([\s_-]|$)/i;
 
   const mine = el => !!el.closest('#csh, #sdial');
   const seen = el => !!(el.getClientRects && el.getClientRects().length);
@@ -3814,17 +3818,29 @@ try {
     return { list: groups, active };
   }
 
-  function readButtons() {   // the actions the page offers right now (enabled buttons only)
-    const on = new Set(), all = new Set();
-    document.querySelectorAll(BTN).forEach(el => {
+  function isOff(el) {   // greyed out: disabled attribute, a disabled class on the button or its two parents, or taps ignored
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') return true;
+    try { if (getComputedStyle(el).pointerEvents === 'none') return true; } catch (e) { /* ignore */ }
+    for (let n = el, i = 0; n && i < 3; i++, n = n.parentElement) if (OFF.test(typeof n.className === 'string' ? n.className : '')) return true;
+    return false;
+  }
+
+  // The actions the page shows right now. on = enabled, blocked = shown but greyed out.
+  // A button that is not recognised is in neither set: unknown is NOT the same as unavailable.
+  function readButtons() {
+    const root = document.querySelector('.content-wrapper') || document;
+    const st = {};
+    root.querySelectorAll(BTN).forEach(el => {
       if (mine(el) || el.children.length > 3 || !seen(el)) return;
-      const tx = (el.value && el.tagName === 'INPUT' ? el.value : el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-      if (tx.length > 12 || !ACT[tx]) return;
-      const off = el.disabled || el.getAttribute('aria-disabled') === 'true' || /disabled|inactive/i.test(typeof el.className === 'string' ? el.className : '');
-      all.add(ACT[tx]);
-      if (!off) on.add(ACT[tx]);
+      const k = LABEL[String(el.value && el.tagName === 'INPUT' ? el.value : el.textContent || '').toLowerCase().replace(/[^a-z]/g, '')];
+      if (!k) return;
+      const x = st[k] || (st[k] = { n: 0, off: 0 });
+      x.n++;
+      if (isOff(el)) x.off++;
     });
-    return all.size >= 2 ? on : null;
+    const on = new Set(), blocked = new Set();
+    Object.keys(st).forEach(k => { if (st[k].off === st[k].n) blocked.add(k); else on.add(k); });
+    return { on, blocked };
   }
 
   // ---------- UI ----------
@@ -3882,6 +3898,7 @@ try {
     const save = () => SD.write(LS, P);
     const M = { on: false, tgt: 'd', d: [], p: [], hl: null };   // manual entry (not saved)
     let rulesOpen = false, shown = null, last = '', misses = 0, dumped = false, readCount = '';
+    let sawTurn = false, wasOver = false;   // sawTurn: this page has shown its play buttons at least once; wasOver: the round was over on the last look
 
     ctx.css(CSS);
     const box = document.createElement('div');
@@ -3889,14 +3906,22 @@ try {
 
     // ----- what the page (or the manual keypad) says right now -----
     function readState(game) {
+      // is a round being played? Over = the play buttons (Hit/Stand, Higher/Lower) were seen on this page and none is enabled now
+      const b = readButtons(), keys = game === 'highlow' ? ['U', 'L'] : ['H', 'S'];
+      if (keys.some(k => b.on.has(k) || b.blocked.has(k))) sawTurn = true;
+      const turn = keys.some(k => b.on.has(k));
+      const over = sawTurn && !turn;
+      if (over !== wasOver) { wasOver = over; if (over) { M.d = []; M.p = []; M.hl = null; } }   // round just ended: forget the cards typed in
       if (M.on) {
         if (game === 'highlow') return { game, src: 'manual', cur: M.hl };
-        return { game, src: 'manual', dealer: M.d.slice(0, 1), hand: M.p.slice(), extraDealer: Math.max(0, M.d.length - 1), avail: null };
+        return { game, src: 'manual', dealer: M.d.slice(0, 1), hand: M.p.slice(), extraDealer: Math.max(0, M.d.length - 1), blocked: b.blocked };
       }
+      if (over) return { game, src: 'idle' };
       const cards = readCards();
       if (!cards.length) return { game, src: 'none' };
       if (game === 'highlow') return { game, src: 'page', cur: cards[cards.length - 1].r, count: cards.length };
       const sp = split2(cards), hs = hands(sp.player);
+      if (sp.dealer.length > 1 && !turn) return { game, src: 'idle' };   // dealer turned his second card and you cannot act: round over
       const h = hs.list[hs.active] || [];
       return {
         game, src: 'page',
@@ -3904,7 +3929,7 @@ try {
         extraDealer: Math.max(0, sp.dealer.length - 1),
         hand: h.map(c => c.r),
         multi: hs.list.length > 1 ? hs.list.length : 0,
-        avail: readButtons()
+        blocked: b.blocked
       };
     }
 
@@ -3914,9 +3939,7 @@ try {
     function renderBJ(s) {
       if (!s.dealer || !s.dealer.length) return '<div class="bd"><span class="dim">' + (s.src === 'manual' ? 'Tap the dealer card first.' : 'Waiting for the dealer card...') + '</span></div>';
       if (!s.hand.length) return '<div class="bd"><span class="dim">Waiting for your cards...</span></div>';
-      const busy = s.src === 'page' && s.extraDealer > 0 && !(s.avail && s.avail.size);
-      if (busy) return '<div class="bd"><span class="dim">Dealer is playing or the round is over.</span></div>';
-      const a = analyze(s.hand, s.dealer[0], P, s.avail);
+      const a = analyze(s.hand, s.dealer[0], P, s.blocked);
       const hand = s.hand.map(r => RL[r]).join(' ');
       const info = 'Dealer ' + RL[s.dealer[0]] + ' \u00b7 You ' + hand + ' = ' + a.t + (a.soft ? ' (soft)' : '') + (s.multi ? ' \u00b7 ' + s.multi + ' hands' : '');
       if (a.bust) return '<div class="bd"><div class="big bad">BUST</div><div class="why">' + info + '</div></div>';
@@ -3941,20 +3964,23 @@ try {
       const r = highLow(s.cur, P), top = r.pick === 'Higher' ? r.higher : r.lower;
       const row = (k, v, best) => '<div class="hl' + (best ? ' n' : '') + '"><span class="k">' + k + '</span><div class="t"><i style="width:' + v * 100 + '%"></i></div><span class="v ' + (best ? cls(v) : 'dim') + '">' + pc(v) + '%</span></div>';
       return '<div class="bd"><div class="big ' + cls(top) + '">' + r.pick.toUpperCase() + '<small>' + pc(top) + '% \u00b7 card ' + RL[s.cur] + '</small></div>' +
-        '<div style="margin-top:6px">' + row('Higher', r.higher, r.pick === 'Higher') + row('Lower', r.lower, r.pick === 'Lower') + row('Same', r.tie, false) + '</div>' +
+        '<div style="margin-top:6px">' + row('Higher', r.higher, r.pick === 'Higher') + row('Lower', r.lower, r.pick === 'Lower') + '</div>' +
         (top < 0.5 ? '<div class="nt">Under 50%: if the game lets you take your winnings now, that is the safer move.</div>' : '') +
         '</div>';
     }
 
     function renderNone() {
-      return '<div class="bd"><span class="dim">Cards not found on this page yet.</span>' +
-        (misses >= 4 ? '<div class="nt">Still nothing. Tap Manual to enter the cards yourself. Settings &gt; Terminal lists what was found.</div>' : '') + '</div>';
+      return '<div class="bd"><span class="dim">Cards not found on this page yet.</span></div>';
+    }
+
+    function renderIdle() {   // standard state between rounds
+      return '<div class="bd"><span class="dim">Waiting for the next round...</span></div>';
     }
 
     function render(s) {
       const bj = s.game === 'blackjack';
       let h = '<div class="hd"><b>Casino helper</b><span class="dim">' + (bj ? 'Blackjack' : 'High-Low') + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
-      h += s.src === 'none' ? renderNone() : bj ? renderBJ(s) : renderHL(s);
+      h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : bj ? renderBJ(s) : renderHL(s);
       h += '<div class="ft"><button data-a="man" class="' + (M.on ? 'on' : '') + '">Manual</button><button data-a="rules">Rules ' + (rulesOpen ? '\u25b2' : '\u25bc') + '</button></div>';
       if (M.on) {
         const chips = a => a.length ? a.map(r => RL[r]).join(' ') : '-';
@@ -4010,7 +4036,7 @@ try {
       const sid = (new URLSearchParams(location.search).get('sid') || '').toLowerCase();
       const game = sid === 'blackjack' || sid === 'highlow' ? sid : null;
       if (!game) { if (box.isConnected) box.remove(); shown = null; return; }
-      if (game !== shown) { shown = game; last = ''; misses = 0; dumped = false; SD.log('casino', 'page: ' + game); }
+      if (game !== shown) { shown = game; last = ''; misses = 0; dumped = false; sawTurn = false; wasOver = false; SD.log('casino', 'page: ' + game); }
       mount();
       const s = readState(game);
       if (s.src === 'none') {
@@ -4022,12 +4048,12 @@ try {
           SD.log('casino', 'no cards read. card-like elements: ' + (sample.join(' | ') || 'none'), 'w');
         }
       } else misses = 0;
-      const key = JSON.stringify([game, s.src, s.cur, s.dealer, s.extraDealer, s.hand, s.multi, s.avail ? Array.from(s.avail).sort() : null, M.on, M.tgt, rulesOpen, P, misses >= 4]);
+      const key = JSON.stringify([game, s.src, s.cur, s.dealer, s.extraDealer, s.hand, s.multi, s.blocked ? Array.from(s.blocked).sort() : null, M.on, M.tgt, rulesOpen, P]);
       if (key === last) return;
       last = key;
       if (s.src !== 'none') {
-        const line = game === 'highlow' ? 'highlow card=' + (s.cur ? RL[s.cur] : '?') + ' (' + (s.count || 1) + ' on page, ' + s.src + ')'
-          : 'blackjack dealer=' + (s.dealer && s.dealer.length ? s.dealer.map(r => RL[r]) : '?') + ' you=' + (s.hand && s.hand.length ? s.hand.map(r => RL[r]).join(',') : '?') + ' buttons=' + (s.avail ? Array.from(s.avail).join('') : 'unknown') + ' (' + s.src + ')';
+        const line = s.src === 'idle' ? 'round over: panel reset' : game === 'highlow' ? 'highlow card=' + (s.cur ? RL[s.cur] : '?') + ' (' + (s.count || 1) + ' on page, ' + s.src + ')'
+          : 'blackjack dealer=' + (s.dealer && s.dealer.length ? s.dealer.map(r => RL[r]) : '?') + ' you=' + (s.hand && s.hand.length ? s.hand.map(r => RL[r]).join(',') : '?') + ' greyed=' + (s.blocked && s.blocked.size ? Array.from(s.blocked).join('') : '-') + ' (' + s.src + ')';
         if (line !== readCount) { readCount = line; SD.log('casino', line); }
       }
       render(s);

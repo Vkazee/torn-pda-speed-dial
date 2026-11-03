@@ -1,4 +1,4 @@
-// Speed Dial core v0.12.0
+// Speed Dial core v0.13.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -9,7 +9,7 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.12.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.13.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -697,39 +697,40 @@
     ring();
     SD.data(false, 5000);   // cached outline first, then a fresh check unless the cache is under 5s old
 
-    // Live status: keeps the circle colour current WITHOUT reloading the page. Costs one light API call per POLL while the page is visible.
-    // It also looks again right when the current status should end (hospital / jail timer, flight landing) and when you come back to the app.
-    SD.feature({
-      id: 'livestatus', label: 'Live status', def: true, where: 'Every page',
-      info: 'Updates the circle colour without reloading',
-      start(ctx) {
-        if (!SD.hasKey) { SD.log('live', 'no API key: not watching', 'w'); return null; }
-        const POLL = 10000;        // ms between checks while nothing is about to change
-        const key = d => d ? d.state + '|' + (d.abroad ? 'abroad' : '') + '|' + d.dest : '-';
-        const endsAt = d => !d ? 0 : (d.state === 'Traveling' && d.left) ? d.t + d.left * 1000 : (d.until ? d.until * 1000 : 0);
-        const gap = () => {
-          const x = endsAt(SD.peek()), now = Date.now();
-          if (!x) return POLL;
-          if (x > now) return Math.max(3000, Math.min(POLL, x - now + 1500));   // check right after it should end
-          return now - x < 120000 ? 4000 : POLL;                                // just overdue: look again soon
-        };
-        let next = Date.now() + gap(), busy = false;
-        const tick = async () => {
-          if (busy || document.hidden || Date.now() < next) return;
-          busy = true;
-          const was = key(SD.peek());
-          try { await SD.data(false, 3000); } finally { busy = false; }
-          const now = key(SD.peek());
-          if (now !== was) SD.log('live', 'status changed: ' + was + ' -> ' + now);
-          next = Date.now() + (SD.error() ? (SD.errorCode() === 2 ? 600000 : 60000) : gap());   // back off on API errors (bad key: 10 min)
-        };
-        const wake = () => { next = 0; tick(); };
-        ctx.every(tick, 2000);
-        ctx.on(document, 'visibilitychange', () => { if (!document.hidden) wake(); });
-        ctx.on(window, 'pageshow', wake);
-        return { stop() {} };
-      }
-    });
+    // Live status (always on, no switch): keeps the circle colour current WITHOUT reloading the page. One light API call per POLL while the page is visible.
+    // It looks again right when the current status should end (hospital / jail timer, flight landing), 1.5 s after any tap on the page
+    // (attacking, travelling, using items change your status), and when you come back to the app or the connection returns.
+    (function live() {
+      if (!SD.hasKey) { SD.log('live', 'no API key: not watching', 'w'); return; }
+      const POLL = 5000;         // ms between checks while nothing is about to change
+      const MIN = 2500;          // never fetch more often than this (shared cache, API rate limit)
+      const key = d => d ? d.state + '|' + (d.abroad ? 'abroad' : '') + '|' + d.dest : '-';
+      const endsAt = d => !d ? 0 : (d.state === 'Traveling' && d.left) ? d.t + d.left * 1000 : (d.until ? d.until * 1000 : 0);
+      const gap = () => {
+        const x = endsAt(SD.peek()), now = Date.now();
+        if (!x) return POLL;
+        if (x > now) return Math.max(3000, Math.min(POLL, x - now + 1500));   // check right after it should end
+        return now - x < 120000 ? 3000 : POLL;                                // just overdue: look again soon
+      };
+      let next = Date.now() + gap(), busy = false;
+      const tick = async () => {
+        if (busy || document.hidden || Date.now() < next) return;
+        busy = true;
+        const was = key(SD.peek());
+        try { await SD.data(false, MIN); } finally { busy = false; }
+        const now = key(SD.peek());
+        if (now !== was) SD.log('live', 'status changed: ' + was + ' -> ' + now);
+        next = Date.now() + (SD.error() ? (SD.errorCode() === 2 ? 600000 : 60000) : gap());   // back off on API errors (bad key: 10 min)
+      };
+      const wake = () => { next = 0; tick(); };
+      setInterval(tick, 1000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+      addEventListener('pageshow', wake);
+      addEventListener('focus', wake);
+      addEventListener('online', wake);
+      document.addEventListener('click', () => { if (!SD.error()) next = Math.min(next, Date.now() + 1500); }, { capture: true, passive: true });   // not while backing off after an API error
+      SD.log('live', 'always on: every ' + POLL / 1000 + 's while the page is visible');
+    })();
 
     SD.features.forEach(fsync);   // switched-on features whose page matches start now
   };
