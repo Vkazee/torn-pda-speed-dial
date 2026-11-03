@@ -16,7 +16,8 @@
     #sdial .mr .tl:active .bx{background:#2e2e2e}
     #sdial .mr .tl.act .bx{border-color:var(--st);background:#2b2b2b}
     #sdial .mr .tl .bx svg{width:22px;height:22px}
-    #sdial .mr .tl .go{position:absolute;top:2px;right:4px;font-size:9px;color:#6fa3dc;line-height:1}
+    #sdial .mr .tl .go{position:absolute;right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:#1c1c1c;border:1px solid #3a3a3a;display:flex;align-items:center;justify-content:center}
+    #sdial .mr .tl .go svg{width:10px;height:10px;stroke:#6fa3dc;stroke-width:2.6}
     #sdial .mr .tl .nm{width:100%;font-size:10.5px;line-height:1.15;text-align:center;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     #sdial .mr .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
     #sdial .mr .ft{width:100%;height:30px;margin-top:10px;border-radius:8px;border:1px solid #2c2c2c;background:none;color:#8a8a8a;font-size:11px;padding:0}
@@ -49,7 +50,7 @@
         b.innerHTML = '<span class="bx"></span><span class="nm"></span>';
         const bx = b.querySelector('.bx');
         if (m.emoji) bx.textContent = m.emoji; else bx.innerHTML = '<svg viewBox="0 0 24 24">' + m.icon + '</svg>';
-        if (m.href) { const g = document.createElement('span'); g.className = 'go'; g.setAttribute('aria-hidden', 'true'); g.textContent = '\u2197'; bx.appendChild(g); }
+        if (m.href) { const g = document.createElement('span'); g.className = 'go'; g.setAttribute('aria-hidden', 'true'); g.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>'; bx.appendChild(g); }
         b.querySelector('.nm').textContent = m.label;
         b.addEventListener('click', () => {
           if (m.href) { location.href = m.href; return; }
