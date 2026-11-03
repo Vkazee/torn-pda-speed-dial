@@ -3,6 +3,14 @@
 # from store.js + core.js + every module/feature listed in manifest.json (same order as the loader).
 cd "$(dirname "$0")" || exit 1
 mkdir -p dist
+# Each file runs in its own try/catch, like the loader does: a runtime error in one module must not stop the rest.
+# (A syntax error cannot be caught this way; only the loader isolates those, because it runs every file as its own script.)
+wrap() {
+  echo "try {"
+  cat "$1"
+  echo
+  echo "} catch (e) { console.error('Speed Dial: $1:', e); try { window.SpeedDial && window.SpeedDial.log('boot', '$1 failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }"
+}
 {
 cat <<'HEAD'
 // ==UserScript==
@@ -45,15 +53,15 @@ cat <<'PRE'
     for (let i = 0; i < 20 && typeof PDA_httpGet !== 'function'; i++) await new Promise(r => setTimeout(r, 100));   // PDA's bridge may not exist yet at document-start
     window.__sdNative = typeof PDA_storage !== 'undefined' ? PDA_storage : null;
 PRE
-cat store.js
+wrap store.js
 cat <<'MID'
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 MID
-cat core.js
+wrap core.js
 for f in $(grep -o '"[^"]*\.js"' manifest.json | tr -d '"' | grep -v '^store\.js$' | grep -v '^core\.js$'); do
   echo
-  cat "$f"
+  wrap "$f"
 done
 cat <<'TAIL'
 

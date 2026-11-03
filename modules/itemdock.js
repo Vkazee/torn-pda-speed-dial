@@ -26,7 +26,7 @@
   // okCat = inventory categories that loaded fine (so "Out" is only trusted for those)
   // Torn caches /user/inventory for up to 1 hour per category, so right after you use an item the API
   // still reports the old number. We remember our own uses (adj) and keep showing them until the API
-  // number changes (it has caught up) or the cache window has passed. Kept in localStorage so a page
+  // number changes (it has caught up) or the cache window has passed. Saved with SD.write (native storage) so a page
   // change does not bring the old number back.
   // Counts read from Torn's Items page are live, so they are stored with base = null: they stay until
   // the window passes (and are corrected by later uses), whatever the cached API says.
@@ -224,58 +224,58 @@
     #sdial .idock .list{max-height:48vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .idock.blocked .list{opacity:.45}
     #sdial .idock .cd{display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px}
-    #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:#242424;border:1px solid #333;color:#cfcfcf;font-size:11px}
-    #sdial .idock .ir{display:flex;align-items:center;min-height:40px;box-sizing:border-box;padding:6px 10px;border-radius:8px;color:#e6e6e6;margin-bottom:3px;background:#242424;border-left:3px solid #4a8f4e;user-select:none;-webkit-user-select:none}
-    #sdial .idock .ir:active{background:#2e2e2e}
-    #sdial .idock .ir.out{border-left-color:#e5534b;cursor:not-allowed}
-    #sdial .idock .ir.out:active{background:#242424}
-    #sdial .idock .ir.low{border-left-color:#d9a441}
-    #sdial .idock .ir.fac{border-left-color:#4a8fd9}
-    #sdial .idock .ir.low .qty{color:#d9a441}
-    #sdial .idock .ir.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
+    #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:var(--sd-bg2);border:1px solid var(--sd-line);color:var(--sd-text2);font-size:11px}
+    #sdial .idock .ir{display:flex;align-items:center;min-height:40px;box-sizing:border-box;padding:6px 10px;border-radius:8px;color:var(--sd-text);margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid #4a8f4e;user-select:none;-webkit-user-select:none}
+    #sdial .idock .ir:active{background:var(--sd-hov)}
+    #sdial .idock .ir.out{border-left-color:var(--sd-red);cursor:not-allowed}
+    #sdial .idock .ir.out:active{background:var(--sd-bg2)}
+    #sdial .idock .ir.low{border-left-color:var(--sd-yel)}
+    #sdial .idock .ir.fac{border-left-color:var(--sd-blue)}
+    #sdial .idock .ir.low .qty{color:var(--sd-yel)}
+    #sdial .idock .ir.drag{position:relative;z-index:5;background:var(--sd-line);box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
     #sdial .idock .ir .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .idock .ir .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
-    #sdial .idock .ir .grip svg{width:18px;height:18px;stroke:#8a8a8a}
+    #sdial .idock .ir .grip svg{width:18px;height:18px;stroke:var(--sd-dim)}
     #sdial .idock.edit .ir .grip{display:flex}
-    #sdial .idock .ir.drag .grip svg{stroke:#e6e6e6}
-    #sdial .idock .ir .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:#e5534b;font-size:18px;padding:0}
+    #sdial .idock .ir.drag .grip svg{stroke:var(--sd-text)}
+    #sdial .idock .ir .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:var(--sd-red);font-size:18px;padding:0}
     #sdial .idock.edit .ir .x{display:block}
-    #sdial .idock .qty{margin-left:8px;color:#9a9a9a;font-size:12px;white-space:nowrap}
-    #sdial .idock .ir.out .qty{color:#e5534b}
+    #sdial .idock .qty{margin-left:8px;color:var(--sd-dim);font-size:12px;white-space:nowrap}
+    #sdial .idock .ir.out .qty{color:var(--sd-red)}
     #sdial .idock .tag{margin-left:6px;padding:1px 6px;border-radius:6px;background:#2d3b52;color:#9bb8e0;font-size:10px}
     #sdial .idock.asking .list,#sdial .idock.asking .foot{display:none}
-    #sdial .idock .confirm{display:none;padding:8px 6px 4px;text-align:center;color:#e6e6e6}
+    #sdial .idock .confirm{display:none;padding:8px 6px 4px;text-align:center;color:var(--sd-text)}
     #sdial .idock.asking .confirm{display:block}
     #sdial .idock .confirm .q{margin-bottom:10px;line-height:1.4}
     #sdial .idock .confirm .q b{display:block;font-size:14px;margin-top:2px}
     #sdial .idock .confirm .btns{display:flex;gap:6px}
-    #sdial .idock .confirm button{flex:1;height:38px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:13px}
+    #sdial .idock .confirm button{flex:1;height:var(--sd-hl);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:13px}
     #sdial .idock .confirm button.ok{background:#2f6b34;border-color:#3f8a45;color:#fff}
-    #sdial .idock .empty{color:#8a8a8a;padding:10px;text-align:center}
+    #sdial .idock .empty{color:var(--sd-dim);padding:10px;text-align:center}
     #sdial .idock .foot{display:flex;gap:6px;margin-top:4px;padding-top:6px;border-top:1px solid #2c2c2c}
-    #sdial .idock .foot button{flex:1;height:34px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
-    #sdial .idock .foot button:active{background:#2e2e2e}
+    #sdial .idock .foot button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 4px}
+    #sdial .idock .foot button:active{background:var(--sd-hov)}
     #sdial .idock .foot .ico{flex:0 0 44px}
     #sdial .idock .addv{display:none}
     #sdial .idock.adding .addv{display:block}
     #sdial .idock.adding .list,#sdial .idock.adding .foot,#sdial .idock.adding .banner,#sdial .idock.adding .cd{display:none!important}
-    #sdial .idock .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#e6e6e6;font-size:13px}
-    #sdial .idock .ah .back{flex:0 0 32px;height:32px;border-radius:8px;border:1px solid #333;background:#242424;display:flex;align-items:center;justify-content:center;padding:0}
-    #sdial .idock .ah .back:active{background:#2e2e2e}
-    #sdial .idock .sq{box-sizing:border-box;width:100%;height:38px;border-radius:8px;border:1px solid #3a3a3a;background:#242424;color:#e6e6e6;font-size:16px;padding:0 10px;margin-bottom:6px;outline:none}
-    #sdial .idock .sq:focus{border-color:#4a8fd9}
+    #sdial .idock .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--sd-text);font-size:13px}
+    #sdial .idock .ah .back{flex:0 0 var(--sd-h);height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);display:flex;align-items:center;justify-content:center;padding:0}
+    #sdial .idock .ah .back:active{background:var(--sd-hov)}
+    #sdial .idock .sq{box-sizing:border-box;width:100%;height:var(--sd-hi);border-radius:8px;border:1px solid var(--sd-line2);background:var(--sd-bg2);color:var(--sd-text);font-size:16px;padding:0 10px;margin-bottom:6px;outline:none}
+    #sdial .idock .sq:focus{border-color:var(--sd-blue)}
     #sdial .idock .seg{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .idock .seg button{flex:1;height:30px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0}
-    #sdial .idock .seg button.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
+    #sdial .idock .seg button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0}
+    #sdial .idock .seg button.on{background:#2a3140;border-color:var(--sd-blue);color:#fff}
     #sdial .idock .res{max-height:38vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .idock .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #4a8fd9}
-    #sdial .idock .res .r:active{background:#2e2e2e}
+    #sdial .idock .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue)}
+    #sdial .idock .res .r:active{background:var(--sd-hov)}
     #sdial .idock .res .r.have{opacity:.5}
     #sdial .idock .res .t{flex:1;min-width:0}
     #sdial .idock .res .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .idock .res .ty{display:block;color:#8a8a8a;font-size:11px}
+    #sdial .idock .res .ty{display:block;color:var(--sd-dim);font-size:11px}
     #sdial .idock .res .pl{color:#7fd08a;font-size:18px;line-height:1}
-    #sdial .idock .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px}
+    #sdial .idock .res .hint{color:var(--sd-dim);padding:12px 6px;text-align:center;font-size:12px}
   `;
 
   function mount(ctx) {
@@ -347,7 +347,7 @@
         if (e.button > 0 || !el.classList.contains('edit')) return;
         e.preventDefault();
         drag = { row, startY: e.clientY, y: e.clientY, raf: 0 };
-        try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+        try { grip.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone: the drag simply does not start */ }
         row.classList.add('drag');
         drag.raf = requestAnimationFrame(autoScroll);
       });

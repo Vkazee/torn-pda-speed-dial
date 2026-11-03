@@ -46,7 +46,7 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 | `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, add your own emoji shortcuts, and the Terminal (debug log) |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
-| `build.sh` | Combines `store.js` + `core.js` + every file in `manifest.json` (same order) into the bundle |
+| `build.sh` | Combines `store.js` + `core.js` + every file in `manifest.json` (same order) into the bundle. Each file sits in its own try/catch, so a runtime error in one module does not stop the others (like the loader; only the loader also survives a syntax error) |
 
 ## Install
 
@@ -66,6 +66,22 @@ Never touch `localStorage` directly. `SD.read(key, default)` and `SD.write(key, 
 ## Rule for every new module or feature: log what it does with `SD.log`
 
 `SD.log('tag', 'message')` adds a line to the Terminal (tag = short name, 10 characters at most). Use `SD.log('tag', 'message', 'w')` for a warning and `'e'` for an error. Log module opens that matter, API/HTTP calls (`SD.api` already logs its own), and **every `catch` block**: an empty `catch (e) {}` hides the problem, so log the message or write a short comment on why it is safe to ignore. Never put your API key or other secrets in a message (the key is masked anyway, but do not rely on it).
+
+## Rule for every new module: colours and sizes come from the tokens
+
+`core.js` defines CSS variables on `#sdial`; use them instead of hex values or fixed heights so every module looks the same and one change reaches everything.
+
+| Token | Value | Use |
+|---|---|---|
+| `--sd-bg` / `--sd-bg2` / `--sd-hov` | `#1c1c1c` / `#242424` / `#2e2e2e` | window / card and button / pressed |
+| `--sd-line` / `--sd-line2` | `#333` / `#3a3a3a` | border / stronger border (inputs, circles) |
+| `--sd-text` / `--sd-text2` / `--sd-dim` | `#e6e6e6` / `#d0d0d0` / `#8a8a8a` | main / button text / secondary text |
+| `--sd-red` / `--sd-redt` | `#e5534b` / `#f1807a` | red accent / red text |
+| `--sd-blue` / `--sd-bluet` | `#4a8fd9` / `#6fa8e8` | blue accent / blue text |
+| `--sd-yel`, `--sd-green` | `#d9a441`, `#85b200` | yellow, green accent |
+| `--sd-h` / `--sd-hi` / `--sd-hl` | 34 / 36 / 38 px | standard button / input / large button height |
+
+Circle sizes are named constants at the top of `core.js` (`FAB` 40, `MOD` 36, `GAP`, `OFF`). Tinted status backgrounds (chips, warnings) may still use their own hex. Page features outside `#sdial` (Gym Guide) cannot see the tokens and keep their own palette. `store.js` writes a warning to the Terminal when a key has no known prefix.
 
 ## Adding a New Module
 

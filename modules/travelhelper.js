@@ -231,22 +231,22 @@
   const locked = () => { const l = level(); return l > 0 && l < MIN_LEVEL; };
 
   const CSS = `
-    #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:#242424;line-height:1.4}
+    #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:var(--sd-bg2);line-height:1.4}
     #sdial .trv .stat b{color:#fff}
     #sdial .trv .opts,#sdial .trv .foot{display:flex;gap:6px;margin-bottom:6px}
     #sdial .trv .foot{margin:6px 0 0;padding-top:6px;border-top:1px solid #2c2c2c}
-    #sdial .trv button{flex:1;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
-    #sdial .trv button:active{background:#2e2e2e}
+    #sdial .trv button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 4px}
+    #sdial .trv button:active{background:var(--sd-hov)}
     #sdial .trv .list{max-height:30vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .cr{display:flex;align-items:center;min-height:34px;box-sizing:border-box;padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid var(--st,#5a5a5a)}
-    #sdial .trv .cr:active{background:#2e2e2e}
+    #sdial .trv .cr{display:flex;align-items:center;min-height:34px;box-sizing:border-box;padding:6px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--st,#5a5a5a)}
+    #sdial .trv .cr:active{background:var(--sd-hov)}
     #sdial .trv .cr.sel{background:#2a3140}
     #sdial .trv .cr .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .trv .cr .tm{color:#cfcfcf;font-size:12px;white-space:nowrap}
-    #sdial .trv .cr .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
+    #sdial .trv .cr .tm{color:var(--sd-text2);font-size:12px;white-space:nowrap}
+    #sdial .trv .cr .tm i{font-style:normal;color:var(--sd-dim);margin-left:6px}
     #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
-    #sdial .trv .dt .sub{color:#8a8a8a;font-size:11px;margin-bottom:4px}
-    #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:30px;font-size:12px}
+    #sdial .trv .dt .sub{color:var(--sd-dim);font-size:11px;margin-bottom:4px}
+    #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:var(--sd-h);font-size:12px}
     #sdial .trv .go:disabled{opacity:.4}
     #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:6px;font-size:12px}
     #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
@@ -260,21 +260,21 @@
     #sdial .trv .skh span{flex:1}
     #sdial .trv .skh button{flex:0 0 36px;padding:0}
     #sdial .trv .skbox .bar{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .trv .skbox select{flex:1;min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 6px}
+    #sdial .trv .skbox select{flex:1;min-width:0;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 6px}
     #sdial .trv .skbox .so{flex:0 0 auto;padding:0 10px}
-    #sdial .trv .skbox .so.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
-    #sdial .trv .skbox .meta{color:#8a8a8a;font-size:11px;margin-bottom:5px;line-height:1.35}
+    #sdial .trv .skbox .so.on{background:#2a3140;border-color:var(--sd-blue);color:#fff}
+    #sdial .trv .skbox .meta{color:var(--sd-dim);font-size:11px;margin-bottom:5px;line-height:1.35}
     #sdial .trv .skl{max-height:52vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #555}
+    #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid #555}
     #sdial .trv .sk.up{border-left-color:#4a8f4e}
-    #sdial .trv .sk.dn{border-left-color:#e5534b}
+    #sdial .trv .sk.dn{border-left-color:var(--sd-red)}
     #sdial .trv .sk.out{opacity:.5}
     #sdial .trv .sk .l1{display:flex;align-items:center;gap:8px}
     #sdial .trv .sk .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .trv .sk .pf{font-weight:600;white-space:nowrap;color:#8a8a8a}
+    #sdial .trv .sk .pf{font-weight:600;white-space:nowrap;color:var(--sd-dim)}
     #sdial .trv .sk .pf.up{color:#7fd08a}
-    #sdial .trv .sk .pf.dn{color:#f1807a}
-    #sdial .trv .sk .l2{color:#8a8a8a;font-size:11px;margin-top:1px}
+    #sdial .trv .sk .pf.dn{color:var(--sd-redt)}
+    #sdial .trv .sk .l2{color:var(--sd-dim);font-size:11px;margin-top:1px}
   `;
 
   function build(ctx) {

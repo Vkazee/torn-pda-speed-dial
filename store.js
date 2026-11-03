@@ -15,9 +15,10 @@
   const mine = k => PFX.some(p => k.indexOf(p) === 0) && !/^speedDial\.(src\.|data1$)/.test(k);   // not the downloaded-source cache
   const ls = {
     get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
-    set: (k, s) => { try { localStorage.setItem(k, s); } catch (e) {} }
+    set: (k, s) => { try { localStorage.setItem(k, s); } catch (e) { log('localStorage write ' + k + ' failed: ' + (e && e.message || e), 'w'); } }
   };
 
+  const odd = new Set();                // keys already warned about (wrong prefix), so the log gets one line per key
   let nat = null;                       // PDA_storage, once loaded
   const cache = Object.create(null);    // key -> JSON text (only while nat is on)
   const dirty = new Set();              // keys not yet written to the app
@@ -29,9 +30,9 @@
       const S = window.SpeedDial;
       if (S && S.log) S.log('store', m, l);
       else (window.__sdBoot = window.__sdBoot || []).push(['store', m, l || 'i', Date.now()]);
-    } catch (e) {}
+    } catch (e) { /* the logger itself must never throw (and cannot log its own failure) */ }
   };
-  const say = m => { try { window.SpeedDial && window.SpeedDial.toast(m); } catch (e) {} };
+  const say = m => { try { window.SpeedDial && window.SpeedDial.toast(m); } catch (e) { /* toast is only a courtesy; the failure is already in the log */ } };
   const sched = ms => { if (!timer) timer = setTimeout(flush, ms); };
 
   async function flush() {
@@ -41,7 +42,7 @@
     const keys = Array.from(dirty);
     dirty.clear();
     const o = {};
-    keys.forEach(k => { try { o[k] = JSON.parse(cache[k]); } catch (e) {} });
+    keys.forEach(k => { try { o[k] = JSON.parse(cache[k]); } catch (e) { log('could not save ' + k + ' to the app (bad JSON): ' + (e && e.message || e), 'e'); } });
     let ok = true;
     try { await nat.setMany(o); log('saved ' + keys.length + ' key(s) to the app'); }
     catch (e) {
@@ -65,9 +66,9 @@
         const k = localStorage.key(i);
         if (!k || !mine(k) || k in cache) continue;
         const raw = localStorage.getItem(k);
-        try { move[k] = JSON.parse(raw); cache[k] = raw; } catch (e) {}
+        try { move[k] = JSON.parse(raw); cache[k] = raw; } catch (e) { log('skipped ' + k + ' (not valid JSON in localStorage)', 'w'); }
       }
-    } catch (e) {}
+    } catch (e) { log('could not read localStorage for the first-run copy: ' + (e && e.message || e), 'w'); }
     nat = n;
     log('native storage on: ' + Object.keys(all).filter(mine).length + ' key(s) loaded, ' + Object.keys(move).length + ' copied from localStorage');
     Object.keys(move).forEach(k => dirty.add(k));
@@ -77,6 +78,7 @@
   window.__sdStore = {
     get: k => (nat && mine(k)) ? (k in cache ? cache[k] : null) : ls.get(k),
     set(k, s) {
+      if (!PFX.some(p => k.indexOf(p) === 0) && !odd.has(k)) { odd.add(k); log('key "' + k + '" has no known prefix: it stays in localStorage only (name it speedDial.<n>)', 'w'); }
       ls.set(k, s);   // copy in the browser too
       if (nat && mine(k)) { cache[k] = s; dirty.add(k); sched(500); }
     },

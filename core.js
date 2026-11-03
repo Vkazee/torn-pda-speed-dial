@@ -13,7 +13,10 @@
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
-  const GAP = 46;
+  const FAB = 40;              // main circle (px)
+  const MOD = 36;              // module circles (px)
+  const OFF = (FAB - MOD) / 2; // centres a module circle under the main one
+  const GAP = MOD + 10;        // distance between circle tops
   const LAY = 'speedDial.layout1';   // { order: [ids], front: [ids] | null }
 
   // ---------- debug log (the Terminal page in Settings) ----------
@@ -32,7 +35,7 @@
     if (SD.key && SD.key.length > 4) s = s.split(SD.key).join('***');
     return s.replace(/([?&]key=)[^&\s"']+/gi, '$1***');
   };
-  const tell = e => subs.forEach(f => { try { f(e); } catch (x) {} });
+  const tell = e => subs.forEach(f => { try { f(e); } catch (x) { /* a broken subscriber must not break logging; cannot log here (would loop) */ } });
   // lvl: 'i' (default) | 'w' | 'e'; ts is only used for lines that waited in window.__sdBoot
   SD.log = (tag, msg, lvl, ts) => {
     if (!dbgOn) return;
@@ -146,7 +149,10 @@
     }
     if (j.error) {
       SD.log('api', ep + ' error ' + j.error.code + ': ' + (j.error.error || ''), 'e');
-      throw new Error(j.error.error || 'API error');
+      const er = new Error(j.error.error || 'API error');
+      er.api = true;                 // an answer from Torn (bad key, rate limit, ...), not a network failure
+      er.code = j.error.code;
+      throw er;
     }
     SD.log('api', ep + ' ok ' + (Date.now() - t0) + 'ms');
     return j;
@@ -155,7 +161,7 @@
   // ---------- shared player data: ONE call for every module, cached 30s ----------
   let D = null, inflight = null, err = '';
   const readCache = () => {
-    try { const c = JSON.parse(sessionStorage.getItem(DK)); if (c && c.t) D = c; } catch (e) {}
+    try { const c = JSON.parse(sessionStorage.getItem(DK)); if (c && c.t) D = c; } catch (e) { SD.log('data', 'session cache unreadable, ignored: ' + e.message, 'w'); }
   };
   SD.peek = () => { if (!D) readCache(); return D; };
   SD.error = () => err;
@@ -167,10 +173,8 @@
     if (inflight) return inflight;
     const t0 = Date.now();
     SD.log('data', 'fetching status' + (force ? ' (forced)' : ''));
-    inflight = fetch('https://api.torn.com/user/?selections=basic,travel,cooldowns,bars&key=' + SD.key)
-      .then(r => r.json())
+    inflight = SD.api('https://api.torn.com/user/?selections=basic,travel,cooldowns,bars')   // SD.api logs the call and throws on API errors
       .then(j => {
-        if (j.error) { err = j.error.error || 'API error'; SD.log('data', 'API error ' + j.error.code + ': ' + err, 'e'); return D; }
         const st = j.status || {}, tr = j.travel || {}, c = j.cooldowns || {};
         const state = st.state || 'Okay';
         const desc = String(st.description || '').replace(/<[^>]*>/g, '').trim();
@@ -195,7 +199,7 @@
         try { sessionStorage.setItem(DK, JSON.stringify(D)); } catch (e) { SD.log('data', 'sessionStorage cache failed: ' + e.message, 'w'); }
         return D;
       })
-      .catch(e => { err = 'Network error'; SD.log('data', 'network error: ' + (e && e.message), 'e'); return D; })
+      .catch(e => { err = e && e.api ? (e.message || 'API error') : 'Network error'; SD.log('data', (e && e.api ? 'API error: ' : 'network error: ') + (e && e.message), 'e'); return D; })
       .then(r => { inflight = null; ring(); return r; });
     return inflight;
   };
@@ -318,7 +322,7 @@
     if (!me) return;
     fon.delete(id);
     me.timers.forEach(t => (t[0] === 'i' ? clearInterval(t[1]) : clearTimeout(t[1])));
-    me.ons.forEach(o => { try { o[0].removeEventListener(o[1], o[2], o[3]); } catch (e) {} });
+    me.ons.forEach(o => { try { o[0].removeEventListener(o[1], o[2], o[3]); } catch (e) { SD.log('feature', id + ' could not remove a listener: ' + e.message, 'w'); } });
     const inst = me.inst;
     me.inst = null;
     if (inst && typeof inst.stop === 'function') { try { inst.stop(); } catch (e) { SD.log('feature', id + ' stop() threw: ' + e.message, 'e'); } }
@@ -373,38 +377,43 @@
   const WM = 4;
 
   const CSS = `
-    #sdial{position:fixed;z-index:2147483647;font:13px/1.25 -apple-system,Roboto,sans-serif;-webkit-tap-highlight-color:transparent;--st:#d4d4d4}
+    #sdial{position:fixed;z-index:2147483647;font:13px/1.25 -apple-system,Roboto,sans-serif;-webkit-tap-highlight-color:transparent;
+      --sd-bg:#1c1c1c;--sd-bg2:#242424;--sd-hov:#2e2e2e;--sd-line:#333;--sd-line2:#3a3a3a;
+      --sd-text:#e6e6e6;--sd-text2:#d0d0d0;--sd-dim:#8a8a8a;
+      --sd-red:#e5534b;--sd-redt:#f1807a;--sd-blue:#4a8fd9;--sd-bluet:#6fa8e8;--sd-yel:#d9a441;--sd-green:#85b200;
+      --sd-h:34px;--sd-hi:36px;--sd-hl:38px;
+      --st:var(--sd-text2)}
     #sdial *{box-sizing:border-box}
-    #sdial svg{width:20px;height:20px;stroke:#d0d0d0;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    #sdial svg{width:20px;height:20px;stroke:var(--sd-text2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     @keyframes sdspin{to{transform:rotate(360deg)}}
     #sdial .spin svg{animation:sdspin .8s linear infinite}
-    #sdial .fab{position:relative;z-index:2000;touch-action:none;width:40px;height:40px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
-    #sdial .fab.on{opacity:1;border-color:#d4d4d4}
-    #sdial .fab.away{opacity:1;border-color:#4a8fd9;box-shadow:0 0 0 2px rgba(74,143,217,.3),0 2px 6px rgba(0,0,0,.4)}
-    #sdial .fab.hosp{opacity:1;border-color:#d9a441;box-shadow:0 0 0 2px rgba(217,164,65,.3),0 2px 6px rgba(0,0,0,.4)}
-    #sdial .fab.blk{opacity:1;border-color:#e5534b;box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
-    #sdial .mod{position:absolute;z-index:2000;left:2px;width:36px;height:36px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
+    #sdial .fab{position:relative;z-index:2000;touch-action:none;width:${FAB}px;height:${FAB}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
+    #sdial .fab.on{opacity:1;border-color:var(--sd-text2)}
+    #sdial .fab.away{opacity:1;border-color:var(--sd-blue);box-shadow:0 0 0 2px rgba(74,143,217,.3),0 2px 6px rgba(0,0,0,.4)}
+    #sdial .fab.hosp{opacity:1;border-color:var(--sd-yel);box-shadow:0 0 0 2px rgba(217,164,65,.3),0 2px 6px rgba(0,0,0,.4)}
+    #sdial .fab.blk{opacity:1;border-color:var(--sd-red);box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
+    #sdial .mod{position:absolute;z-index:2000;left:${OFF}px;width:${MOD}px;height:${MOD}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
     #sdial .stack.show .mod{opacity:1;transform:scale(1);pointer-events:auto}
-    #sdial[data-st="away"]{--st:#4a8fd9}
-    #sdial[data-st="hosp"]{--st:#d9a441}
-    #sdial[data-st="blk"]{--st:#e5534b}
+    #sdial[data-st="away"]{--st:var(--sd-blue)}
+    #sdial[data-st="hosp"]{--st:var(--sd-yel)}
+    #sdial[data-st="blk"]{--st:var(--sd-red)}
     #sdial .mod.act{border-color:var(--st)}
-    #sdial .mod:active{background:#2e2e2e}
-    #sdial .mod.sub::after{content:'';position:absolute;top:-1px;right:-1px;width:6px;height:6px;border-radius:50%;background:var(--st);border:1.5px solid #1c1c1c}
+    #sdial .mod:active{background:var(--sd-hov)}
+    #sdial .mod.sub::after{content:'';position:absolute;top:-1px;right:-1px;width:6px;height:6px;border-radius:50%;background:var(--st);border:1.5px solid var(--sd-bg)}
     #sdial .emo{font-size:18px;line-height:1;pointer-events:none}
-    #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
-    #sdial.r .lb{left:auto;right:40px}
+    #sdial .lb{position:absolute;top:50%;left:${FAB}px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:var(--sd-bg);border:1px solid var(--sd-line);color:var(--sd-text);font-size:12px;pointer-events:none}
+    #sdial.r .lb{left:auto;right:${FAB}px}
     #sdial.pnl .lb{display:none}
-    #sdial .win{position:fixed;left:0;top:0;display:flex;flex-direction:column;overflow:hidden;background:#1c1c1c;border:1px solid var(--st);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.5);color:#e6e6e6;max-height:calc(100vh - 8px)}
+    #sdial .win{position:fixed;left:0;top:0;display:flex;flex-direction:column;overflow:hidden;background:var(--sd-bg);border:1px solid var(--st);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.5);color:var(--sd-text);max-height:calc(100vh - 8px)}
     #sdial .win.mv{will-change:transform}
     #sdial[data-st="away"] .win{box-shadow:0 0 0 2px rgba(74,143,217,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="hosp"] .win{box-shadow:0 0 0 2px rgba(217,164,65,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="blk"] .win{box-shadow:0 0 0 2px rgba(229,83,75,.35),0 6px 18px rgba(0,0,0,.5)}
-    #sdial .win .tb{flex:0 0 30px;height:30px;display:flex;align-items:center;padding:0 0 0 10px;background:#242424;border-bottom:1px solid #2c2c2c;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+    #sdial .win .tb{flex:0 0 var(--sd-h);height:var(--sd-h);display:flex;align-items:center;padding:0 0 0 10px;background:var(--sd-bg2);border-bottom:1px solid #2c2c2c;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
     #sdial .win.mv .tb{cursor:grabbing}
-    #sdial .win .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#cfcfcf;pointer-events:none}
-    #sdial .win .cl{flex:0 0 38px;width:38px;height:30px;border:0;background:none;color:#cfcfcf;font-size:14px;padding:0}
-    #sdial .win .cl:active{background:#2e2e2e}
+    #sdial .win .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--sd-text2);pointer-events:none}
+    #sdial .win .cl{flex:0 0 44px;width:44px;height:var(--sd-h);border:0;background:none;color:var(--sd-text2);font-size:14px;padding:0}
+    #sdial .win .cl:active{background:var(--sd-hov)}
     #sdial .win .bd{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;padding:6px}
   `;
 
@@ -426,15 +435,15 @@
 
   function layout() {
     if (!root) return;
-    P.x = Math.max(0, Math.min(P.x, innerWidth - 40));
-    P.y = Math.max(0, Math.min(P.y, innerHeight - 40));
+    P.x = Math.max(0, Math.min(P.x, innerWidth - FAB));
+    P.y = Math.max(0, Math.min(P.y, innerHeight - FAB));
     root.style.left = P.x + 'px';
     root.style.top = P.y + 'px';
     const down = P.y < innerHeight / 2, right = P.x > innerWidth / 2;
     root.classList.toggle('r', right);
     circles.forEach((c, i) => {
       const off = GAP * (i + 1);
-      c.b.style.top = (2 + (down ? off : -off)) + 'px';
+      c.b.style.top = (OFF + (down ? off : -off)) + 'px';
     });
   }
 
@@ -520,7 +529,7 @@
     tb.addEventListener('pointerdown', e => {
       if (e.button > 0 || e.target.closest('.cl')) return;
       g = { sx: e.clientX, sy: e.clientY, ox: me.cx, oy: me.cy, h: el.offsetHeight, nx: me.cx, ny: me.cy, raf: 0, moved: false };
-      try { tb.setPointerCapture(e.pointerId); } catch (err) {}
+      try { tb.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone: the drag simply does not start */ }
     });
     tb.addEventListener('pointermove', e => {
       if (!g) return;

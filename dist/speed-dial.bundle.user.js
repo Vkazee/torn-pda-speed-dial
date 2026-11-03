@@ -33,6 +33,7 @@
   try {
     for (let i = 0; i < 20 && typeof PDA_httpGet !== 'function'; i++) await new Promise(r => setTimeout(r, 100));   // PDA's bridge may not exist yet at document-start
     window.__sdNative = typeof PDA_storage !== 'undefined' ? PDA_storage : null;
+try {
 // Speed Dial store v0.2.0
 // Keeps your saved data (Targets, menu layout, shortcuts, window positions, Item Dock items, Travel Helper settings, Gym Guide choices)
 // in Torn PDA's native storage (PDA_storage): on disk in the app, not wiped when the browser cache is cleared.
@@ -50,9 +51,10 @@
   const mine = k => PFX.some(p => k.indexOf(p) === 0) && !/^speedDial\.(src\.|data1$)/.test(k);   // not the downloaded-source cache
   const ls = {
     get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
-    set: (k, s) => { try { localStorage.setItem(k, s); } catch (e) {} }
+    set: (k, s) => { try { localStorage.setItem(k, s); } catch (e) { log('localStorage write ' + k + ' failed: ' + (e && e.message || e), 'w'); } }
   };
 
+  const odd = new Set();                // keys already warned about (wrong prefix), so the log gets one line per key
   let nat = null;                       // PDA_storage, once loaded
   const cache = Object.create(null);    // key -> JSON text (only while nat is on)
   const dirty = new Set();              // keys not yet written to the app
@@ -64,9 +66,9 @@
       const S = window.SpeedDial;
       if (S && S.log) S.log('store', m, l);
       else (window.__sdBoot = window.__sdBoot || []).push(['store', m, l || 'i', Date.now()]);
-    } catch (e) {}
+    } catch (e) { /* the logger itself must never throw (and cannot log its own failure) */ }
   };
-  const say = m => { try { window.SpeedDial && window.SpeedDial.toast(m); } catch (e) {} };
+  const say = m => { try { window.SpeedDial && window.SpeedDial.toast(m); } catch (e) { /* toast is only a courtesy; the failure is already in the log */ } };
   const sched = ms => { if (!timer) timer = setTimeout(flush, ms); };
 
   async function flush() {
@@ -76,7 +78,7 @@
     const keys = Array.from(dirty);
     dirty.clear();
     const o = {};
-    keys.forEach(k => { try { o[k] = JSON.parse(cache[k]); } catch (e) {} });
+    keys.forEach(k => { try { o[k] = JSON.parse(cache[k]); } catch (e) { log('could not save ' + k + ' to the app (bad JSON): ' + (e && e.message || e), 'e'); } });
     let ok = true;
     try { await nat.setMany(o); log('saved ' + keys.length + ' key(s) to the app'); }
     catch (e) {
@@ -100,9 +102,9 @@
         const k = localStorage.key(i);
         if (!k || !mine(k) || k in cache) continue;
         const raw = localStorage.getItem(k);
-        try { move[k] = JSON.parse(raw); cache[k] = raw; } catch (e) {}
+        try { move[k] = JSON.parse(raw); cache[k] = raw; } catch (e) { log('skipped ' + k + ' (not valid JSON in localStorage)', 'w'); }
       }
-    } catch (e) {}
+    } catch (e) { log('could not read localStorage for the first-run copy: ' + (e && e.message || e), 'w'); }
     nat = n;
     log('native storage on: ' + Object.keys(all).filter(mine).length + ' key(s) loaded, ' + Object.keys(move).length + ' copied from localStorage');
     Object.keys(move).forEach(k => dirty.add(k));
@@ -112,6 +114,7 @@
   window.__sdStore = {
     get: k => (nat && mine(k)) ? (k in cache ? cache[k] : null) : ls.get(k),
     set(k, s) {
+      if (!PFX.some(p => k.indexOf(p) === 0) && !odd.has(k)) { odd.add(k); log('key "' + k + '" has no known prefix: it stays in localStorage only (name it speedDial.<n>)', 'w'); }
       ls.set(k, s);   // copy in the browser too
       if (nat && mine(k)) { cache[k] = s; dirty.add(k); sched(500); }
     },
@@ -123,7 +126,10 @@
   window.addEventListener('pagehide', () => { flush(); });
 })();
 
+} catch (e) { console.error('Speed Dial: store.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'store.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
+try {
 // Speed Dial core v0.10.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
@@ -139,7 +145,10 @@
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
-  const GAP = 46;
+  const FAB = 40;              // main circle (px)
+  const MOD = 36;              // module circles (px)
+  const OFF = (FAB - MOD) / 2; // centres a module circle under the main one
+  const GAP = MOD + 10;        // distance between circle tops
   const LAY = 'speedDial.layout1';   // { order: [ids], front: [ids] | null }
 
   // ---------- debug log (the Terminal page in Settings) ----------
@@ -158,7 +167,7 @@
     if (SD.key && SD.key.length > 4) s = s.split(SD.key).join('***');
     return s.replace(/([?&]key=)[^&\s"']+/gi, '$1***');
   };
-  const tell = e => subs.forEach(f => { try { f(e); } catch (x) {} });
+  const tell = e => subs.forEach(f => { try { f(e); } catch (x) { /* a broken subscriber must not break logging; cannot log here (would loop) */ } });
   // lvl: 'i' (default) | 'w' | 'e'; ts is only used for lines that waited in window.__sdBoot
   SD.log = (tag, msg, lvl, ts) => {
     if (!dbgOn) return;
@@ -272,7 +281,10 @@
     }
     if (j.error) {
       SD.log('api', ep + ' error ' + j.error.code + ': ' + (j.error.error || ''), 'e');
-      throw new Error(j.error.error || 'API error');
+      const er = new Error(j.error.error || 'API error');
+      er.api = true;                 // an answer from Torn (bad key, rate limit, ...), not a network failure
+      er.code = j.error.code;
+      throw er;
     }
     SD.log('api', ep + ' ok ' + (Date.now() - t0) + 'ms');
     return j;
@@ -281,7 +293,7 @@
   // ---------- shared player data: ONE call for every module, cached 30s ----------
   let D = null, inflight = null, err = '';
   const readCache = () => {
-    try { const c = JSON.parse(sessionStorage.getItem(DK)); if (c && c.t) D = c; } catch (e) {}
+    try { const c = JSON.parse(sessionStorage.getItem(DK)); if (c && c.t) D = c; } catch (e) { SD.log('data', 'session cache unreadable, ignored: ' + e.message, 'w'); }
   };
   SD.peek = () => { if (!D) readCache(); return D; };
   SD.error = () => err;
@@ -293,10 +305,8 @@
     if (inflight) return inflight;
     const t0 = Date.now();
     SD.log('data', 'fetching status' + (force ? ' (forced)' : ''));
-    inflight = fetch('https://api.torn.com/user/?selections=basic,travel,cooldowns,bars&key=' + SD.key)
-      .then(r => r.json())
+    inflight = SD.api('https://api.torn.com/user/?selections=basic,travel,cooldowns,bars')   // SD.api logs the call and throws on API errors
       .then(j => {
-        if (j.error) { err = j.error.error || 'API error'; SD.log('data', 'API error ' + j.error.code + ': ' + err, 'e'); return D; }
         const st = j.status || {}, tr = j.travel || {}, c = j.cooldowns || {};
         const state = st.state || 'Okay';
         const desc = String(st.description || '').replace(/<[^>]*>/g, '').trim();
@@ -321,7 +331,7 @@
         try { sessionStorage.setItem(DK, JSON.stringify(D)); } catch (e) { SD.log('data', 'sessionStorage cache failed: ' + e.message, 'w'); }
         return D;
       })
-      .catch(e => { err = 'Network error'; SD.log('data', 'network error: ' + (e && e.message), 'e'); return D; })
+      .catch(e => { err = e && e.api ? (e.message || 'API error') : 'Network error'; SD.log('data', (e && e.api ? 'API error: ' : 'network error: ') + (e && e.message), 'e'); return D; })
       .then(r => { inflight = null; ring(); return r; });
     return inflight;
   };
@@ -444,7 +454,7 @@
     if (!me) return;
     fon.delete(id);
     me.timers.forEach(t => (t[0] === 'i' ? clearInterval(t[1]) : clearTimeout(t[1])));
-    me.ons.forEach(o => { try { o[0].removeEventListener(o[1], o[2], o[3]); } catch (e) {} });
+    me.ons.forEach(o => { try { o[0].removeEventListener(o[1], o[2], o[3]); } catch (e) { SD.log('feature', id + ' could not remove a listener: ' + e.message, 'w'); } });
     const inst = me.inst;
     me.inst = null;
     if (inst && typeof inst.stop === 'function') { try { inst.stop(); } catch (e) { SD.log('feature', id + ' stop() threw: ' + e.message, 'e'); } }
@@ -499,38 +509,43 @@
   const WM = 4;
 
   const CSS = `
-    #sdial{position:fixed;z-index:2147483647;font:13px/1.25 -apple-system,Roboto,sans-serif;-webkit-tap-highlight-color:transparent;--st:#d4d4d4}
+    #sdial{position:fixed;z-index:2147483647;font:13px/1.25 -apple-system,Roboto,sans-serif;-webkit-tap-highlight-color:transparent;
+      --sd-bg:#1c1c1c;--sd-bg2:#242424;--sd-hov:#2e2e2e;--sd-line:#333;--sd-line2:#3a3a3a;
+      --sd-text:#e6e6e6;--sd-text2:#d0d0d0;--sd-dim:#8a8a8a;
+      --sd-red:#e5534b;--sd-redt:#f1807a;--sd-blue:#4a8fd9;--sd-bluet:#6fa8e8;--sd-yel:#d9a441;--sd-green:#85b200;
+      --sd-h:34px;--sd-hi:36px;--sd-hl:38px;
+      --st:var(--sd-text2)}
     #sdial *{box-sizing:border-box}
-    #sdial svg{width:20px;height:20px;stroke:#d0d0d0;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    #sdial svg{width:20px;height:20px;stroke:var(--sd-text2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     @keyframes sdspin{to{transform:rotate(360deg)}}
     #sdial .spin svg{animation:sdspin .8s linear infinite}
-    #sdial .fab{position:relative;z-index:2000;touch-action:none;width:40px;height:40px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
-    #sdial .fab.on{opacity:1;border-color:#d4d4d4}
-    #sdial .fab.away{opacity:1;border-color:#4a8fd9;box-shadow:0 0 0 2px rgba(74,143,217,.3),0 2px 6px rgba(0,0,0,.4)}
-    #sdial .fab.hosp{opacity:1;border-color:#d9a441;box-shadow:0 0 0 2px rgba(217,164,65,.3),0 2px 6px rgba(0,0,0,.4)}
-    #sdial .fab.blk{opacity:1;border-color:#e5534b;box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
-    #sdial .mod{position:absolute;z-index:2000;left:2px;width:36px;height:36px;border-radius:50%;border:1px solid #3a3a3a;background:#1c1c1c;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
+    #sdial .fab{position:relative;z-index:2000;touch-action:none;width:${FAB}px;height:${FAB}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
+    #sdial .fab.on{opacity:1;border-color:var(--sd-text2)}
+    #sdial .fab.away{opacity:1;border-color:var(--sd-blue);box-shadow:0 0 0 2px rgba(74,143,217,.3),0 2px 6px rgba(0,0,0,.4)}
+    #sdial .fab.hosp{opacity:1;border-color:var(--sd-yel);box-shadow:0 0 0 2px rgba(217,164,65,.3),0 2px 6px rgba(0,0,0,.4)}
+    #sdial .fab.blk{opacity:1;border-color:var(--sd-red);box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
+    #sdial .mod{position:absolute;z-index:2000;left:${OFF}px;width:${MOD}px;height:${MOD}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
     #sdial .stack.show .mod{opacity:1;transform:scale(1);pointer-events:auto}
-    #sdial[data-st="away"]{--st:#4a8fd9}
-    #sdial[data-st="hosp"]{--st:#d9a441}
-    #sdial[data-st="blk"]{--st:#e5534b}
+    #sdial[data-st="away"]{--st:var(--sd-blue)}
+    #sdial[data-st="hosp"]{--st:var(--sd-yel)}
+    #sdial[data-st="blk"]{--st:var(--sd-red)}
     #sdial .mod.act{border-color:var(--st)}
-    #sdial .mod:active{background:#2e2e2e}
-    #sdial .mod.sub::after{content:'';position:absolute;top:-1px;right:-1px;width:6px;height:6px;border-radius:50%;background:var(--st);border:1.5px solid #1c1c1c}
+    #sdial .mod:active{background:var(--sd-hov)}
+    #sdial .mod.sub::after{content:'';position:absolute;top:-1px;right:-1px;width:6px;height:6px;border-radius:50%;background:var(--st);border:1.5px solid var(--sd-bg)}
     #sdial .emo{font-size:18px;line-height:1;pointer-events:none}
-    #sdial .lb{position:absolute;top:50%;left:40px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:#1c1c1c;border:1px solid #333;color:#e6e6e6;font-size:12px;pointer-events:none}
-    #sdial.r .lb{left:auto;right:40px}
+    #sdial .lb{position:absolute;top:50%;left:${FAB}px;transform:translateY(-50%);white-space:nowrap;padding:3px 8px;border-radius:8px;background:var(--sd-bg);border:1px solid var(--sd-line);color:var(--sd-text);font-size:12px;pointer-events:none}
+    #sdial.r .lb{left:auto;right:${FAB}px}
     #sdial.pnl .lb{display:none}
-    #sdial .win{position:fixed;left:0;top:0;display:flex;flex-direction:column;overflow:hidden;background:#1c1c1c;border:1px solid var(--st);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.5);color:#e6e6e6;max-height:calc(100vh - 8px)}
+    #sdial .win{position:fixed;left:0;top:0;display:flex;flex-direction:column;overflow:hidden;background:var(--sd-bg);border:1px solid var(--st);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.5);color:var(--sd-text);max-height:calc(100vh - 8px)}
     #sdial .win.mv{will-change:transform}
     #sdial[data-st="away"] .win{box-shadow:0 0 0 2px rgba(74,143,217,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="hosp"] .win{box-shadow:0 0 0 2px rgba(217,164,65,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="blk"] .win{box-shadow:0 0 0 2px rgba(229,83,75,.35),0 6px 18px rgba(0,0,0,.5)}
-    #sdial .win .tb{flex:0 0 30px;height:30px;display:flex;align-items:center;padding:0 0 0 10px;background:#242424;border-bottom:1px solid #2c2c2c;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+    #sdial .win .tb{flex:0 0 var(--sd-h);height:var(--sd-h);display:flex;align-items:center;padding:0 0 0 10px;background:var(--sd-bg2);border-bottom:1px solid #2c2c2c;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
     #sdial .win.mv .tb{cursor:grabbing}
-    #sdial .win .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#cfcfcf;pointer-events:none}
-    #sdial .win .cl{flex:0 0 38px;width:38px;height:30px;border:0;background:none;color:#cfcfcf;font-size:14px;padding:0}
-    #sdial .win .cl:active{background:#2e2e2e}
+    #sdial .win .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--sd-text2);pointer-events:none}
+    #sdial .win .cl{flex:0 0 44px;width:44px;height:var(--sd-h);border:0;background:none;color:var(--sd-text2);font-size:14px;padding:0}
+    #sdial .win .cl:active{background:var(--sd-hov)}
     #sdial .win .bd{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;padding:6px}
   `;
 
@@ -552,15 +567,15 @@
 
   function layout() {
     if (!root) return;
-    P.x = Math.max(0, Math.min(P.x, innerWidth - 40));
-    P.y = Math.max(0, Math.min(P.y, innerHeight - 40));
+    P.x = Math.max(0, Math.min(P.x, innerWidth - FAB));
+    P.y = Math.max(0, Math.min(P.y, innerHeight - FAB));
     root.style.left = P.x + 'px';
     root.style.top = P.y + 'px';
     const down = P.y < innerHeight / 2, right = P.x > innerWidth / 2;
     root.classList.toggle('r', right);
     circles.forEach((c, i) => {
       const off = GAP * (i + 1);
-      c.b.style.top = (2 + (down ? off : -off)) + 'px';
+      c.b.style.top = (OFF + (down ? off : -off)) + 'px';
     });
   }
 
@@ -646,7 +661,7 @@
     tb.addEventListener('pointerdown', e => {
       if (e.button > 0 || e.target.closest('.cl')) return;
       g = { sx: e.clientX, sy: e.clientY, ox: me.cx, oy: me.cy, h: el.offsetHeight, nx: me.cx, ny: me.cy, raf: 0, moved: false };
-      try { tb.setPointerCapture(e.pointerId); } catch (err) {}
+      try { tb.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone: the drag simply does not start */ }
     });
     tb.addEventListener('pointermove', e => {
       if (!g) return;
@@ -801,6 +816,9 @@
   };
 })();
 
+} catch (e) { console.error('Speed Dial: core.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'core.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
 // Speed Dial module: Item Dock v0.9.4
 // Tap an item, confirm, and it is used in place. Own items show stock; faction armoury items do not.
 // In Edit mode, drag the handle to reorder (the list scrolls by itself near its edges). A long list scrolls inside the panel. Nothing runs until the panel is opened, except on
@@ -829,7 +847,7 @@
   // okCat = inventory categories that loaded fine (so "Out" is only trusted for those)
   // Torn caches /user/inventory for up to 1 hour per category, so right after you use an item the API
   // still reports the old number. We remember our own uses (adj) and keep showing them until the API
-  // number changes (it has caught up) or the cache window has passed. Kept in localStorage so a page
+  // number changes (it has caught up) or the cache window has passed. Saved with SD.write (native storage) so a page
   // change does not bring the old number back.
   // Counts read from Torn's Items page are live, so they are stored with base = null: they stay until
   // the window passes (and are corrected by later uses), whatever the cached API says.
@@ -1027,58 +1045,58 @@
     #sdial .idock .list{max-height:48vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .idock.blocked .list{opacity:.45}
     #sdial .idock .cd{display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px}
-    #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:#242424;border:1px solid #333;color:#cfcfcf;font-size:11px}
-    #sdial .idock .ir{display:flex;align-items:center;min-height:40px;box-sizing:border-box;padding:6px 10px;border-radius:8px;color:#e6e6e6;margin-bottom:3px;background:#242424;border-left:3px solid #4a8f4e;user-select:none;-webkit-user-select:none}
-    #sdial .idock .ir:active{background:#2e2e2e}
-    #sdial .idock .ir.out{border-left-color:#e5534b;cursor:not-allowed}
-    #sdial .idock .ir.out:active{background:#242424}
-    #sdial .idock .ir.low{border-left-color:#d9a441}
-    #sdial .idock .ir.fac{border-left-color:#4a8fd9}
-    #sdial .idock .ir.low .qty{color:#d9a441}
-    #sdial .idock .ir.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
+    #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:var(--sd-bg2);border:1px solid var(--sd-line);color:var(--sd-text2);font-size:11px}
+    #sdial .idock .ir{display:flex;align-items:center;min-height:40px;box-sizing:border-box;padding:6px 10px;border-radius:8px;color:var(--sd-text);margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid #4a8f4e;user-select:none;-webkit-user-select:none}
+    #sdial .idock .ir:active{background:var(--sd-hov)}
+    #sdial .idock .ir.out{border-left-color:var(--sd-red);cursor:not-allowed}
+    #sdial .idock .ir.out:active{background:var(--sd-bg2)}
+    #sdial .idock .ir.low{border-left-color:var(--sd-yel)}
+    #sdial .idock .ir.fac{border-left-color:var(--sd-blue)}
+    #sdial .idock .ir.low .qty{color:var(--sd-yel)}
+    #sdial .idock .ir.drag{position:relative;z-index:5;background:var(--sd-line);box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
     #sdial .idock .ir .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .idock .ir .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
-    #sdial .idock .ir .grip svg{width:18px;height:18px;stroke:#8a8a8a}
+    #sdial .idock .ir .grip svg{width:18px;height:18px;stroke:var(--sd-dim)}
     #sdial .idock.edit .ir .grip{display:flex}
-    #sdial .idock .ir.drag .grip svg{stroke:#e6e6e6}
-    #sdial .idock .ir .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:#e5534b;font-size:18px;padding:0}
+    #sdial .idock .ir.drag .grip svg{stroke:var(--sd-text)}
+    #sdial .idock .ir .x{display:none;width:28px;height:28px;margin-right:-6px;border:0;background:none;color:var(--sd-red);font-size:18px;padding:0}
     #sdial .idock.edit .ir .x{display:block}
-    #sdial .idock .qty{margin-left:8px;color:#9a9a9a;font-size:12px;white-space:nowrap}
-    #sdial .idock .ir.out .qty{color:#e5534b}
+    #sdial .idock .qty{margin-left:8px;color:var(--sd-dim);font-size:12px;white-space:nowrap}
+    #sdial .idock .ir.out .qty{color:var(--sd-red)}
     #sdial .idock .tag{margin-left:6px;padding:1px 6px;border-radius:6px;background:#2d3b52;color:#9bb8e0;font-size:10px}
     #sdial .idock.asking .list,#sdial .idock.asking .foot{display:none}
-    #sdial .idock .confirm{display:none;padding:8px 6px 4px;text-align:center;color:#e6e6e6}
+    #sdial .idock .confirm{display:none;padding:8px 6px 4px;text-align:center;color:var(--sd-text)}
     #sdial .idock.asking .confirm{display:block}
     #sdial .idock .confirm .q{margin-bottom:10px;line-height:1.4}
     #sdial .idock .confirm .q b{display:block;font-size:14px;margin-top:2px}
     #sdial .idock .confirm .btns{display:flex;gap:6px}
-    #sdial .idock .confirm button{flex:1;height:38px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:13px}
+    #sdial .idock .confirm button{flex:1;height:var(--sd-hl);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:13px}
     #sdial .idock .confirm button.ok{background:#2f6b34;border-color:#3f8a45;color:#fff}
-    #sdial .idock .empty{color:#8a8a8a;padding:10px;text-align:center}
+    #sdial .idock .empty{color:var(--sd-dim);padding:10px;text-align:center}
     #sdial .idock .foot{display:flex;gap:6px;margin-top:4px;padding-top:6px;border-top:1px solid #2c2c2c}
-    #sdial .idock .foot button{flex:1;height:34px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
-    #sdial .idock .foot button:active{background:#2e2e2e}
+    #sdial .idock .foot button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 4px}
+    #sdial .idock .foot button:active{background:var(--sd-hov)}
     #sdial .idock .foot .ico{flex:0 0 44px}
     #sdial .idock .addv{display:none}
     #sdial .idock.adding .addv{display:block}
     #sdial .idock.adding .list,#sdial .idock.adding .foot,#sdial .idock.adding .banner,#sdial .idock.adding .cd{display:none!important}
-    #sdial .idock .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#e6e6e6;font-size:13px}
-    #sdial .idock .ah .back{flex:0 0 32px;height:32px;border-radius:8px;border:1px solid #333;background:#242424;display:flex;align-items:center;justify-content:center;padding:0}
-    #sdial .idock .ah .back:active{background:#2e2e2e}
-    #sdial .idock .sq{box-sizing:border-box;width:100%;height:38px;border-radius:8px;border:1px solid #3a3a3a;background:#242424;color:#e6e6e6;font-size:16px;padding:0 10px;margin-bottom:6px;outline:none}
-    #sdial .idock .sq:focus{border-color:#4a8fd9}
+    #sdial .idock .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--sd-text);font-size:13px}
+    #sdial .idock .ah .back{flex:0 0 var(--sd-h);height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);display:flex;align-items:center;justify-content:center;padding:0}
+    #sdial .idock .ah .back:active{background:var(--sd-hov)}
+    #sdial .idock .sq{box-sizing:border-box;width:100%;height:var(--sd-hi);border-radius:8px;border:1px solid var(--sd-line2);background:var(--sd-bg2);color:var(--sd-text);font-size:16px;padding:0 10px;margin-bottom:6px;outline:none}
+    #sdial .idock .sq:focus{border-color:var(--sd-blue)}
     #sdial .idock .seg{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .idock .seg button{flex:1;height:30px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0}
-    #sdial .idock .seg button.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
+    #sdial .idock .seg button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0}
+    #sdial .idock .seg button.on{background:#2a3140;border-color:var(--sd-blue);color:#fff}
     #sdial .idock .res{max-height:38vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .idock .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #4a8fd9}
-    #sdial .idock .res .r:active{background:#2e2e2e}
+    #sdial .idock .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue)}
+    #sdial .idock .res .r:active{background:var(--sd-hov)}
     #sdial .idock .res .r.have{opacity:.5}
     #sdial .idock .res .t{flex:1;min-width:0}
     #sdial .idock .res .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .idock .res .ty{display:block;color:#8a8a8a;font-size:11px}
+    #sdial .idock .res .ty{display:block;color:var(--sd-dim);font-size:11px}
     #sdial .idock .res .pl{color:#7fd08a;font-size:18px;line-height:1}
-    #sdial .idock .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px}
+    #sdial .idock .res .hint{color:var(--sd-dim);padding:12px 6px;text-align:center;font-size:12px}
   `;
 
   function mount(ctx) {
@@ -1150,7 +1168,7 @@
         if (e.button > 0 || !el.classList.contains('edit')) return;
         e.preventDefault();
         drag = { row, startY: e.clientY, y: e.clientY, raf: 0 };
-        try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+        try { grip.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone: the drag simply does not start */ }
         row.classList.add('drag');
         drag.raf = requestAnimationFrame(autoScroll);
       });
@@ -1364,6 +1382,9 @@
   });
 })();
 
+} catch (e) { console.error('Speed Dial: modules/itemdock.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/itemdock.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
 // Speed Dial module: Travel Helper v0.6.4
 // One-way and round-trip flight time, the time you will be back, and warnings when your status,
 // bars or cooldowns clash with the trip. The Stocks box shows foreign shop stock with profit
@@ -1597,22 +1618,22 @@
   const locked = () => { const l = level(); return l > 0 && l < MIN_LEVEL; };
 
   const CSS = `
-    #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:#242424;line-height:1.4}
+    #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:var(--sd-bg2);line-height:1.4}
     #sdial .trv .stat b{color:#fff}
     #sdial .trv .opts,#sdial .trv .foot{display:flex;gap:6px;margin-bottom:6px}
     #sdial .trv .foot{margin:6px 0 0;padding-top:6px;border-top:1px solid #2c2c2c}
-    #sdial .trv button{flex:1;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 4px}
-    #sdial .trv button:active{background:#2e2e2e}
+    #sdial .trv button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 4px}
+    #sdial .trv button:active{background:var(--sd-hov)}
     #sdial .trv .list{max-height:30vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .cr{display:flex;align-items:center;min-height:34px;box-sizing:border-box;padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid var(--st,#5a5a5a)}
-    #sdial .trv .cr:active{background:#2e2e2e}
+    #sdial .trv .cr{display:flex;align-items:center;min-height:34px;box-sizing:border-box;padding:6px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--st,#5a5a5a)}
+    #sdial .trv .cr:active{background:var(--sd-hov)}
     #sdial .trv .cr.sel{background:#2a3140}
     #sdial .trv .cr .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .trv .cr .tm{color:#cfcfcf;font-size:12px;white-space:nowrap}
-    #sdial .trv .cr .tm i{font-style:normal;color:#8a8a8a;margin-left:6px}
+    #sdial .trv .cr .tm{color:var(--sd-text2);font-size:12px;white-space:nowrap}
+    #sdial .trv .cr .tm i{font-style:normal;color:var(--sd-dim);margin-left:6px}
     #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
-    #sdial .trv .dt .sub{color:#8a8a8a;font-size:11px;margin-bottom:4px}
-    #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:30px;font-size:12px}
+    #sdial .trv .dt .sub{color:var(--sd-dim);font-size:11px;margin-bottom:4px}
+    #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:var(--sd-h);font-size:12px}
     #sdial .trv .go:disabled{opacity:.4}
     #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:6px;font-size:12px}
     #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
@@ -1626,21 +1647,21 @@
     #sdial .trv .skh span{flex:1}
     #sdial .trv .skh button{flex:0 0 36px;padding:0}
     #sdial .trv .skbox .bar{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .trv .skbox select{flex:1;min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 6px}
+    #sdial .trv .skbox select{flex:1;min-width:0;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 6px}
     #sdial .trv .skbox .so{flex:0 0 auto;padding:0 10px}
-    #sdial .trv .skbox .so.on{background:#2a3140;border-color:#4a8fd9;color:#fff}
-    #sdial .trv .skbox .meta{color:#8a8a8a;font-size:11px;margin-bottom:5px;line-height:1.35}
+    #sdial .trv .skbox .so.on{background:#2a3140;border-color:var(--sd-blue);color:#fff}
+    #sdial .trv .skbox .meta{color:var(--sd-dim);font-size:11px;margin-bottom:5px;line-height:1.35}
     #sdial .trv .skl{max-height:52vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #555}
+    #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid #555}
     #sdial .trv .sk.up{border-left-color:#4a8f4e}
-    #sdial .trv .sk.dn{border-left-color:#e5534b}
+    #sdial .trv .sk.dn{border-left-color:var(--sd-red)}
     #sdial .trv .sk.out{opacity:.5}
     #sdial .trv .sk .l1{display:flex;align-items:center;gap:8px}
     #sdial .trv .sk .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .trv .sk .pf{font-weight:600;white-space:nowrap;color:#8a8a8a}
+    #sdial .trv .sk .pf{font-weight:600;white-space:nowrap;color:var(--sd-dim)}
     #sdial .trv .sk .pf.up{color:#7fd08a}
-    #sdial .trv .sk .pf.dn{color:#f1807a}
-    #sdial .trv .sk .l2{color:#8a8a8a;font-size:11px;margin-top:1px}
+    #sdial .trv .sk .pf.dn{color:var(--sd-redt)}
+    #sdial .trv .sk .l2{color:var(--sd-dim);font-size:11px;margin-top:1px}
   `;
 
   function build(ctx) {
@@ -1800,6 +1821,9 @@
   });
 })();
 
+} catch (e) { console.error('Speed Dial: modules/travelhelper.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/travelhelper.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
 // Speed Dial module: Targets v0.5.1
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
 // anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
@@ -1876,7 +1900,7 @@
         const hit = all.filter(o => o.name.toLowerCase().indexOf(low) > -1).slice(0, 15);
         if (hit.length) { if (S.nt !== i) { S.nt = i; save(); } return hit; }
         if (all.length) junk = true; else empty = true;   // unrelated players = filter ignored; nobody = filter works
-      } catch (e) { err = e; }
+      } catch (e) { err = e; SD.log('targets', 'name search attempt ' + i + ' failed: ' + e.message, 'w'); }
     }
     if (!ok) throw err || new Error('search failed');
     if (empty) return [];
@@ -1893,64 +1917,64 @@
   }
 
   const CSS = `
-    #sdial .tg button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 10px}
-    #sdial .tg button:active{background:#2e2e2e}
+    #sdial .tg button{height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 10px}
+    #sdial .tg button:active{background:var(--sd-hov)}
     #sdial .tg button:disabled{opacity:.4}
-    #sdial .tg input{flex:1;min-width:0;height:36px;border-radius:8px;border:1px solid #3a3a3a;background:#242424;color:#e6e6e6;font-size:16px;padding:0 10px;outline:none}
-    #sdial .tg input:focus{border-color:#4a8fd9}
+    #sdial .tg input{flex:1;min-width:0;height:var(--sd-hi);border-radius:8px;border:1px solid var(--sd-line2);background:var(--sd-bg2);color:var(--sd-text);font-size:16px;padding:0 10px;outline:none}
+    #sdial .tg input:focus{border-color:var(--sd-blue)}
     #sdial .tg .addv{display:none}
     #sdial .tg.adding .addv{display:block}
     #sdial .tg.adding .main{display:none}
-    #sdial .tg .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#e6e6e6;font-size:13px}
+    #sdial .tg .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--sd-text);font-size:13px}
     #sdial .tg .ah .back{flex:0 0 32px;width:32px;padding:0;display:flex;align-items:center;justify-content:center}
     #sdial .tg .ad{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .tg .ad .go{flex:0 0 auto;height:36px;padding:0 14px}
+    #sdial .tg .ad .go{flex:0 0 auto;height:var(--sd-hi);padding:0 14px}
     #sdial .tg .res{max-height:44vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
-    #sdial .tg .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:#242424;border-left:3px solid #4a8fd9}
-    #sdial .tg .res .r:active{background:#2e2e2e}
+    #sdial .tg .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue)}
+    #sdial .tg .res .r:active{background:var(--sd-hov)}
     #sdial .tg .res .r.have{opacity:.5}
-    #sdial .tg .res .lv{flex:0 0 auto;color:#9a9a9a;font-size:11px}
+    #sdial .tg .res .lv{flex:0 0 auto;color:var(--sd-dim);font-size:11px}
     #sdial .tg .res .pl{flex:0 0 18px;text-align:center;color:#7fd08a;font-size:18px;line-height:1}
-    #sdial .tg .res .hint{color:#8a8a8a;padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
+    #sdial .tg .res .hint{color:var(--sd-dim);padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
     #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
-    #sdial .tg .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
-    #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:#242424;border-left:3px solid var(--c,#5a5a5a)}
-    #sdial .tg .tr:active{background:#2e2e2e}
+    #sdial .tg .em{padding:14px 6px;text-align:center;color:var(--sd-dim);font-size:12px;line-height:1.4}
+    #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:var(--sd-bg2);border-left:3px solid var(--c,#5a5a5a)}
+    #sdial .tg .tr:active{background:var(--sd-hov)}
     #sdial .tg .r1{display:flex;align-items:center;gap:8px}
     #sdial .tg .who{flex:1;min-width:0}
-    #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e6e6e6;text-decoration:none;font-size:13px}
+    #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sd-text);text-decoration:none;font-size:13px}
     #sdial .tg .id{display:block;color:#6b6b6b;font-size:11px;margin-top:1px}
-    #sdial .tg .id em{font-style:normal;color:#9a9a9a;margin-left:8px}
+    #sdial .tg .id em{font-style:normal;color:var(--sd-dim);margin-left:8px}
     #sdial .tg .sx{flex:0 0 auto;text-align:right;max-width:46%}
     #sdial .tg .sl{display:block;font-weight:600;font-size:12px;color:var(--c)}
-    #sdial .tg .cd{display:block;color:#cfcfcf;font-size:11px;margin-top:1px;min-height:13px}
-    #sdial .tg .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid #2f2f2f;color:#9a9a9a;font-size:11px;line-height:1.35;word-break:break-word}
+    #sdial .tg .cd{display:block;color:var(--sd-text2);font-size:11px;margin-top:1px;min-height:13px}
+    #sdial .tg .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid #2f2f2f;color:var(--sd-dim);font-size:11px;line-height:1.35;word-break:break-word}
     #sdial .tg .tr.open .dt{display:block}
-    #sdial .tg .rm{display:none;flex:0 0 30px;width:30px;height:30px;padding:0;color:#f1807a}
+    #sdial .tg .rm{display:none;flex:0 0 var(--sd-h);width:var(--sd-h);height:var(--sd-h);padding:0;color:var(--sd-redt)}
     #sdial .tg.ed .rm{display:block}
     #sdial .tg .pg{display:none;align-items:center;gap:6px;margin:6px 0 0}
     #sdial .tg.pgd .pg{display:flex}
     #sdial .tg .pg button{flex:0 0 44px;padding:0}
     #sdial .tg .pg button svg{width:18px;height:18px}
-    #sdial .tg .pn{flex:1;text-align:center;color:#cfcfcf;font-size:13px}
+    #sdial .tg .pn{flex:1;text-align:center;color:var(--sd-text2);font-size:13px}
     #sdial .tg .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
     #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
-    #sdial .tg.ed .foot .edit{background:#383838;color:#e6e6e6;border-color:#5a5a5a}
+    #sdial .tg.ed .foot .edit{background:var(--sd-line);color:var(--sd-text);border-color:#5a5a5a}
     #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
-    #sdial .tg .foot .fb.act{background:#2a3140;border-color:#4a8fd9}
+    #sdial .tg .foot .fb.act{background:#2a3140;border-color:var(--sd-blue)}
     #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
     #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
     #sdial .tgpop{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
-    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:var(--sd-bg);color:var(--sd-text);box-shadow:0 8px 24px rgba(0,0,0,.6)}
     #sdial .tgpop .th{padding:2px 4px 8px;font-size:14px;font-weight:700}
-    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:44px;margin-top:4px;padding:0 12px;border-radius:10px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:14px;text-align:left}
-    #sdial .tgpop .op:active{background:#2e2e2e}
+    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:44px;margin-top:4px;padding:0 12px;border-radius:10px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text);font-size:14px;text-align:left}
+    #sdial .tgpop .op:active{background:var(--sd-hov)}
     #sdial .tgpop .op i{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid #5a5a5a}
-    #sdial .tgpop .op.on{border-color:#4a8fd9;background:#2a3140}
-    #sdial .tgpop .op.on i{border-color:#4a8fd9;background:radial-gradient(circle,#4a8fd9 0 40%,transparent 45%)}
+    #sdial .tgpop .op.on{border-color:var(--sd-blue);background:#2a3140}
+    #sdial .tgpop .op.on i{border-color:var(--sd-blue);background:radial-gradient(circle,var(--sd-blue) 0 40%,transparent 45%)}
     #sdial .tgpop .op span{flex:1}
-    #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid #333;background:none;color:#cfcfcf;font-size:13px}
-    #sdial .tgpop .cx:active{background:#2e2e2e}
+    #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid var(--sd-line);background:none;color:var(--sd-text2);font-size:13px}
+    #sdial .tgpop .cx:active{background:var(--sd-hov)}
   `;
 
   const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
@@ -2084,6 +2108,7 @@
         }
         SD.toast(r.name + ' added');
       } catch (e) {
+        SD.log('targets', 'add failed: ' + e.message, 'e');
         SD.toast('Could not add: ' + e.message);
       }
       busy = false;
@@ -2095,7 +2120,7 @@
       renderRes('Searching...');
       let list = null;
       try { list = await findName(name); }
-      catch (e) { found = []; if (ctx.alive) renderRes('Name search is not working (' + e.message + '). Use the player ID instead.'); }
+      catch (e) { found = []; SD.log('targets', 'name search failed: ' + e.message, 'e'); if (ctx.alive) renderRes('Name search is not working (' + e.message + '). Use the player ID instead.'); }
       busy = false;
       if (!ctx.alive) return;
       goB.disabled = false;
@@ -2145,7 +2170,7 @@
               t.name = r.name;
               if (r.lv) t.lv = r.lv;
               t.st = r.st;
-            } catch (e) { failed++; last = e.message; }   // keep the old status when one request fails
+            } catch (e) { failed++; last = e.message; SD.log('targets', 'refresh of ' + t.id + ' failed: ' + e.message, 'w'); }   // keep the old status when one request fails
           }));
         }
         save();
@@ -2218,6 +2243,9 @@
   });
 })();
 
+} catch (e) { console.error('Speed Dial: modules/targets.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/targets.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
 // Speed Dial module: Calculator v0.2.0
 // A plain calculator: + - x / with the usual precedence (2+3x4 = 14), %, +/-, backspace, AC.
 // Display like Google's calculator: what you type is the big line, the live result sits under it (smaller, purple).
@@ -2231,22 +2259,22 @@
 
   const CSS = `
     #sdial .calc{user-select:none;-webkit-user-select:none}
-    #sdial .calc .dp{height:68px;padding:4px 8px 6px;margin-bottom:6px;border-radius:8px;background:#242424;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+    #sdial .calc .dp{height:68px;padding:4px 8px 6px;margin-bottom:6px;border-radius:8px;background:var(--sd-bg2);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
     #sdial .calc .ex{height:32px;line-height:32px;font-size:26px;color:#f0f0f0;text-align:right;white-space:nowrap;overflow:hidden}
     #sdial .calc .ex.sm{font-size:20px}
     #sdial .calc .ex.xs{font-size:15px}
-    #sdial .calc .ex.dn{height:18px;line-height:18px;font-size:12px;color:#8a8a8a}
+    #sdial .calc .ex.dn{height:18px;line-height:18px;font-size:12px;color:var(--sd-dim)}
     #sdial .calc .rs{height:20px;line-height:20px;font-size:16px;color:#9b93d4;text-align:right;white-space:nowrap;overflow:hidden}
     #sdial .calc .rs.dn{height:32px;line-height:32px;font-size:26px;color:#f0f0f0}
     #sdial .calc .rs.sm{font-size:20px}
     #sdial .calc .rs.xs{font-size:15px}
     #sdial .calc .gr{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
-    #sdial .calc .gr button{height:38px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:16px;padding:0;touch-action:manipulation}
-    #sdial .calc .gr button:active{background:#383838}
-    #sdial .calc .gr .fn{background:#2b2b2b;color:#cfcfcf;font-size:14px}
-    #sdial .calc .gr .op{background:#2f2f2f;border-color:#444;color:#d4d4d4;font-size:18px}
-    #sdial .calc .gr .op.cur{background:#383838;border-color:#8a8a8a;color:#fff}
-    #sdial .calc .gr .eq{background:#25360f;border-color:#85b200;color:#c6e66a}
+    #sdial .calc .gr button{height:var(--sd-hl);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text);font-size:16px;padding:0;touch-action:manipulation}
+    #sdial .calc .gr button:active{background:var(--sd-line)}
+    #sdial .calc .gr .fn{background:#2b2b2b;color:var(--sd-text2);font-size:14px}
+    #sdial .calc .gr .op{background:#2f2f2f;border-color:#444;color:var(--sd-text2);font-size:18px}
+    #sdial .calc .gr .op.cur{background:var(--sd-line);border-color:var(--sd-dim);color:#fff}
+    #sdial .calc .gr .eq{background:#25360f;border-color:var(--sd-green);color:#c6e66a}
     #sdial .calc .gr .eq:active{background:#33491a}
   `;
 
@@ -2326,7 +2354,7 @@
         const t = exp.slice();                       // live result under the line, once there is a sum to work out
         if (cur !== '') t.push(cur.replace(/\.$/, ''));
         if (t.length && t.length % 2 === 0) t.pop();
-        if (t.length >= 3) { try { sub = group(String(calc(toNums(t)))); } catch (e) { sub = ''; } }
+        if (t.length >= 3) { try { sub = group(String(calc(toNums(t)))); } catch (e) { sub = ''; /* half-typed expression: no preview yet */ } }
       }
       if (done) {                                    // after "=": sum small on top, result big below
         put(ex, 'ex dn', sub, '');
@@ -2374,7 +2402,7 @@
         line = t.map(x => (SYM[x] || group(x))).join(' ') + ' =';
         res = String(r);
         exp = []; cur = '';
-      } catch (e) { err = true; exp = []; cur = ''; res = null; }
+      } catch (e) { err = true; exp = []; cur = ''; res = null; /* e.g. divide by zero: shown as an error on the display, not a bug */ }
     }
     function percent() {
       if (err) return;
@@ -2384,7 +2412,7 @@
       else return;
       const o = exp[exp.length - 1];
       if ((o === '+' || o === '-') && exp.length >= 2) {
-        try { n = Number(calc(toNums(exp.slice(0, -1)))) * n / 100; } catch (e) { n = n / 100; }   // 200 + 10% = 200 + 20
+        try { n = Number(calc(toNums(exp.slice(0, -1)))) * n / 100; } catch (e) { n = n / 100; /* nothing to take a percentage of: plain n/100 */ }   // 200 + 10% = 200 + 20
       } else n = n / 100;
       cur = String(clean(n));
     }
@@ -2431,6 +2459,9 @@
   });
 })();
 
+} catch (e) { console.error('Speed Dial: modules/calculator.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/calculator.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
 // Speed Dial module: Show More v0.4.0
 // The pinned "..." circle (sits just before Settings). It opens a launcher grid with every module that is NOT one of the
 // (max 3) circles on screen: calculator, your own shortcuts, new modules. Tap a tile to open it.
@@ -2445,25 +2476,25 @@
 
   const CSS = `
     #sdial .mr .gd{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 2px}
-    #sdial .mr .tl{min-width:0;padding:0;border:0;background:none;color:#cfcfcf;display:flex;flex-direction:column;align-items:center;gap:4px;touch-action:manipulation}
-    #sdial .mr .tl .bx{position:relative;width:44px;height:44px;border-radius:12px;border:1px solid #333;background:#242424;display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1}
-    #sdial .mr .tl:active .bx{background:#2e2e2e}
+    #sdial .mr .tl{min-width:0;padding:0;border:0;background:none;color:var(--sd-text2);display:flex;flex-direction:column;align-items:center;gap:4px;touch-action:manipulation}
+    #sdial .mr .tl .bx{position:relative;width:44px;height:44px;border-radius:12px;border:1px solid var(--sd-line);background:var(--sd-bg2);display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1}
+    #sdial .mr .tl:active .bx{background:var(--sd-hov)}
     #sdial .mr .tl.act .bx{border-color:var(--st);background:#2b2b2b}
     #sdial .mr .tl .bx svg{width:22px;height:22px}
-    #sdial .mr .tl .go{position:absolute;right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:#1c1c1c;border:1px solid #3a3a3a;display:flex;align-items:center;justify-content:center}
-    #sdial .mr .tl .go svg{width:10px;height:10px;stroke:#6fa3dc;stroke-width:2.6}
+    #sdial .mr .tl .go{position:absolute;right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--sd-bg);border:1px solid var(--sd-line2);display:flex;align-items:center;justify-content:center}
+    #sdial .mr .tl .go svg{width:10px;height:10px;stroke:var(--sd-bluet);stroke-width:2.6}
     #sdial .mr .tl .nm{width:100%;font-size:10.5px;line-height:1.15;text-align:center;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     #sdial .mr.ed .tl{touch-action:none;user-select:none;-webkit-user-select:none}
     #sdial .mr.ed .tl .bx{border-style:dashed;border-color:#5a5a5a}
     #sdial .mr .tl.drag{position:relative;z-index:5}
-    #sdial .mr .tl.drag .bx{background:#383838;border-color:#8a8a8a;box-shadow:0 4px 12px rgba(0,0,0,.55)}
-    #sdial .mr .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
-    #sdial .mr .hn{display:none;margin-top:8px;text-align:center;font-size:11px;color:#8a8a8a}
+    #sdial .mr .tl.drag .bx{background:var(--sd-line);border-color:var(--sd-dim);box-shadow:0 4px 12px rgba(0,0,0,.55)}
+    #sdial .mr .em{padding:14px 6px;text-align:center;color:var(--sd-dim);font-size:12px;line-height:1.4}
+    #sdial .mr .hn{display:none;margin-top:8px;text-align:center;font-size:11px;color:var(--sd-dim)}
     #sdial .mr.ed .hn{display:block}
     #sdial .mr .rw{display:flex;gap:6px;margin-top:10px}
-    #sdial .mr .rw button{flex:1;height:30px;border-radius:8px;border:1px solid #2c2c2c;background:none;color:#8a8a8a;font-size:11px;padding:0}
-    #sdial .mr .rw button:active{background:#2e2e2e;color:#cfcfcf}
-    #sdial .mr .rw .ed-b.on{border-color:#85b200;background:#25360f;color:#c6e66a}
+    #sdial .mr .rw button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid #2c2c2c;background:none;color:var(--sd-dim);font-size:11px;padding:0}
+    #sdial .mr .rw button:active{background:var(--sd-hov);color:var(--sd-text2)}
+    #sdial .mr .rw .ed-b.on{border-color:var(--sd-green);background:#25360f;color:#c6e66a}
   `;
 
   function mount(ctx) {
@@ -2515,7 +2546,7 @@
         if (!edit || e.button > 0) return;
         const r = b.getBoundingClientRect();
         drag = { b, gx: e.clientX - r.left, gy: e.clientY - r.top };
-        try { b.setPointerCapture(e.pointerId); } catch (err) {}
+        try { b.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone: the drag simply does not start */ }
         b.classList.add('drag');
       });
       b.addEventListener('pointermove', e => {
@@ -2572,6 +2603,9 @@
   });
 })();
 
+} catch (e) { console.error('Speed Dial: modules/showmore.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/showmore.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
 // Speed Dial module: Settings v0.7.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
@@ -2618,7 +2652,7 @@
         const it = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s)[Symbol.iterator]().next();
         return it.done ? '' : it.value.segment;
       }
-    } catch (e) {}
+    } catch (e) { /* Segmenter unsupported: fall through to Array.from below */ }
     return Array.from(s)[0] || '';
   };
   const emojiOf = raw => {
@@ -2640,89 +2674,89 @@
 
   const CSS = `
     #sdial .cz .nav{display:flex;align-items:center;gap:8px;height:34px;margin-bottom:6px}
-    #sdial .cz .nav .hb{flex:0 0 auto;width:38px;height:32px;padding:0;display:flex;align-items:center;justify-content:center}
-    #sdial .cz .nav .hb svg{width:20px;height:20px;fill:none;stroke:#cfcfcf;stroke-width:2;stroke-linecap:round}
-    #sdial .cz .nav .hb.on{background:#383838;border-color:#5a5a5a}
-    #sdial .cz .nav .cur{flex:1;min-width:0;font-size:13px;font-weight:700;color:#e6e6e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .cz .nav .hb{flex:0 0 auto;width:38px;height:var(--sd-h);padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .cz .nav .hb svg{width:20px;height:20px;fill:none;stroke:var(--sd-text2);stroke-width:2;stroke-linecap:round}
+    #sdial .cz .nav .hb.on{background:var(--sd-line);border-color:#5a5a5a}
+    #sdial .cz .nav .cur{flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--sd-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .cz .mn{display:none;max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
     #sdial .cz.nav-open .mn{display:block}
     #sdial .cz.nav-open .pg{display:none !important}
-    #sdial .cz .mn .mi{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;margin-bottom:3px;border-radius:8px;border:1px solid transparent;background:#242424;color:#cfcfcf;font-size:13px;text-align:left}
-    #sdial .cz .mn .mi.on{background:#383838;color:#fff;border-color:#5a5a5a}
-    #sdial .cz .mn .mi svg{flex:0 0 auto;width:18px;height:18px;fill:none;stroke:#9a9a9a;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-    #sdial .cz .mn .mi.on svg{stroke:#e6e6e6}
+    #sdial .cz .mn .mi{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;margin-bottom:3px;border-radius:8px;border:1px solid transparent;background:var(--sd-bg2);color:var(--sd-text2);font-size:13px;text-align:left}
+    #sdial .cz .mn .mi.on{background:var(--sd-line);color:#fff;border-color:#5a5a5a}
+    #sdial .cz .mn .mi svg{flex:0 0 auto;width:18px;height:18px;fill:none;stroke:var(--sd-dim);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    #sdial .cz .mn .mi.on svg{stroke:var(--sd-text)}
     #sdial .cz .pg{display:none}
     #sdial .cz .pg.on{display:block}
     #sdial .cz .qk{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
-    #sdial .cz .qk button{flex:0 0 auto;width:30px;height:30px;font-size:16px;padding:0}
+    #sdial .cz .qk button{flex:0 0 auto;width:var(--sd-h);height:var(--sd-h);font-size:16px;padding:0}
     #sdial .cz .rw{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .cz input{min-width:0;height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:13px;padding:0 8px}
+    #sdial .cz input{min-width:0;height:var(--sd-hi);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text);font-size:13px;padding:0 8px}
     #sdial .cz .ie{flex:0 0 64px;text-align:center;font-size:16px}
     #sdial .cz .in,#sdial .cz .iu{flex:1}
-    #sdial .cz button{height:32px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px;padding:0 8px}
-    #sdial .cz button:active{background:#2e2e2e}
+    #sdial .cz button{height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 8px}
+    #sdial .cz button:active{background:var(--sd-hov)}
     #sdial .cz .add,#sdial .cz .edit{width:100%}
     #sdial .cz .lst{touch-action:pan-y;margin-bottom:6px}
     #sdial .cz .lst.lm{max-height:30vh;overflow-y:auto}
-    #sdial .cz .gh{display:flex;align-items:center;justify-content:space-between;height:22px;padding:0 4px;margin-bottom:3px;font-size:11px;color:#8a8a8a;letter-spacing:.3px;text-transform:uppercase}
-    #sdial .cz .gh b{font-weight:700;color:#cfcfcf}
-    #sdial .cz .gh b.full{color:#85b200}
+    #sdial .cz .gh{display:flex;align-items:center;justify-content:space-between;height:22px;padding:0 4px;margin-bottom:3px;font-size:11px;color:var(--sd-dim);letter-spacing:.3px;text-transform:uppercase}
+    #sdial .cz .gh b{font-weight:700;color:var(--sd-text2)}
+    #sdial .cz .gh b.full{color:var(--sd-green)}
     #sdial .cz .ge{padding:8px 4px 10px;font-size:12px;color:#6f6f6f;text-align:center}
-    #sdial .cz .it .pin{color:#8a8a8a}
-    #sdial .cz .it .pin svg{stroke:#8a8a8a}
-    #sdial .cz .it .pin.on{border-color:#85b200;background:#25360f}
-    #sdial .cz .it .pin.on svg{stroke:#85b200;fill:rgba(133,178,0,.35)}
-    #sdial .cz .it{display:flex;align-items:center;gap:8px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:#242424;margin-bottom:3px;user-select:none;-webkit-user-select:none}
-    #sdial .cz .it.drag{position:relative;z-index:5;background:#383838;box-shadow:0 4px 12px rgba(0,0,0,.55)}
+    #sdial .cz .it .pin{color:var(--sd-dim)}
+    #sdial .cz .it .pin svg{stroke:var(--sd-dim)}
+    #sdial .cz .it .pin.on{border-color:var(--sd-green);background:#25360f}
+    #sdial .cz .it .pin.on svg{stroke:var(--sd-green);fill:rgba(133,178,0,.35)}
+    #sdial .cz .it{display:flex;align-items:center;gap:8px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:var(--sd-bg2);margin-bottom:3px;user-select:none;-webkit-user-select:none}
+    #sdial .cz .it.drag{position:relative;z-index:5;background:var(--sd-line);box-shadow:0 4px 12px rgba(0,0,0,.55)}
     #sdial .cz .it .ix{width:20px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
     #sdial .cz .it .ix svg{width:18px;height:18px}
     #sdial .cz .it .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .cz .it.off .ix,#sdial .cz .it.off .nm{opacity:.4}
     #sdial .cz .it .grip{display:none;align-items:center;justify-content:center;width:30px;height:34px;margin:0 0 0 -10px;touch-action:none;cursor:grab;flex:0 0 auto}
-    #sdial .cz .it .grip svg{width:18px;height:18px;stroke:#8a8a8a}
+    #sdial .cz .it .grip svg{width:18px;height:18px;stroke:var(--sd-dim)}
     #sdial .cz.edit .it .grip{display:flex}
-    #sdial .cz .it.drag .grip svg{stroke:#e6e6e6}
+    #sdial .cz .it.drag .grip svg{stroke:var(--sd-text)}
     #sdial .cz .it .btn{height:26px;width:30px;padding:0;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
     #sdial .cz .it .btn svg{width:16px;height:16px}
-    #sdial .cz .it .del{display:none;color:#f1807a}
+    #sdial .cz .it .del{display:none;color:var(--sd-redt)}
     #sdial .cz.edit .it.cu .del{display:flex}
     #sdial .cz .fl{max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
-    #sdial .cz .fe{padding:10px 4px;color:#8a8a8a;font-size:12px;text-align:center}
-    #sdial .cz .fw{border-radius:8px;background:#242424;margin-bottom:3px}
+    #sdial .cz .fe{padding:10px 4px;color:var(--sd-dim);font-size:12px;text-align:center}
+    #sdial .cz .fw{border-radius:8px;background:var(--sd-bg2);margin-bottom:3px}
     #sdial .cz .fr{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 10px}
     #sdial .cz .fr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .cz .fr .inf{flex:0 0 auto;width:26px;height:26px;padding:0;border-radius:50%;border:1px solid #4a4a4a;background:none;color:#9a9a9a;font-size:13px;font-weight:700;line-height:1}
-    #sdial .cz .fr .inf:active{background:#383838;border-color:#8a8a8a;color:#e6e6e6}
+    #sdial .cz .fr .inf{flex:0 0 auto;width:26px;height:26px;padding:0;border-radius:50%;border:1px solid #4a4a4a;background:none;color:var(--sd-dim);font-size:13px;font-weight:700;line-height:1}
+    #sdial .cz .fr .inf:active{background:var(--sd-line);border-color:var(--sd-dim);color:var(--sd-text)}
     #sdial .cz .fr .sw{flex:0 0 auto;position:relative;width:40px;height:24px;padding:0;border-radius:12px;border:1px solid #444;background:#1a1a1a;transition:background .12s,border-color .12s}
     #sdial .cz .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
-    #sdial .cz .fr .sw.on{background:#25360f;border-color:#85b200}
-    #sdial .cz .fr .sw.on i{transform:translateX(16px);background:#85b200}
+    #sdial .cz .fr .sw.on{background:#25360f;border-color:var(--sd-green)}
+    #sdial .cz .fr .sw.on i{transform:translateX(16px);background:var(--sd-green)}
     #sdial .cz .tm .fr{padding:0 4px 0 6px;min-height:34px;margin-bottom:4px}
     #sdial .cz .tm .fr .sw{flex:0 0 auto;position:relative;width:40px;height:24px;padding:0;border-radius:12px;border:1px solid #444;background:#1a1a1a;transition:background .12s,border-color .12s}
     #sdial .cz .tm .fr .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#777;transition:transform .12s,background .12s}
-    #sdial .cz .tm .fr .sw.on{background:#25360f;border-color:#85b200}
-    #sdial .cz .tm .fr .sw.on i{transform:translateX(16px);background:#85b200}
+    #sdial .cz .tm .fr .sw.on{background:#25360f;border-color:var(--sd-green)}
+    #sdial .cz .tm .fr .sw.on i{transform:translateX(16px);background:var(--sd-green)}
     #sdial .cz .tm .bar{display:flex;gap:4px;margin-bottom:4px}
     #sdial .cz .tm .bar button{flex:1 1 0;min-width:0;height:28px;padding:0 2px;font-size:11px}
-    #sdial .cz .tm .bar button.on{background:#383838;border-color:#5a5a5a;color:#fff}
+    #sdial .cz .tm .bar button.on{background:var(--sd-line);border-color:#5a5a5a;color:#fff}
     #sdial .cz .tm .bar button:disabled{opacity:.35}
     #sdial .cz .tm .out{height:34vh;min-height:120px;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;overscroll-behavior:contain;padding:4px 5px;border-radius:8px;background:#0f0f0f;border:1px solid #2c2c2c;font:10px/1.35 ui-monospace,Menlo,Consolas,monospace;margin-bottom:4px;-webkit-user-select:text;user-select:text}
-    #sdial .cz .tm .ln{word-break:break-all;color:#cfcfcf;padding:1px 0}
+    #sdial .cz .tm .ln{word-break:break-all;color:var(--sd-text2);padding:1px 0}
     #sdial .cz .tm .ln .tt{color:#6f6f6f}
     #sdial .cz .tm .ln .tg{color:#7f93b8}
-    #sdial .cz .tm .ln.w{color:#d9a441}
-    #sdial .cz .tm .ln.e{color:#f1807a}
+    #sdial .cz .tm .ln.w{color:var(--sd-yel)}
+    #sdial .cz .tm .ln.e{color:var(--sd-redt)}
     #sdial .cz .tm .ln.w .tg,#sdial .cz .tm .ln.e .tg{color:inherit}
     #sdial .cz .tm .none{padding:10px 4px;text-align:center;color:#6f6f6f}
-    #sdial .cz .tm .ct{margin-bottom:4px;font-size:10px;color:#8a8a8a;text-align:right}
+    #sdial .cz .tm .ct{margin-bottom:4px;font-size:10px;color:var(--sd-dim);text-align:right}
     #sdial .sdtip{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.5)}
-    #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:#1c1c1c;color:#e6e6e6;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:var(--sd-bg);color:var(--sd-text);box-shadow:0 8px 24px rgba(0,0,0,.6)}
     #sdial .sdtip .th{font-size:13px;font-weight:700}
     #sdial .sdtip .tx{margin-top:4px;font-size:12px;line-height:1.4;color:#bdbdbd}
-    #sdial .sdtip .tp{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:#6fa3dc}
-    #sdial .sdtip .tp svg{flex:0 0 auto;width:16px;height:16px;stroke:#6fa3dc}
-    #sdial .sdtip .tk{width:100%;height:32px;margin-top:10px;padding:0 8px;border-radius:8px;border:1px solid #333;background:#242424;color:#cfcfcf;font-size:12px}
-    #sdial .sdtip .tk:active{background:#2e2e2e}
+    #sdial .sdtip .tp{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--sd-bluet)}
+    #sdial .sdtip .tp svg{flex:0 0 auto;width:16px;height:16px;stroke:var(--sd-bluet)}
+    #sdial .sdtip .tk{width:100%;height:var(--sd-h);margin-top:10px;padding:0 8px;border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px}
+    #sdial .sdtip .tk:active{background:var(--sd-hov)}
   `;
 
   function mount(ctx) {
@@ -2891,7 +2925,7 @@
       };
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(() => true, () => old());
-      } catch (e) {}
+      } catch (e) { /* clipboard API blocked: fall through to the execCommand copy below */ }
       return Promise.resolve(old());
     }
 
@@ -3041,7 +3075,7 @@
         if (e.button > 0 || !el.classList.contains('edit')) return;
         e.preventDefault();
         drag = { row, box, startY: e.clientY, y: e.clientY, raf: 0 };
-        try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+        try { grip.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone: the drag simply does not start */ }
         row.classList.add('drag');
         drag.raf = requestAnimationFrame(autoScroll);
       });
@@ -3112,6 +3146,9 @@
   });
 })();
 
+} catch (e) { console.error('Speed Dial: modules/settings.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/settings.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
 // Speed Dial feature: Gym Guide v0.7.2
 // Highlights the gym tile to train next (Baldr / Hank ratios) and shows a progress panel under the gym icons.
 // Reads only what the page shows. No API. Switch it on or off in Settings > Features.
@@ -3537,6 +3574,8 @@
     start
   });
 })();
+
+} catch (e) { console.error('Speed Dial: features/gymguide.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/gymguide.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
     window.SpeedDial.start({ apiKey: '###PDA-APIKEY###' }); // filled in by Torn PDA
   } catch (e) { console.error('Speed Dial:', e); }

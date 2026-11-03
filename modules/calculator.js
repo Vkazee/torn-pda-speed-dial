@@ -11,22 +11,22 @@
 
   const CSS = `
     #sdial .calc{user-select:none;-webkit-user-select:none}
-    #sdial .calc .dp{height:68px;padding:4px 8px 6px;margin-bottom:6px;border-radius:8px;background:#242424;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+    #sdial .calc .dp{height:68px;padding:4px 8px 6px;margin-bottom:6px;border-radius:8px;background:var(--sd-bg2);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
     #sdial .calc .ex{height:32px;line-height:32px;font-size:26px;color:#f0f0f0;text-align:right;white-space:nowrap;overflow:hidden}
     #sdial .calc .ex.sm{font-size:20px}
     #sdial .calc .ex.xs{font-size:15px}
-    #sdial .calc .ex.dn{height:18px;line-height:18px;font-size:12px;color:#8a8a8a}
+    #sdial .calc .ex.dn{height:18px;line-height:18px;font-size:12px;color:var(--sd-dim)}
     #sdial .calc .rs{height:20px;line-height:20px;font-size:16px;color:#9b93d4;text-align:right;white-space:nowrap;overflow:hidden}
     #sdial .calc .rs.dn{height:32px;line-height:32px;font-size:26px;color:#f0f0f0}
     #sdial .calc .rs.sm{font-size:20px}
     #sdial .calc .rs.xs{font-size:15px}
     #sdial .calc .gr{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
-    #sdial .calc .gr button{height:38px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:16px;padding:0;touch-action:manipulation}
-    #sdial .calc .gr button:active{background:#383838}
-    #sdial .calc .gr .fn{background:#2b2b2b;color:#cfcfcf;font-size:14px}
-    #sdial .calc .gr .op{background:#2f2f2f;border-color:#444;color:#d4d4d4;font-size:18px}
-    #sdial .calc .gr .op.cur{background:#383838;border-color:#8a8a8a;color:#fff}
-    #sdial .calc .gr .eq{background:#25360f;border-color:#85b200;color:#c6e66a}
+    #sdial .calc .gr button{height:var(--sd-hl);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text);font-size:16px;padding:0;touch-action:manipulation}
+    #sdial .calc .gr button:active{background:var(--sd-line)}
+    #sdial .calc .gr .fn{background:#2b2b2b;color:var(--sd-text2);font-size:14px}
+    #sdial .calc .gr .op{background:#2f2f2f;border-color:#444;color:var(--sd-text2);font-size:18px}
+    #sdial .calc .gr .op.cur{background:var(--sd-line);border-color:var(--sd-dim);color:#fff}
+    #sdial .calc .gr .eq{background:#25360f;border-color:var(--sd-green);color:#c6e66a}
     #sdial .calc .gr .eq:active{background:#33491a}
   `;
 
@@ -106,7 +106,7 @@
         const t = exp.slice();                       // live result under the line, once there is a sum to work out
         if (cur !== '') t.push(cur.replace(/\.$/, ''));
         if (t.length && t.length % 2 === 0) t.pop();
-        if (t.length >= 3) { try { sub = group(String(calc(toNums(t)))); } catch (e) { sub = ''; } }
+        if (t.length >= 3) { try { sub = group(String(calc(toNums(t)))); } catch (e) { sub = ''; /* half-typed expression: no preview yet */ } }
       }
       if (done) {                                    // after "=": sum small on top, result big below
         put(ex, 'ex dn', sub, '');
@@ -154,7 +154,7 @@
         line = t.map(x => (SYM[x] || group(x))).join(' ') + ' =';
         res = String(r);
         exp = []; cur = '';
-      } catch (e) { err = true; exp = []; cur = ''; res = null; }
+      } catch (e) { err = true; exp = []; cur = ''; res = null; /* e.g. divide by zero: shown as an error on the display, not a bug */ }
     }
     function percent() {
       if (err) return;
@@ -164,7 +164,7 @@
       else return;
       const o = exp[exp.length - 1];
       if ((o === '+' || o === '-') && exp.length >= 2) {
-        try { n = Number(calc(toNums(exp.slice(0, -1)))) * n / 100; } catch (e) { n = n / 100; }   // 200 + 10% = 200 + 20
+        try { n = Number(calc(toNums(exp.slice(0, -1)))) * n / 100; } catch (e) { n = n / 100; /* nothing to take a percentage of: plain n/100 */ }   // 200 + 10% = 200 + 20
       } else n = n / 100;
       cur = String(clean(n));
     }
