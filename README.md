@@ -31,7 +31,7 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 | `modules/travelhelper.js` | Travel Helper module |
 | `modules/targets.js` | Targets module |
 | `modules/calculator.js` | Calculator module (lives in Show More by default) |
-| `modules/more.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included |
+| `modules/showmore.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included |
 | `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, and add your own emoji shortcuts |
 | `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
 | `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
