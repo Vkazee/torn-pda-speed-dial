@@ -16,7 +16,7 @@
     #sdial .mr .tl:active .bx{background:#2e2e2e}
     #sdial .mr .tl.act .bx{border-color:var(--st);background:#2b2b2b}
     #sdial .mr .tl .bx svg{width:22px;height:22px}
-    #sdial .mr .tl .go{position:absolute;right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:#1c1c1c;border:1px solid #3a3a3a;display:flex;align-items:center;justify-content:center}
+    #sdial .mr .tl .go{position:absolute;right:-5px;bottom:-5px;width:16px;height:16px;border-radius:50%;background:#1c1c1c;border:1px solid #3a3a3a;display:flex;align-items:center;justify-content:center}
     #sdial .mr .tl .go svg{width:10px;height:10px;stroke:#6fa3dc;stroke-width:2.6}
     #sdial .mr .tl .nm{width:100%;font-size:10.5px;line-height:1.15;text-align:center;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     #sdial .mr .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
@@ -74,7 +74,7 @@
     more: true,
     ord: 900,
     // three dots
-    icon: '<circle cx="5" cy="12" r="1.1"/><circle cx="12" cy="12" r="1.1"/><circle cx="19" cy="12" r="1.1"/>',
+    icon: '<circle cx="5" cy="12" r="1.7" fill="#d0d0d0" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="#d0d0d0" stroke="none"/><circle cx="19" cy="12" r="1.7" fill="#d0d0d0" stroke="none"/>',
     mount
   });
 })();

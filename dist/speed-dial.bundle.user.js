@@ -2102,8 +2102,10 @@
   });
 })();
 
-// Speed Dial module: Calculator v0.1.0
+// Speed Dial module: Calculator v0.2.0
 // A plain calculator: + - x / with the usual precedence (2+3x4 = 14), %, +/-, backspace, AC.
+// Display like Google's calculator: what you type is the big line, the live result sits under it (smaller, purple).
+// After "=" the sum shrinks to the top and the result becomes the big line.
 // % after + or - is a percentage of the number before it (200+10% = 220); otherwise it divides by 100.
 // Nothing is saved and nothing is sent anywhere. No eval (Torn's CSP blocks it): the sum is worked out by hand below.
 (function () {
@@ -2113,11 +2115,15 @@
 
   const CSS = `
     #sdial .calc{user-select:none;-webkit-user-select:none}
-    #sdial .calc .dp{height:58px;padding:4px 8px;margin-bottom:6px;border-radius:8px;background:#242424;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;overflow:hidden}
-    #sdial .calc .ex{max-width:100%;height:15px;font-size:11px;color:#8a8a8a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl}
-    #sdial .calc .rs{max-width:100%;font-size:24px;line-height:30px;color:#f0f0f0;white-space:nowrap;overflow:hidden}
-    #sdial .calc .rs.sm{font-size:17px}
-    #sdial .calc .rs.xs{font-size:13px}
+    #sdial .calc .dp{height:68px;padding:4px 8px 6px;margin-bottom:6px;border-radius:8px;background:#242424;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+    #sdial .calc .ex{height:32px;line-height:32px;font-size:26px;color:#f0f0f0;text-align:right;white-space:nowrap;overflow:hidden}
+    #sdial .calc .ex.sm{font-size:20px}
+    #sdial .calc .ex.xs{font-size:15px}
+    #sdial .calc .ex.dn{height:18px;line-height:18px;font-size:12px;color:#8a8a8a}
+    #sdial .calc .rs{height:20px;line-height:20px;font-size:16px;color:#9b93d4;text-align:right;white-space:nowrap;overflow:hidden}
+    #sdial .calc .rs.dn{height:32px;line-height:32px;font-size:26px;color:#f0f0f0}
+    #sdial .calc .rs.sm{font-size:20px}
+    #sdial .calc .rs.xs{font-size:15px}
     #sdial .calc .gr{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
     #sdial .calc .gr button{height:38px;border-radius:8px;border:1px solid #333;background:#242424;color:#e6e6e6;font-size:16px;padding:0;touch-action:manipulation}
     #sdial .calc .gr button:active{background:#383838}
@@ -2168,7 +2174,7 @@
       ['1'], ['2'], ['3'], ['+', 'op'],
       ['\u00B1', 'fn'], ['0'], ['.'], ['=', 'eq']
     ];
-    el.innerHTML = '<div class="dp"><div class="ex"></div><div class="rs">0</div></div><div class="gr"></div>';
+    el.innerHTML = '<div class="dp"><div class="ex">0</div><div class="rs"></div></div><div class="gr"></div>';
     const ex = el.querySelector('.ex'), rs = el.querySelector('.rs'), gr = el.querySelector('.gr');
     const btn = {};
     KEYS.forEach(k => {
@@ -2188,25 +2194,31 @@
     let line = '';      // top line after "="
 
     const text = () => exp.map(x => (SYM[x] || group(x))).concat(cur !== '' ? [group(cur)] : []).join(' ');
-    const fit = s => {
-      rs.className = 'rs' + (s.length > 17 ? ' xs' : s.length > 11 ? ' sm' : '');
-      rs.textContent = s;
+    const size = (n, s) => (s.length > (n ? 11 : 17) ? ' xs' : s.length > (n ? 8 : 11) ? ' sm' : '');
+    const put = (node, base, str, sz) => {          // text in a line; long ones shrink, and the end stays in view
+      node.className = base + sz;
+      node.textContent = str;
+      node.scrollLeft = node.scrollWidth;
     };
 
     function paint() {
-      let big;
-      if (err) big = 'Error';
-      else if (res !== null) big = group(res);
-      else if (cur !== '') big = group(cur);
+      let top, sub = '', done = false;
+      if (err) { top = 'Error'; }
+      else if (res !== null) { top = group(res); sub = line; done = true; }
       else {
-        big = '0';
-        const t = exp.slice();                       // running total while an operator is waiting for its number
+        top = text() || '0';
+        const t = exp.slice();                       // live result under the line, once there is a sum to work out
+        if (cur !== '') t.push(cur.replace(/\.$/, ''));
         if (t.length && t.length % 2 === 0) t.pop();
-        if (t.length > 2) { try { big = group(String(calc(toNums(t)))); } catch (e) { big = '0'; } }
-        else if (t.length === 1) big = group(t[0]);
+        if (t.length >= 3) { try { sub = group(String(calc(toNums(t)))); } catch (e) { sub = ''; } }
       }
-      ex.textContent = err ? '' : (res !== null ? line : text());
-      fit(big);
+      if (done) {                                    // after "=": sum small on top, result big below
+        put(ex, 'ex dn', sub, '');
+        put(rs, 'rs dn', top, size(false, top));
+      } else {
+        put(ex, 'ex', top, size(true, top));
+        put(rs, 'rs', sub, '');
+      }
       const last = exp[exp.length - 1];
       Object.keys(SYM).forEach(o => btn[o].classList.toggle('cur', cur === '' && res === null && last === o));
     }
@@ -2298,7 +2310,7 @@
     label: 'Calculator',
     width: 224,
     // calculator: rounded body, screen, key dots
-    icon: '<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><rect x="8" y="5.5" width="8" height="3.5" rx=".8"/><circle cx="9" cy="13" r=".6"/><circle cx="12" cy="13" r=".6"/><circle cx="15" cy="13" r=".6"/><circle cx="9" cy="16.5" r=".6"/><circle cx="12" cy="16.5" r=".6"/><circle cx="15" cy="16.5" r=".6"/>',
+    icon: '<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><rect x="8" y="5.5" width="8" height="3.5" rx=".8"/>' + [[9, 13], [12, 13], [15, 13], [9, 16.5], [12, 16.5], [15, 16.5]].map(c => '<circle cx="' + c[0] + '" cy="' + c[1] + '" r="1.1" fill="#d0d0d0" stroke="none"/>').join(''),
     mount
   });
 })();
@@ -2321,7 +2333,7 @@
     #sdial .mr .tl:active .bx{background:#2e2e2e}
     #sdial .mr .tl.act .bx{border-color:var(--st);background:#2b2b2b}
     #sdial .mr .tl .bx svg{width:22px;height:22px}
-    #sdial .mr .tl .go{position:absolute;right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:#1c1c1c;border:1px solid #3a3a3a;display:flex;align-items:center;justify-content:center}
+    #sdial .mr .tl .go{position:absolute;right:-5px;bottom:-5px;width:16px;height:16px;border-radius:50%;background:#1c1c1c;border:1px solid #3a3a3a;display:flex;align-items:center;justify-content:center}
     #sdial .mr .tl .go svg{width:10px;height:10px;stroke:#6fa3dc;stroke-width:2.6}
     #sdial .mr .tl .nm{width:100%;font-size:10.5px;line-height:1.15;text-align:center;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     #sdial .mr .em{padding:14px 6px;text-align:center;color:#8a8a8a;font-size:12px;line-height:1.4}
@@ -2379,7 +2391,7 @@
     more: true,
     ord: 900,
     // three dots
-    icon: '<circle cx="5" cy="12" r="1.1"/><circle cx="12" cy="12" r="1.1"/><circle cx="19" cy="12" r="1.1"/>',
+    icon: '<circle cx="5" cy="12" r="1.7" fill="#d0d0d0" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="#d0d0d0" stroke="none"/><circle cx="19" cy="12" r="1.7" fill="#d0d0d0" stroke="none"/>',
     mount
   });
 })();
