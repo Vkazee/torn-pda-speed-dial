@@ -1,4 +1,4 @@
-// Speed Dial module: Calculator v0.3.0
+// Speed Dial module: Calculator v0.3.1
 // A plain calculator: + - x / with the usual precedence (2+3x4 = 14), %, +/-, backspace, AC.
 // Display like Google's calculator: what you type is the big line, the live result sits under it (smaller, purple).
 // Tap anywhere in the typed sum to put the blinking caret there; digits, operators, +/-, % and backspace then work at the caret,
@@ -21,7 +21,7 @@
     #sdial .calc .ex.dn{height:18px;line-height:18px;font-size:12px;color:var(--sd-dim)}
     #sdial .calc .ex .o{margin:0 2px}
     #sdial .calc .ex .z{color:#666}
-    #sdial .calc .ex .cr{display:inline-block;width:2px;height:1.1em;margin:0 -1px;background:#9b93d4;vertical-align:middle;animation:sdcb 1s steps(1) infinite}
+    #sdial .calc .ex .cr{display:inline-block;width:2px;height:1.1em;margin:0 -1px;background:currentColor;vertical-align:middle;animation:sdcb 1s steps(1) infinite}
     @keyframes sdcb{50%{opacity:0}}
     #sdial .calc .rs{height:20px;line-height:20px;font-size:16px;color:#9b93d4;text-align:right;white-space:nowrap;overflow:hidden}
     #sdial .calc .rs.dn{height:32px;line-height:32px;font-size:26px;color:#f0f0f0}
@@ -207,7 +207,7 @@
       } else {
         const sl = ex.scrollLeft;
         ex.className = 'ex' + size(true, cellsText(s));
-        ex.innerHTML = s === '' ? '<span class="z">0</span>' : exprHtml();
+        ex.innerHTML = s === '' ? '<span class="z">0</span><span class="cr"></span>' : exprHtml();
         ex.scrollLeft = sl;
         const cr = ex.querySelector('.cr');          // keep the caret in view
         if (cr) {
