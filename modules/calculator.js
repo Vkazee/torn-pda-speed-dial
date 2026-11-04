@@ -1,8 +1,9 @@
-// Speed Dial module: Calculator v0.2.0
+// Speed Dial module: Calculator v0.2.1
 // A plain calculator: + - x / with the usual precedence (2+3x4 = 14), %, +/-, backspace, AC.
 // Display like Google's calculator: what you type is the big line, the live result sits under it (smaller, purple).
 // After "=" the sum shrinks to the top and the result becomes the big line.
 // % after + or - is a percentage of the number before it (200+10% = 220); otherwise it divides by 100.
+// A result produced by % is not "typed": the next digit or dot starts a new number instead of appending to it.
 // Nothing is saved and nothing is sent anywhere. No eval (Torn's CSP blocks it): the sum is worked out by hand below.
 (function () {
   'use strict';
@@ -88,6 +89,7 @@
     let res = null;     // result string right after "="
     let err = false;
     let line = '';      // top line after "="
+    let pc = false;     // cur is a result of %, not something typed
 
     const text = () => exp.map(x => (SYM[x] || group(x))).concat(cur !== '' ? [group(cur)] : []).join(' ');
     const size = (n, s) => (s.length > (n ? 11 : 17) ? ' xs' : s.length > (n ? 8 : 11) ? ' sm' : '');
@@ -119,22 +121,25 @@
       Object.keys(SYM).forEach(o => btn[o].classList.toggle('cur', cur === '' && res === null && last === o));
     }
 
-    const reset = () => { exp = []; cur = ''; res = null; err = false; line = ''; };
+    const reset = () => { exp = []; cur = ''; res = null; err = false; line = ''; pc = false; };
     const fresh = () => { if (res !== null || err) reset(); };   // typing after "=" starts over
 
     function digit(d) {
       fresh();
+      if (pc) { cur = ''; pc = false; }              // a % result is replaced, not appended to
       if (cur.replace(/[-.]/g, '').length >= MAXLEN) return;
       if (cur === '0' || cur === '-0') cur = cur.replace('0', d);
       else cur += d;
     }
     function dot() {
       fresh();
+      if (pc) { cur = ''; pc = false; }
       if (cur.indexOf('.') > -1) return;
       cur = (cur === '' ? '0' : cur === '-' ? '-0' : cur) + '.';
     }
     function op(o) {
       if (err) reset();
+      pc = false;
       if (res !== null) { exp = [res]; res = null; line = ''; cur = ''; }
       if (cur !== '') {
         exp.push(cur.replace(/\.$/, ''));
@@ -153,8 +158,8 @@
         const r = calc(toNums(t));
         line = t.map(x => (SYM[x] || group(x))).join(' ') + ' =';
         res = String(r);
-        exp = []; cur = '';
-      } catch (e) { err = true; exp = []; cur = ''; res = null; /* e.g. divide by zero: shown as an error on the display, not a bug */ }
+        exp = []; cur = ''; pc = false;
+      } catch (e) { err = true; exp = []; cur = ''; res = null; pc = false; /* e.g. divide by zero: shown as an error on the display, not a bug */ }
     }
     function percent() {
       if (err) return;
@@ -167,16 +172,18 @@
         try { n = Number(calc(toNums(exp.slice(0, -1)))) * n / 100; } catch (e) { n = n / 100; /* nothing to take a percentage of: plain n/100 */ }   // 200 + 10% = 200 + 20
       } else n = n / 100;
       cur = String(clean(n));
+      pc = true;
     }
     function sign() {
       if (err) return;
-      if (res !== null) { cur = res; res = null; exp = []; line = ''; }
+      if (res !== null) { cur = res; res = null; exp = []; line = ''; pc = false; }
       if (cur === '') cur = '-0';
       else cur = cur[0] === '-' ? cur.slice(1) : '-' + cur;
       if (cur === '-' ) cur = '';
     }
     function back() {
       if (res !== null || err) { reset(); return; }
+      if (pc) { cur = ''; pc = false; return; }            // backspace removes the whole % result
       if (cur !== '') { cur = cur.slice(0, -1); if (cur === '-' || cur === '-0') cur = ''; }
       else if (exp.length) {
         exp.pop();                                          // drop the operator and carry on editing the number before it
