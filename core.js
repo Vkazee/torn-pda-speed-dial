@@ -295,7 +295,9 @@
   };
 
   // ---------- page features: things that run ON a Torn page, outside the circles ----------
-  // f = { id, label, info (short explanation shown behind the "!" in Settings), where (page name, for humans),
+  // f = { id, label, group (category: filter chip and section title on the Settings > Features page; default "Other"),
+  //       info (short explanation shown behind the "!" in Settings), where (page name, for humans),
+  //       was (id of an older feature this one was split off from: until the user flips this switch itself it follows the old switch),
   //       match (RegExp on location.pathname | function(location) | string path prefix | omitted = every page),
   //       def (true = on until the user switches it off; default off), start(ctx) -> { stop() } }
   // ctx = { alive, every(fn, ms), after(fn, ms), css(text), on(target, type, fn, opts) }  - all of these are undone when the feature stops.
@@ -309,7 +311,9 @@
 
   SD.featureOn = id => {
     const v = fstate()[id], f = fget(id);
-    return typeof v === 'boolean' ? v : !!(f && f.def);
+    if (typeof v === 'boolean') return v;
+    const w = f && f.was ? fstate()[f.was] : undefined;
+    return typeof w === 'boolean' ? w : !!(f && f.def);
   };
   SD.featureFits = id => {
     const f = fget(id);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.7.0
+// @version      0.8.0
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -427,7 +427,9 @@ try {
   };
 
   // ---------- page features: things that run ON a Torn page, outside the circles ----------
-  // f = { id, label, info (short explanation shown behind the "!" in Settings), where (page name, for humans),
+  // f = { id, label, group (category: filter chip and section title on the Settings > Features page; default "Other"),
+  //       info (short explanation shown behind the "!" in Settings), where (page name, for humans),
+  //       was (id of an older feature this one was split off from: until the user flips this switch itself it follows the old switch),
   //       match (RegExp on location.pathname | function(location) | string path prefix | omitted = every page),
   //       def (true = on until the user switches it off; default off), start(ctx) -> { stop() } }
   // ctx = { alive, every(fn, ms), after(fn, ms), css(text), on(target, type, fn, opts) }  - all of these are undone when the feature stops.
@@ -441,7 +443,9 @@ try {
 
   SD.featureOn = id => {
     const v = fstate()[id], f = fget(id);
-    return typeof v === 'boolean' ? v : !!(f && f.def);
+    if (typeof v === 'boolean') return v;
+    const w = f && f.was ? fstate()[f.was] : undefined;
+    return typeof w === 'boolean' ? w : !!(f && f.def);
   };
   SD.featureFits = id => {
     const f = fget(id);
@@ -2605,14 +2609,16 @@ try {
 } catch (e) { console.error('Speed Dial: modules/showmore.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/showmore.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Settings v0.7.0
+// Speed Dial module: Settings v0.8.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
 //   Menu          - two groups: "On screen" (max 3 circles) and "Show More" (everything else). The pin moves a module
 //                   between the groups. Edit mode: drag the handle to reorder inside a group, and remove your own shortcuts.
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
-//                   The "!" next to a feature opens a small pop-up with a one-line explanation.
+//                   A row of filter chips on top (All + one per category, swipe it sideways), then one section per category
+//                   (title + count) with a card per feature: name, "!" and the switch. The "!" opens a small pop-up with the
+//                   one-line explanation and the page it works on. The chosen filter is remembered (speedDial.featcat1).
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
 //   Terminal      - the debug log (SD.log in core.js): what Speed Dial did, API calls, storage writes, warnings and errors.
 //                   Lines live in memory only; Save keeps a copy in storage so it survives a reload (view it with Saved).
@@ -2720,8 +2726,16 @@ try {
     #sdial .cz .it .del{display:none;color:var(--sd-redt)}
     #sdial .cz.edit .it.cu .del{display:flex}
     #sdial .cz .fl{max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
+    #sdial .cz .fc{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;touch-action:pan-x;margin:0 0 6px;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    #sdial .cz .fc::-webkit-scrollbar{display:none}
+    #sdial .cz .fc button{flex:0 0 auto;height:30px;padding:0 14px;border-radius:15px;white-space:nowrap;font-size:12px}
+    #sdial .cz .fc button.on{background:#25360f;border-color:var(--sd-green);color:#c6e66a}
+    #sdial .cz .fh{display:flex;align-items:center;gap:6px;margin:8px 2px 5px;font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--sd-text2)}
+    #sdial .cz .fh:first-child{margin-top:2px}
+    #sdial .cz .fh:before{content:'';flex:0 0 auto;width:3px;height:14px;border-radius:2px;background:var(--sd-green)}
+    #sdial .cz .fh i{font-style:normal;font-weight:400;color:var(--sd-dim)}
     #sdial .cz .fe{padding:10px 4px;color:var(--sd-dim);font-size:12px;text-align:center}
-    #sdial .cz .fw{border-radius:8px;background:var(--sd-bg2);margin-bottom:3px}
+    #sdial .cz .fw{border-radius:8px;background:var(--sd-bg2);border:1px solid var(--sd-line);margin-bottom:4px}
     #sdial .cz .fr{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 10px}
     #sdial .cz .fr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .cz .fr .inf{flex:0 0 auto;width:26px;height:26px;padding:0;border-radius:50%;border:1px solid #4a4a4a;background:none;color:var(--sd-dim);font-size:13px;font-weight:700;line-height:1}
@@ -2769,7 +2783,7 @@ try {
         '<div class="gh"><span>On screen</span><b class="cnt"></b></div><div class="lst lf"></div>' +
         '<div class="gh"><span>Show More</span></div><div class="lst lm"></div>' +
         '<button class="edit">Edit</button></div>' +
-      '<div class="pg pf"><div class="fl"></div></div>' +
+      '<div class="pg pf"><div class="fc"></div><div class="fl"></div></div>' +
       '<div class="pg pt"><div class="tm">' +
         '<div class="fr"><span class="nm">Logging</span><button class="sw" role="switch" aria-label="Logging"><i></i></button></div>' +
         '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button></div>' +
@@ -2783,7 +2797,7 @@ try {
         '<div class="rw"><input class="iu" placeholder="/page.php?sid=..." autocomplete="off" autocapitalize="off" spellcheck="false"><button class="here">This page</button></div>' +
         '<button class="add">Add</button>' +
       '</div>';
-    const qk = el.querySelector('.qk'), lf = el.querySelector('.lf'), lm = el.querySelector('.lm'), cnt = el.querySelector('.cnt'), fl = el.querySelector('.fl');
+    const qk = el.querySelector('.qk'), lf = el.querySelector('.lf'), lm = el.querySelector('.lm'), cnt = el.querySelector('.cnt'), fl = el.querySelector('.fl'), fc = el.querySelector('.fc');
     const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
     const hb = el.querySelector('.hb'), cur = el.querySelector('.cur'), mn = el.querySelector('.mn');
     let drag = null;
@@ -2792,8 +2806,8 @@ try {
     const PAGES = [
       { id: 'pm', label: 'Menu', icon: ICON_MENU, show: () => renderList() },
       { id: 'pf', label: 'Features', icon: ICON_FEAT, show: () => renderFeat() },
-      { id: 'pt', label: 'Terminal', icon: ICON_TERM, show: () => startTerm() },
-      { id: 'pa', label: 'Shortcut', icon: ICON_ADD }
+      { id: 'pa', label: 'Shortcut', icon: ICON_ADD },
+      { id: 'pt', label: 'Terminal', icon: ICON_TERM, show: () => startTerm() }
     ];
 
     function setNav(open) {
@@ -2946,8 +2960,15 @@ try {
       tip = t;
     }
 
+    const FCK = 'speedDial.featcat1';   // the filter chip you picked last
+    let fcat = SD.read(FCK, 'All');
+    if (typeof fcat !== 'string') fcat = 'All';
+    const groupOf = f => f.group || 'Other';
+
     function renderFeat() {
       closeTip();
+      const keep = fc.scrollLeft;
+      fc.innerHTML = '';
       fl.innerHTML = '';
       if (!SD.features.length) {
         const e = document.createElement('div');
@@ -2956,27 +2977,46 @@ try {
         fl.appendChild(e);
         return;
       }
-      SD.features.forEach(f => {
-        const w = document.createElement('div');
-        w.className = 'fw';
-        w.innerHTML = '<div class="fr"><span class="nm"></span><button class="inf" aria-label="About this feature">!</button>' +
-          '<button class="sw" role="switch"><i></i></button></div>';
-        w.querySelector('.nm').textContent = f.label;
-        const sw = w.querySelector('.sw');
-        const paint = () => {
-          const on = SD.featureOn(f.id);
-          sw.classList.toggle('on', on);
-          sw.setAttribute('aria-checked', on ? 'true' : 'false');
-        };
-        paint();
-        w.querySelector('.inf').addEventListener('click', () => openTip(f));
-        sw.addEventListener('click', () => {
-          const now = !SD.featureOn(f.id);
-          SD.setFeature(f.id, now);
+      // categories: alphabetical, "Other" last
+      const names = Array.from(new Set(SD.features.map(groupOf))).sort((a, b) => (a === 'Other') - (b === 'Other') || a.localeCompare(b));
+      if (fcat !== 'All' && names.indexOf(fcat) < 0) fcat = 'All';
+      ['All'].concat(names).forEach(n => {
+        const b = document.createElement('button');
+        b.textContent = n;
+        b.className = n === fcat ? 'on' : '';
+        b.addEventListener('click', () => { fcat = n; SD.write(FCK, fcat); renderFeat(); });
+        fc.appendChild(b);
+      });
+      fc.scrollLeft = keep;
+      names.filter(n => fcat === 'All' || n === fcat).forEach(n => {
+        const list = SD.features.filter(f => groupOf(f) === n).sort((a, b) => a.label.localeCompare(b.label));
+        const h = document.createElement('div');
+        h.className = 'fh';
+        h.innerHTML = '<span></span><i>' + list.length + '</i>';
+        h.firstChild.textContent = n;
+        fl.appendChild(h);
+        list.forEach(f => {
+          const w = document.createElement('div');
+          w.className = 'fw';
+          w.innerHTML = '<div class="fr"><span class="nm"></span><button class="inf" aria-label="About this feature">!</button>' +
+            '<button class="sw" role="switch"><i></i></button></div>';
+          w.querySelector('.nm').textContent = f.label;
+          const sw = w.querySelector('.sw');
+          const paint = () => {
+            const on = SD.featureOn(f.id);
+            sw.classList.toggle('on', on);
+            sw.setAttribute('aria-checked', on ? 'true' : 'false');
+          };
           paint();
-          if (now && !SD.featureFits(f.id) && f.where) SD.toast(f.label + ' is on. It starts on: ' + f.where);
+          w.querySelector('.inf').addEventListener('click', () => openTip(f));
+          sw.addEventListener('click', () => {
+            const now = !SD.featureOn(f.id);
+            SD.setFeature(f.id, now);
+            paint();
+            if (now && !SD.featureFits(f.id) && f.where) SD.toast(f.label + ' is on. It starts on: ' + f.where);
+          });
+          fl.appendChild(w);
         });
-        fl.appendChild(w);
       });
     }
 
@@ -3568,6 +3608,7 @@ try {
   SD.feature({
     id: 'gymguide',
     label: 'Gym Guide',
+    group: 'Gym',
     where: 'Gym',
     info: 'Highlights the best gym to train next, with stat progress and gym access info.',
     match: /^\/gym\.php/,
@@ -3578,36 +3619,35 @@ try {
 } catch (e) { console.error('Speed Dial: features/gymguide.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/gymguide.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial feature: Casino Helper v0.3.0
-// High-Low and Blackjack advisor. Shows the chance of every choice and which one to take next.
-// Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API. Switch it on or off in Settings > Features.
-//   - Blackjack: exact odds (win / push / lose) for Stand, Hit, Double and Split, worked out for the dealer card you see.
-//     Infinite deck, dealer stands on all 17 and checks for blackjack (all changeable in Rules). Only actions whose buttons are enabled on the page are recommended.
-//   - High-Low: chance that YOUR (face-down) card is higher, lower or the same as the DEALER's card (full deck minus the dealer card).
-//     The dealer card is picked by name (dealer ancestor), then by position; face-down, hidden, faded-out and covered cards are ignored.
-//   - Manual mode: tap the ranks yourself if the page markup is not recognised. Settings > Terminal tells what was (not) read.
-//   - Between rounds (play buttons gone or greyed out) the panel goes back to its standard "waiting" state and typed-in cards are cleared.
-// No strategy beats the house over time. This only stops you from making a worse choice than necessary.
+// Speed Dial feature: High-Low v0.1.0
+// Casino High-Low (page.php?sid=highlow): the chance that YOUR face-down card is higher or lower than the DEALER's card, and which one to pick.
+// Split off the old Casino Helper (one page = one feature file). Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API.
+// Switch it on or off in Settings > Features.
+//   - The dealer card is picked by name (a dealer ancestor), then by position. Face-down, hidden, faded-out and covered cards are ignored.
+//   - Odds: a full deck minus the dealer card (51 left). The chance of the same rank is shown too and counts for neither side.
+//   - Manual mode: tap the dealer card yourself if the page markup is not recognised. Settings > Terminal tells what was (not) read.
+//   - Between rounds (Higher / Lower buttons gone or greyed out) the panel goes back to "waiting" and the typed-in card is cleared.
+//   - Rules: ace high or low. Saved under speedDial.highlow1 (the ace rule of the old combined helper, speedDial.casino1, is carried over).
 (function () {
   'use strict';
   const SD = window.SpeedDial;
   if (!SD) return;
 
-  const LS = 'speedDial.casino1';
+  const LS = 'speedDial.highlow1';
+  const OLD = 'speedDial.casino1';
 
   // ---------- cards ----------
   const RL = [null, 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];   // rank 1..13
-  const PV = [0, 11, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10];                            // blackjack value of rank (ace = 11)
-  const DRAW = [[2, 1 / 13], [3, 1 / 13], [4, 1 / 13], [5, 1 / 13], [6, 1 / 13], [7, 1 / 13], [8, 1 / 13], [9, 1 / 13], [10, 4 / 13], [11, 1 / 13]];
 
   const RK = '13|12|11|10|[1-9]|[ajqk]|ace|king|queen|jack|ten';
   const SU = 'hearts?|diamonds?|spades?|clubs?';
   const RA = new RegExp('(?:^|[\\s_\\-./])(' + SU + ')[\\s_\\-.]*(' + RK + ')(?![a-z0-9])', 'i');                       // hearts-10, spades_A, clubs K
   const RB = new RegExp('(?:^|[\\s_\\-./])(' + RK + ')[\\s_\\-.]*(?:of[\\s_\\-.]*)?(' + SU + ')(?![a-z])', 'i');         // 7 of hearts, 10-spades
   const WORD = { a: 1, ace: 1, j: 11, jack: 11, q: 12, queen: 12, k: 13, king: 13, ten: 10 };
+  const SYM = { '\u2660': 's', '\u2665': 'h', '\u2666': 'd', '\u2663': 'c' };
   const rankOf = s => { s = String(s).toLowerCase(); return WORD[s] || parseInt(s, 10) || 0; };
 
-  // el needs: className, getAttribute(), textContent. Returns { r: 1..13, s: suit letter } or null.
+  // el needs: className, getAttribute(), textContent. Returns { r: 1..13, s: suit letter c/d/h/s or '?' } or null.
   function parseCard(el) {
     const cn = el.className && typeof el.className === 'object' ? (el.className.baseVal || '') : (el.className || '');
     const g = n => (el.getAttribute && el.getAttribute(n)) || '';
@@ -3625,10 +3665,14 @@ try {
     const tx = String(el.textContent || '').trim();
     if (tx.length && tx.length <= 4) {
       const m = /^(10|[2-9]|[AJQK])\s*([\u2660\u2665\u2666\u2663])$/.exec(tx) || /^([\u2660\u2665\u2666\u2663])\s*(10|[2-9]|[AJQK])$/.exec(tx);
-      if (m) { const rk = /^[\u2660-\u2666]$/.test(m[1]) ? m[2] : m[1]; const r = rankOf(rk); if (r) return { r, s: '?' }; }
+      if (m) {
+        const sym = SYM[m[1]] ? m[1] : m[2], rk = sym === m[1] ? m[2] : m[1], r = rankOf(rk);
+        if (r) return { r, s: SYM[sym] };
+      }
     }
     return null;
   }
+
 
   // ---------- High-Low ----------
   // every draw comes from a full 52-card deck minus the card on the table
@@ -3642,6 +3686,344 @@ try {
     }
     return { higher: hi / 51, lower: lo / 51, tie: tie / 51, pick: hi >= lo ? 'Higher' : 'Lower' };
   }
+
+
+  // ---------- page reading ----------
+  const SEL = '[class*="hearts" i],[class*="diamonds" i],[class*="spades" i],[class*="clubs" i],[class*="heart-" i],[class*="spade-" i],[class*="club-" i],[class*="diamond-" i],' +
+    '[class*="card" i],img[alt],[aria-label],[data-card],[title]';
+  const DEALER = /dealer|croupier/i;
+  const PLAYER = /(^|[^a-z])(player|you|your|user)([^a-z]|$)/i;
+  const BTN = 'button,a,li,[role="button"],input[type="button"],input[type="submit"],[class*="btn" i],[class*="button" i],[class*="action" i]';
+  // label = letters only, so "Higher" and "HIGHER" both match. Exact words only.
+  const LABEL = { higher: 'U', high: 'U', lower: 'L', low: 'L' };
+  const OFF = /(^|[\s_-])(disabled|inactive|unavailable)([\s_-]|$)/i;
+  const mine = el => !!el.closest('#csh, #sdial');
+  const seen = el => !!(el.getClientRects && el.getClientRects().length);
+
+  const BACKS = /^(back|facedown|face-down|cardback|card-back)$/i;   // class token of a card lying face down
+  const faceDown = el => String(typeof el.className === 'string' ? el.className : '').split(/\s+/).some(t => BACKS.test(t));
+
+  function shown(el) {   // really on screen: has a size, not hidden, not (almost) transparent
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return false;
+    for (let n = el, i = 0; n && n.nodeType === 1 && i < 6; i++, n = n.parentElement) {
+      let cs;
+      try { cs = getComputedStyle(n); } catch (e) { break; }
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.1) return false;
+    }
+    return true;
+  }
+
+
+  function onTop(el) {   // nothing unrelated is painted over the middle of the card (an old card under a new one, a flipped-away face)
+    const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return true;   // cannot test off screen
+    const hit = document.elementFromPoint(x, y);
+    return !hit || el.contains(hit) || hit.contains(el) || mine(hit);
+  }
+
+  function readCards() {
+    const root = document.querySelector('.content-wrapper') || document;   // the game only: not Torn's sidebar, chat or header
+    const list = [];
+    root.querySelectorAll(SEL).forEach(el => {
+      if (mine(el) || !seen(el) || faceDown(el)) return;
+      const c = parseCard(el);
+      if (c) list.push({ el, r: c.r, s: c.s });
+    });
+    const inner = list.filter(a => !list.some(b => b !== a && a.el.contains(b.el)));   // innermost element of each card only
+    inner.forEach((c, i) => {
+      const b = c.el.getBoundingClientRect();
+      c.i = i; c.x = b.left + b.width / 2;
+      c.shown = shown(c.el); c.top = c.shown && onTop(c.el); c.role = roleOf(c.el);
+    });
+    return inner;
+  }
+
+  function roleOf(el) {
+    let n = el;
+    for (let i = 0; n && n !== document.body && i < 7; i++, n = n.parentElement) {
+      const id = (n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : '');
+      if (DEALER.test(id)) return 'd';
+      if (PLAYER.test(id)) return 'p';
+    }
+    return null;
+  }
+
+  // High-Low: the card the odds are about is the DEALER's face-up card (yours is face down until you choose).
+  // Order: visible cards only, then not-yours, then named "dealer", then on top, then leftmost (the dealer sits left), then newest in the page.
+  function pickDealer(cards) {
+    if (!cards.length) return null;
+    const vis = cards.filter(c => c.shown), pool = vis.length ? vis : cards;
+    const notMine = pool.filter(c => c.role !== 'p'), base = notMine.length ? notMine : pool;
+    const named = base.filter(c => c.role === 'd'), from = named.length ? named : base;
+    const better = (a, b) => {
+      if (a.top !== b.top) return a.top;
+      if (!named.length && Math.abs(a.x - b.x) > 8) return a.x < b.x;
+      return a.i > b.i;
+    };
+    return from.reduce((x, c) => (x === null || better(c, x) ? c : x), null);
+  }
+
+  function describe(cards, pick) {   // one short line for Settings > Terminal: what was seen and which one was used
+    return cards.slice(0, 6).map(c => (c === pick ? '*' : '') + RL[c.r] + (c.s !== '?' ? c.s : '') + '/' + (c.role || '-') + (c.shown ? '' : '!hid') + (c.shown && !c.top ? '!cov' : '') + '@' + Math.round(c.x)).join(' ');
+  }
+
+  function isOff(el) {   // greyed out: disabled attribute, a disabled class on the button or its two parents, or taps ignored
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') return true;
+    try { if (getComputedStyle(el).pointerEvents === 'none') return true; } catch (e) { /* ignore */ }
+    for (let n = el, i = 0; n && i < 3; i++, n = n.parentElement) if (OFF.test(typeof n.className === 'string' ? n.className : '')) return true;
+    return false;
+  }
+
+  function readButtons() {
+    const root = document.querySelector('.content-wrapper') || document;
+    const st = {};
+    root.querySelectorAll(BTN).forEach(el => {
+      if (mine(el) || el.children.length > 3 || !seen(el)) return;
+      const k = LABEL[String(el.value && el.tagName === 'INPUT' ? el.value : el.textContent || '').toLowerCase().replace(/[^a-z]/g, '')];
+      if (!k) return;
+      const x = st[k] || (st[k] = { n: 0, off: 0 });
+      x.n++;
+      if (isOff(el)) x.off++;
+    });
+    const on = new Set(), blocked = new Set();
+    Object.keys(st).forEach(k => { if (st[k].off === st[k].n) blocked.add(k); else on.add(k); });
+    return { on, blocked };
+  }
+
+  // ---------- UI ----------
+  const CSS = `
+    #csh,#csh *{box-sizing:border-box;font-family:inherit}
+    #csh{max-width:100%;margin:10px 0 0;width:100%;font-size:12px;line-height:1.4;color:#ccc;text-align:left;font-weight:400}
+    #csh button{font-family:inherit;font-size:12px;font-weight:400;cursor:pointer;touch-action:manipulation}
+    #csh .hd{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:linear-gradient(to bottom,#454545,#363636);border-top:1px solid #555;border-bottom:1px solid #1c1c1c}
+    #csh .hd b{color:#fff;font-size:13px;font-weight:700}
+    #csh .bd{padding:10px 12px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
+    #csh .big{font-size:22px;font-weight:700;letter-spacing:.02em;line-height:1.1}
+    #csh .big small{font-size:12px;font-weight:400;color:#999;letter-spacing:0;margin-left:6px}
+    #csh .why{margin-top:6px;color:#bbb}
+    #csh .nt{margin-top:6px;color:#d9a441}
+    #csh .ok{color:#85b200}#csh .warn{color:#d9a441}#csh .bad{color:#e0584a}#csh .dim{color:#999}
+    #csh .hl{display:flex;align-items:center;gap:8px;padding:3px 0}
+    #csh .hl .k{flex:none;width:54px;color:#999}
+    #csh .hl .t{flex:1;height:6px;border-radius:3px;background:#161616;overflow:hidden}
+    #csh .hl .t i{display:block;height:100%;background:#5b7fa8}
+    #csh .hl.n .k{color:#85b200}#csh .hl.n .t i{background:#85b200}
+    #csh .hl .v{flex:none;width:40px;text-align:right}
+    #csh .ft{display:flex;gap:6px;padding:8px 12px 10px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
+    #csh .ft button,#csh .opt button{flex:1;height:30px;border:1px solid #1a1a1a;border-radius:4px;color:#ccc;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f)}
+    #csh .ft button.on{color:#fff;box-shadow:inset 0 -2px 0 #85b200}
+    #csh .pn{padding:2px 12px 10px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
+    #csh .pn label{display:block;margin:8px 0 4px;font-size:11px;color:#888}
+    #csh .seg{display:flex}
+    #csh .seg button{flex:1;height:30px;border:1px solid #1a1a1a;margin-left:-1px;color:#bbb;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f)}
+    #csh .seg button:first-child{margin-left:0;border-radius:4px 0 0 4px}
+    #csh .seg button:last-child{border-radius:0 4px 4px 0}
+    #csh .seg button.on{color:#fff;background:linear-gradient(to bottom,#555,#444);box-shadow:inset 0 -2px 0 #85b200}
+    #csh .kp{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:6px}
+    #csh .kp button{height:32px;border:1px solid #1a1a1a;border-radius:4px;color:#ddd;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f);padding:0}
+    #csh .mh{display:flex;align-items:center;gap:8px;padding:4px 0}
+    #csh .mh button{flex:none;min-width:64px;height:28px;border:1px solid #1a1a1a;border-radius:4px;color:#bbb;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f)}
+    #csh .mh button.on{color:#fff;box-shadow:inset 0 -2px 0 #85b200}
+    #csh .mh span{flex:1;min-width:0;color:#fff;font-weight:700;letter-spacing:.04em}
+    #csh.fx{position:fixed;left:0;right:0;bottom:0;z-index:99998;margin:0}
+  `;
+
+
+  const pc = x => Math.round(x * 100);
+  const cls = p => (p >= 0.55 ? 'ok' : p >= 0.45 ? 'warn' : 'bad');
+
+  function start(ctx) {
+    const oldAce = (SD.read(OLD, null) || {}).aceHigh;
+    let P = Object.assign({ aceHigh: typeof oldAce === 'boolean' ? oldAce : true }, SD.read(LS, null) || {});
+    const save = () => SD.write(LS, P);
+    const M = { on: false, cur: null };   // manual entry (not saved)
+    let rulesOpen = false, last = '', misses = 0, dumped = false, readCount = '', sawTurn = false, wasOver = false, active = false;
+
+    ctx.css(CSS);
+    const box = document.createElement('div');
+    box.id = 'csh';
+
+    // ----- what the page (or the manual keypad) says right now -----
+    function readState() {
+      // is a round being played? Over = the Higher / Lower buttons were seen on this page and none is enabled now
+      const b = readButtons(), keys = ['U', 'L'];
+      if (keys.some(k => b.on.has(k) || b.blocked.has(k))) sawTurn = true;
+      const turn = keys.some(k => b.on.has(k)), over = sawTurn && !turn;
+      if (over !== wasOver) { wasOver = over; if (over) M.cur = null; }   // round just ended: forget the card typed in
+      if (M.on) return { src: 'manual', cur: M.cur };
+      if (over) return { src: 'idle' };
+      const cards = readCards();
+      if (!cards.length) return { src: 'none' };
+      const pk = pickDealer(cards);
+      return { src: 'page', cur: pk.r, count: cards.length, sig: describe(cards, pk) };
+    }
+
+    // ----- drawing -----
+    function renderHL(s) {
+      if (!s.cur) return '<div class="bd"><span class="dim">' + (s.src === 'manual' ? 'Tap the dealer card.' : 'Waiting for the dealer card...') + '</span></div>';
+      const r = highLow(s.cur, P), top = r.pick === 'Higher' ? r.higher : r.lower;
+      const row = (k, v, best) => '<div class="hl' + (best ? ' n' : '') + '"><span class="k">' + k + '</span><div class="t"><i style="width:' + v * 100 + '%"></i></div><span class="v ' + (best ? cls(v) : 'dim') + '">' + pc(v) + '%</span></div>';
+      return '<div class="bd"><div class="big ' + cls(top) + '">' + r.pick.toUpperCase() + '<small>' + pc(top) + '% \u00b7 dealer ' + RL[s.cur] + '</small></div>' +
+        '<div style="margin-top:6px">' + row('Higher', r.higher, r.pick === 'Higher') + row('Lower', r.lower, r.pick === 'Lower') + '</div>' +
+        '<div class="why dim">Same rank: ' + pc(r.tie) + '%' + (P.aceHigh ? ' \u00b7 ace = high' : ' \u00b7 ace = low') + '</div>' +
+        (top < 0.5 ? '<div class="nt">Under 50%: if the game lets you take your winnings now, that is the safer move.</div>' : '') +
+        '</div>';
+    }
+
+    function renderNone() {
+      return '<div class="bd"><span class="dim">Cards not found on this page yet.</span></div>';
+    }
+
+    function renderIdle() {   // standard state between rounds
+      return '<div class="bd"><span class="dim">Waiting for the next round...</span></div>';
+    }
+
+
+    function render(s) {
+      const sg = (k, la, lb) => '<div class="seg"><button data-s="' + k + '" data-v="0" class="' + (!P[k] ? 'on' : '') + '">' + la + '</button><button data-s="' + k + '" data-v="1" class="' + (P[k] ? 'on' : '') + '">' + lb + '</button></div>';
+      let h = '<div class="hd"><b>Casino helper</b><span class="dim">High-Low' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
+      h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : renderHL(s);
+      h += '<div class="ft"><button data-a="man" class="' + (M.on ? 'on' : '') + '">Manual</button><button data-a="rules">Rules ' + (rulesOpen ? '\u25b2' : '\u25bc') + '</button></div>';
+      if (M.on) {
+        h += '<div class="pn"><div class="kp">';
+        for (let r = 1; r <= 13; r++) h += '<button data-r="' + r + '">' + RL[r] + '</button>';
+        h += '<button data-a="clear">\u232b</button></div></div>';
+      }
+      if (rulesOpen) h += '<div class="pn"><label>Ace counts as</label>' + sg('aceHigh', 'Low', 'High') + '</div>';
+      box.innerHTML = h;
+    }
+
+    // ----- taps -----
+    box.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      const d = b.dataset;
+      if (d.a === 'man') { M.on = !M.on; last = ''; }
+      else if (d.a === 'rules') { rulesOpen = !rulesOpen; last = ''; }
+      else if (d.a === 'clear') { M.cur = null; last = ''; }
+      else if (d.r) { M.cur = parseInt(d.r, 10); last = ''; }
+      else if (d.s) { P[d.s] = d.v === '1'; save(); last = ''; }
+      else return;
+      tick(true);
+    });
+
+    // ----- mounting and loop -----
+    function mount() {
+      if (box.isConnected) return;
+      const t = document.querySelector('.content-title'), w = document.querySelector('.content-wrapper');
+      box.classList.remove('fx');
+      if (t) t.insertAdjacentElement('afterend', box);
+      else if (w) w.insertBefore(box, w.firstChild);
+      else { box.classList.add('fx'); document.body.appendChild(box); }
+    }
+
+    function tick(force) {
+      if (document.hidden && force !== true) return;
+      const sid = (new URLSearchParams(location.search).get('sid') || '').toLowerCase();
+      if (sid !== 'highlow') { if (box.isConnected) box.remove(); active = false; return; }
+      if (!active) { active = true; last = ''; misses = 0; dumped = false; sawTurn = false; wasOver = false; SD.log('highlow', 'page: highlow'); }
+      mount();
+      const s = readState();
+      if (s.src === 'none') {
+        misses++;
+        if (misses >= 4 && !dumped) {
+          dumped = true;
+          const sample = [];
+          document.querySelectorAll('[class*="card" i]').forEach(el => { if (sample.length < 8 && !mine(el)) sample.push(el.tagName.toLowerCase() + '.' + String(typeof el.className === 'string' ? el.className : '').trim().replace(/\s+/g, '.').slice(0, 70)); });
+          SD.log('highlow', 'no cards read. card-like elements: ' + (sample.join(' | ') || 'none'), 'w');
+        }
+      } else misses = 0;
+      const key = JSON.stringify([s.src, s.cur, s.sig, M.on, rulesOpen, P]);
+      if (key === last) return;
+      last = key;
+      if (s.src !== 'none') {
+        const line = s.src === 'idle' ? 'round over: panel reset' : 'highlow dealer=' + (s.cur ? RL[s.cur] : '?') + ' (' + (s.count || 1) + ' on page, ' + s.src + ')' + (s.sig ? ' [' + s.sig + ']' : '');
+        if (line !== readCount) { readCount = line; SD.log('highlow', line); }
+      }
+      render(s);
+    }
+
+    tick(true);
+    ctx.every(tick, 700);   // cleared by the core when the feature is switched off
+
+    return { stop() { box.remove(); } };
+  }
+
+  SD.feature({
+    id: 'highlow',
+    was: 'casinohelper',   // starts out with the switch of the old combined Casino Helper
+    group: 'Casino',
+    label: 'High-Low',
+    where: 'Casino (High-Low)',
+    info: 'Win chance for Higher and Lower against the dealer card. Reads the page, never clicks.',
+    match: /^\/page\.php$/,
+    start,
+    engine: { parseCard, highLow, pickDealer }   // exposed for tests only
+  });
+})();
+
+} catch (e) { console.error('Speed Dial: features/highlow.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/highlow.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
+// Speed Dial feature: Blackjack v0.1.0
+// Casino Blackjack (page.php?sid=blackjack): the chance of every move and which one to take next.
+// Split off the old Casino Helper (one page = one feature file). Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API.
+// Switch it on or off in Settings > Features.
+//   - Exact odds (win / push / lose) for Stand, Hit, Double and Split, worked out for the dealer card you see.
+//     Infinite deck, dealer stands on all 17 and checks for blackjack (all changeable in Rules).
+//     Only moves whose buttons are enabled on the page are recommended; a button that is not recognised counts as available.
+//   - Manual mode: tap the ranks yourself if the page markup is not recognised. Settings > Terminal tells what was (not) read.
+//   - Between rounds (play buttons gone or greyed out) the panel goes back to "waiting" and typed-in cards are cleared.
+//   - Rules are saved under speedDial.blackjack1 (the rules of the old combined helper, speedDial.casino1, are carried over).
+// No strategy beats the house over time. This only stops you from making a worse choice than necessary.
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const LS = 'speedDial.blackjack1';
+  const OLD = 'speedDial.casino1';
+
+  // ---------- cards ----------
+  const RL = [null, 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];   // rank 1..13
+  const PV = [0, 11, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10];                            // blackjack value of rank (ace = 11)
+  const DRAW = [[2, 1 / 13], [3, 1 / 13], [4, 1 / 13], [5, 1 / 13], [6, 1 / 13], [7, 1 / 13], [8, 1 / 13], [9, 1 / 13], [10, 4 / 13], [11, 1 / 13]];
+
+  const RK = '13|12|11|10|[1-9]|[ajqk]|ace|king|queen|jack|ten';
+  const SU = 'hearts?|diamonds?|spades?|clubs?';
+  const RA = new RegExp('(?:^|[\\s_\\-./])(' + SU + ')[\\s_\\-.]*(' + RK + ')(?![a-z0-9])', 'i');                       // hearts-10, spades_A, clubs K
+  const RB = new RegExp('(?:^|[\\s_\\-./])(' + RK + ')[\\s_\\-.]*(?:of[\\s_\\-.]*)?(' + SU + ')(?![a-z])', 'i');         // 7 of hearts, 10-spades
+  const WORD = { a: 1, ace: 1, j: 11, jack: 11, q: 12, queen: 12, k: 13, king: 13, ten: 10 };
+  const SYM = { '\u2660': 's', '\u2665': 'h', '\u2666': 'd', '\u2663': 'c' };
+  const rankOf = s => { s = String(s).toLowerCase(); return WORD[s] || parseInt(s, 10) || 0; };
+
+  // el needs: className, getAttribute(), textContent. Returns { r: 1..13, s: suit letter c/d/h/s or '?' } or null.
+  function parseCard(el) {
+    const cn = el.className && typeof el.className === 'object' ? (el.className.baseVal || '') : (el.className || '');
+    const g = n => (el.getAttribute && el.getAttribute(n)) || '';
+    const src = String(g('src')).split('/').pop();
+    // every attribute is tested on its own: joining them could glue a suit from one onto a rank from another
+    const fields = [cn, g('aria-label'), g('alt'), g('title'), g('data-card'), (g('data-rank') + ' ' + g('data-suit')).trim(), src];
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      if (!f) continue;
+      let m = RA.exec(f);
+      if (m) { const r = rankOf(m[2]); if (r >= 1 && r <= 13) return { r, s: m[1][0].toLowerCase() }; }
+      m = RB.exec(f);
+      if (m) { const r = rankOf(m[1]); if (r >= 1 && r <= 13) return { r, s: m[2][0].toLowerCase() }; }
+    }
+    const tx = String(el.textContent || '').trim();
+    if (tx.length && tx.length <= 4) {
+      const m = /^(10|[2-9]|[AJQK])\s*([\u2660\u2665\u2666\u2663])$/.exec(tx) || /^([\u2660\u2665\u2666\u2663])\s*(10|[2-9]|[AJQK])$/.exec(tx);
+      if (m) {
+        const sym = SYM[m[1]] ? m[1] : m[2], rk = sym === m[1] ? m[2] : m[1], r = rankOf(rk);
+        if (r) return { r, s: SYM[sym] };
+      }
+    }
+    return null;
+  }
+
 
   // ---------- Blackjack ----------
   // hand state = (h: total with every ace as 1, a: has an ace). An ace counts 11 whenever that does not bust.
@@ -3765,6 +4147,7 @@ try {
     return out;
   }
 
+
   // ---------- page reading ----------
   const SEL = '[class*="hearts" i],[class*="diamonds" i],[class*="spades" i],[class*="clubs" i],[class*="heart-" i],[class*="spade-" i],[class*="club-" i],[class*="diamond-" i],' +
     '[class*="card" i],img[alt],[aria-label],[data-card],[title]';
@@ -3772,9 +4155,8 @@ try {
   const PLAYER = /(^|[^a-z])(player|you|your|user)([^a-z]|$)/i;
   const BTN = 'button,a,li,[role="button"],input[type="button"],input[type="submit"],[class*="btn" i],[class*="button" i],[class*="action" i]';
   // label = letters only, so "HIT ME", "Double<br>Down" and "double down" all match. Exact words only (a "Hit list" link must not count).
-  const LABEL = { hit: 'H', hitme: 'H', stand: 'S', double: 'D', doubledown: 'D', split: 'P', higher: 'U', high: 'U', lower: 'L', low: 'L' };
+  const LABEL = { hit: 'H', hitme: 'H', stand: 'S', double: 'D', doubledown: 'D', split: 'P' };
   const OFF = /(^|[\s_-])(disabled|inactive|unavailable)([\s_-]|$)/i;
-
   const mine = el => !!el.closest('#csh, #sdial');
   const seen = el => !!(el.getClientRects && el.getClientRects().length);
 
@@ -3792,12 +4174,6 @@ try {
     return true;
   }
 
-  function onTop(el) {   // nothing unrelated is painted over the middle of the card (an old card under a new one, a flipped-away face)
-    const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
-    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return true;   // cannot test off screen
-    const hit = document.elementFromPoint(x, y);
-    return !hit || el.contains(hit) || hit.contains(el) || mine(hit);
-  }
 
   function readCards() {
     const root = document.querySelector('.content-wrapper') || document;   // the game only: not Torn's sidebar, chat or header
@@ -3808,31 +4184,8 @@ try {
       if (c) list.push({ el, r: c.r, s: c.s });
     });
     const inner = list.filter(a => !list.some(b => b !== a && a.el.contains(b.el)));   // innermost element of each card only
-    inner.forEach((c, i) => {
-      const b = c.el.getBoundingClientRect();
-      c.i = i; c.x = b.left + b.width / 2;
-      c.shown = shown(c.el); c.top = c.shown && onTop(c.el); c.role = roleOf(c.el);
-    });
+    inner.forEach(c => { c.shown = shown(c.el); });
     return inner;
-  }
-
-  // High-Low: the card the odds are about is the DEALER's face-up card (yours is face down until you choose).
-  // Order: visible cards only, then not-yours, then named "dealer", then on top, then leftmost (the dealer sits left), then newest in the page.
-  function pickDealer(cards) {
-    if (!cards.length) return null;
-    const vis = cards.filter(c => c.shown), pool = vis.length ? vis : cards;
-    const notMine = pool.filter(c => c.role !== 'p'), base = notMine.length ? notMine : pool;
-    const named = base.filter(c => c.role === 'd'), from = named.length ? named : base;
-    const better = (a, b) => {
-      if (a.top !== b.top) return a.top;
-      if (!named.length && Math.abs(a.x - b.x) > 8) return a.x < b.x;
-      return a.i > b.i;
-    };
-    return from.reduce((x, c) => (x === null || better(c, x) ? c : x), null);
-  }
-
-  function describe(cards, pick) {   // one short line for Settings > Terminal: what was seen and which one was used
-    return cards.slice(0, 6).map(c => (c === pick ? '*' : '') + RL[c.r] + (c.s !== '?' ? c.s : '') + '/' + (c.role || '-') + (c.shown ? '' : '!hid') + (c.shown && !c.top ? '!cov' : '') + '@' + Math.round(c.x)).join(' ');
   }
 
   function roleOf(el) {
@@ -3878,8 +4231,6 @@ try {
     return false;
   }
 
-  // The actions the page shows right now. on = enabled, blocked = shown but greyed out.
-  // A button that is not recognised is in neither set: unknown is NOT the same as unavailable.
   function readButtons() {
     const root = document.querySelector('.content-wrapper') || document;
     const st = {};
@@ -3916,12 +4267,6 @@ try {
     #csh .why{margin-top:6px;color:#bbb}
     #csh .nt{margin-top:6px;color:#d9a441}
     #csh .ok{color:#85b200}#csh .warn{color:#d9a441}#csh .bad{color:#e0584a}#csh .dim{color:#999}
-    #csh .hl{display:flex;align-items:center;gap:8px;padding:3px 0}
-    #csh .hl .k{flex:none;width:54px;color:#999}
-    #csh .hl .t{flex:1;height:6px;border-radius:3px;background:#161616;overflow:hidden}
-    #csh .hl .t i{display:block;height:100%;background:#5b7fa8}
-    #csh .hl.n .k{color:#85b200}#csh .hl.n .t i{background:#85b200}
-    #csh .hl .v{flex:none;width:40px;text-align:right}
     #csh .ft{display:flex;gap:6px;padding:8px 12px 10px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
     #csh .ft button,#csh .opt button{flex:1;height:30px;border:1px solid #1a1a1a;border-radius:4px;color:#ccc;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f)}
     #csh .ft button.on{color:#fff;box-shadow:inset 0 -2px 0 #85b200}
@@ -3941,46 +4286,41 @@ try {
     #csh.fx{position:fixed;left:0;right:0;bottom:0;z-index:99998;margin:0}
   `;
 
+
   const NAME = { S: 'Stand', H: 'Hit', D: 'Double', P: 'Split' };
   const pc = x => Math.round(x * 100);
   const evs = x => (x >= 0 ? '+' : '\u2212') + Math.abs(x).toFixed(2);
   const cls = p => (p >= 0.55 ? 'ok' : p >= 0.45 ? 'warn' : 'bad');
 
+
   function start(ctx) {
-    let P = Object.assign({ h17: false, das: true, peek: true, aceHigh: true }, SD.read(LS, null) || {});
+    const old = SD.read(OLD, null) || {}, keep = {};
+    ['h17', 'das', 'peek'].forEach(k => { if (typeof old[k] === 'boolean') keep[k] = old[k]; });
+    let P = Object.assign({ h17: false, das: true, peek: true }, keep, SD.read(LS, null) || {});
     const save = () => SD.write(LS, P);
-    const M = { on: false, tgt: 'd', d: [], p: [], hl: null };   // manual entry (not saved)
-    let rulesOpen = false, shown = null, last = '', misses = 0, dumped = false, readCount = '';
-    let sawTurn = false, wasOver = false;   // sawTurn: this page has shown its play buttons at least once; wasOver: the round was over on the last look
+    const M = { on: false, tgt: 'd', d: [], p: [] };   // manual entry (not saved)
+    let rulesOpen = false, last = '', misses = 0, dumped = false, readCount = '', sawTurn = false, wasOver = false, active = false;
 
     ctx.css(CSS);
     const box = document.createElement('div');
     box.id = 'csh';
 
     // ----- what the page (or the manual keypad) says right now -----
-    function readState(game) {
-      // is a round being played? Over = the play buttons (Hit/Stand, Higher/Lower) were seen on this page and none is enabled now
-      const b = readButtons(), keys = game === 'highlow' ? ['U', 'L'] : ['H', 'S'];
+    function readState() {
+      // is a round being played? Over = the play buttons (Hit / Stand) were seen on this page and none is enabled now
+      const b = readButtons(), keys = ['H', 'S'];
       if (keys.some(k => b.on.has(k) || b.blocked.has(k))) sawTurn = true;
-      const turn = keys.some(k => b.on.has(k));
-      const over = sawTurn && !turn;
-      if (over !== wasOver) { wasOver = over; if (over) { M.d = []; M.p = []; M.hl = null; } }   // round just ended: forget the cards typed in
-      if (M.on) {
-        if (game === 'highlow') return { game, src: 'manual', cur: M.hl };
-        return { game, src: 'manual', dealer: M.d.slice(0, 1), hand: M.p.slice(), extraDealer: Math.max(0, M.d.length - 1), blocked: b.blocked };
-      }
-      if (over) return { game, src: 'idle' };
+      const turn = keys.some(k => b.on.has(k)), over = sawTurn && !turn;
+      if (over !== wasOver) { wasOver = over; if (over) { M.d = []; M.p = []; } }   // round just ended: forget the cards typed in
+      if (M.on) return { src: 'manual', dealer: M.d.slice(0, 1), hand: M.p.slice(), extraDealer: Math.max(0, M.d.length - 1), blocked: b.blocked };
+      if (over) return { src: 'idle' };
       const cards = readCards();
-      if (!cards.length) return { game, src: 'none' };
-      if (game === 'highlow') {
-        const pk = pickDealer(cards);
-        return { game, src: 'page', cur: pk.r, count: cards.length, sig: describe(cards, pk) };
-      }
+      if (!cards.length) return { src: 'none' };
       const vis = cards.filter(c => c.shown), sp = split2(vis.length ? vis : cards), hs = hands(sp.player);
-      if (sp.dealer.length > 1 && !turn) return { game, src: 'idle' };   // dealer turned his second card and you cannot act: round over
+      if (sp.dealer.length > 1 && !turn) return { src: 'idle' };   // dealer turned his second card and you cannot act: round over
       const h = hs.list[hs.active] || [];
       return {
-        game, src: 'page',
+        src: 'page',
         dealer: sp.dealer.slice(0, 1).map(c => c.r),
         extraDealer: Math.max(0, sp.dealer.length - 1),
         hand: h.map(c => c.r),
@@ -4015,17 +4355,6 @@ try {
       return h + '</div>';
     }
 
-    function renderHL(s) {
-      if (!s.cur) return '<div class="bd"><span class="dim">' + (s.src === 'manual' ? 'Tap the dealer card.' : 'Waiting for the dealer card...') + '</span></div>';
-      const r = highLow(s.cur, P), top = r.pick === 'Higher' ? r.higher : r.lower;
-      const row = (k, v, best) => '<div class="hl' + (best ? ' n' : '') + '"><span class="k">' + k + '</span><div class="t"><i style="width:' + v * 100 + '%"></i></div><span class="v ' + (best ? cls(v) : 'dim') + '">' + pc(v) + '%</span></div>';
-      return '<div class="bd"><div class="big ' + cls(top) + '">' + r.pick.toUpperCase() + '<small>' + pc(top) + '% \u00b7 dealer ' + RL[s.cur] + '</small></div>' +
-        '<div style="margin-top:6px">' + row('Higher', r.higher, r.pick === 'Higher') + row('Lower', r.lower, r.pick === 'Lower') + '</div>' +
-        '<div class="why dim">Same rank: ' + pc(r.tie) + '%' + (P.aceHigh ? ' \u00b7 ace = high' : ' \u00b7 ace = low') + '</div>' +
-        (top < 0.5 ? '<div class="nt">Under 50%: if the game lets you take your winnings now, that is the safer move.</div>' : '') +
-        '</div>';
-    }
-
     function renderNone() {
       return '<div class="bd"><span class="dim">Cards not found on this page yet.</span></div>';
     }
@@ -4034,26 +4363,20 @@ try {
       return '<div class="bd"><span class="dim">Waiting for the next round...</span></div>';
     }
 
+
     function render(s) {
-      const bj = s.game === 'blackjack';
-      let h = '<div class="hd"><b>Casino helper</b><span class="dim">' + (bj ? 'Blackjack' : 'High-Low') + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
-      h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : bj ? renderBJ(s) : renderHL(s);
+      const sg = (k, la, lb) => '<div class="seg"><button data-s="' + k + '" data-v="0" class="' + (!P[k] ? 'on' : '') + '">' + la + '</button><button data-s="' + k + '" data-v="1" class="' + (P[k] ? 'on' : '') + '">' + lb + '</button></div>';
+      let h = '<div class="hd"><b>Casino helper</b><span class="dim">Blackjack' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
+      h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : renderBJ(s);
       h += '<div class="ft"><button data-a="man" class="' + (M.on ? 'on' : '') + '">Manual</button><button data-a="rules">Rules ' + (rulesOpen ? '\u25b2' : '\u25bc') + '</button></div>';
       if (M.on) {
         const chips = a => a.length ? a.map(r => RL[r]).join(' ') : '-';
-        h += '<div class="pn">';
-        if (bj) h += '<div class="mh"><button data-t="d" class="' + (M.tgt === 'd' ? 'on' : '') + '">Dealer</button><span>' + chips(M.d.slice(0, 1)) + '</span></div>' +
-          '<div class="mh"><button data-t="p" class="' + (M.tgt === 'p' ? 'on' : '') + '">You</button><span>' + chips(M.p) + '</span></div>';
-        h += '<div class="kp">';
+        h += '<div class="pn"><div class="mh"><button data-t="d" class="' + (M.tgt === 'd' ? 'on' : '') + '">Dealer</button><span>' + chips(M.d.slice(0, 1)) + '</span></div>' +
+          '<div class="mh"><button data-t="p" class="' + (M.tgt === 'p' ? 'on' : '') + '">You</button><span>' + chips(M.p) + '</span></div><div class="kp">';
         for (let r = 1; r <= 13; r++) h += '<button data-r="' + r + '">' + RL[r] + '</button>';
         h += '<button data-a="undo">\u232b</button></div><div class="mh" style="margin-top:6px"><button data-a="clear" style="flex:1">Clear</button></div></div>';
       }
-      if (rulesOpen) {
-        const sg = (k, a, b, la, lb) => '<div class="seg"><button data-s="' + k + '" data-v="0" class="' + (!P[k] ? 'on' : '') + '">' + la + '</button><button data-s="' + k + '" data-v="1" class="' + (P[k] ? 'on' : '') + '">' + lb + '</button></div>';
-        h += '<div class="pn">' +
-          (bj ? '<label>Dealer on soft 17</label>' + sg('h17', 0, 1, 'Stands', 'Hits') + '<label>Double after split</label>' + sg('das', 0, 1, 'No', 'Yes') + '<label>Dealer checks for blackjack</label>' + sg('peek', 0, 1, 'No', 'Yes')
-            : '<label>Ace counts as</label>' + sg('aceHigh', 0, 1, 'Low', 'High')) + '</div>';
-      }
+      if (rulesOpen) h += '<div class="pn"><label>Dealer on soft 17</label>' + sg('h17', 'Stands', 'Hits') + '<label>Double after split</label>' + sg('das', 'No', 'Yes') + '<label>Dealer checks for blackjack</label>' + sg('peek', 'No', 'Yes') + '</div>';
       box.innerHTML = h;
     }
 
@@ -4064,13 +4387,12 @@ try {
       const d = b.dataset;
       if (d.a === 'man') { M.on = !M.on; last = ''; }
       else if (d.a === 'rules') { rulesOpen = !rulesOpen; last = ''; }
-      else if (d.a === 'clear') { M.d = []; M.p = []; M.hl = null; last = ''; }
-      else if (d.a === 'undo') { if (shown === 'highlow') M.hl = null; else (M.tgt === 'd' ? M.d : M.p).pop(); last = ''; }
+      else if (d.a === 'clear') { M.d = []; M.p = []; last = ''; }
+      else if (d.a === 'undo') { (M.tgt === 'd' ? M.d : M.p).pop(); last = ''; }
       else if (d.t) { M.tgt = d.t; last = ''; }
       else if (d.r) {
         const r = parseInt(d.r, 10);
-        if (shown === 'highlow') M.hl = r;
-        else if (M.tgt === 'd') M.d = [r];
+        if (M.tgt === 'd') M.d = [r];
         else if (M.p.length < 8) M.p.push(r);
         last = '';
       } else if (d.s) { P[d.s] = d.v === '1'; save(); last = ''; }
@@ -4091,27 +4413,26 @@ try {
     function tick(force) {
       if (document.hidden && force !== true) return;
       const sid = (new URLSearchParams(location.search).get('sid') || '').toLowerCase();
-      const game = sid === 'blackjack' || sid === 'highlow' ? sid : null;
-      if (!game) { if (box.isConnected) box.remove(); shown = null; return; }
-      if (game !== shown) { shown = game; last = ''; misses = 0; dumped = false; sawTurn = false; wasOver = false; SD.log('casino', 'page: ' + game); }
+      if (sid !== 'blackjack') { if (box.isConnected) box.remove(); active = false; return; }
+      if (!active) { active = true; last = ''; misses = 0; dumped = false; sawTurn = false; wasOver = false; SD.log('blackjack', 'page: blackjack'); }
       mount();
-      const s = readState(game);
+      const s = readState();
       if (s.src === 'none') {
         misses++;
         if (misses >= 4 && !dumped) {
           dumped = true;
           const sample = [];
           document.querySelectorAll('[class*="card" i]').forEach(el => { if (sample.length < 8 && !mine(el)) sample.push(el.tagName.toLowerCase() + '.' + String(typeof el.className === 'string' ? el.className : '').trim().replace(/\s+/g, '.').slice(0, 70)); });
-          SD.log('casino', 'no cards read. card-like elements: ' + (sample.join(' | ') || 'none'), 'w');
+          SD.log('blackjack', 'no cards read. card-like elements: ' + (sample.join(' | ') || 'none'), 'w');
         }
       } else misses = 0;
-      const key = JSON.stringify([game, s.src, s.cur, s.dealer, s.extraDealer, s.hand, s.multi, s.blocked ? Array.from(s.blocked).sort() : null, s.sig, M.on, M.tgt, rulesOpen, P]);
+      const key = JSON.stringify([s.src, s.dealer, s.extraDealer, s.hand, s.multi, s.blocked ? Array.from(s.blocked).sort() : null, M.on, M.tgt, rulesOpen, P]);
       if (key === last) return;
       last = key;
       if (s.src !== 'none') {
-        const line = s.src === 'idle' ? 'round over: panel reset' : game === 'highlow' ? 'highlow dealer=' + (s.cur ? RL[s.cur] : '?') + ' (' + (s.count || 1) + ' on page, ' + s.src + ')' + (s.sig ? ' [' + s.sig + ']' : '')
+        const line = s.src === 'idle' ? 'round over: panel reset'
           : 'blackjack dealer=' + (s.dealer && s.dealer.length ? s.dealer.map(r => RL[r]) : '?') + ' you=' + (s.hand && s.hand.length ? s.hand.map(r => RL[r]).join(',') : '?') + ' greyed=' + (s.blocked && s.blocked.size ? Array.from(s.blocked).join('') : '-') + ' (' + s.src + ')';
-        if (line !== readCount) { readCount = line; SD.log('casino', line); }
+        if (line !== readCount) { readCount = line; SD.log('blackjack', line); }
       }
       render(s);
     }
@@ -4123,17 +4444,487 @@ try {
   }
 
   SD.feature({
-    id: 'casinohelper',
-    label: 'Casino Helper',
-    where: 'Casino (High-Low, Blackjack)',
-    info: 'Win chance and the best next move for High-Low and Blackjack. Reads the page, never clicks.',
+    id: 'blackjack',
+    was: 'casinohelper',   // starts out with the switch of the old combined Casino Helper
+    group: 'Casino',
+    label: 'Blackjack',
+    where: 'Casino (Blackjack)',
+    info: 'Win chance and the best next move (Stand, Hit, Double, Split). Reads the page, never clicks.',
     match: /^\/page\.php$/,
     start,
-    engine: { parseCard, highLow, analyze, dealerDist, pickDealer }   // exposed for tests only
+    engine: { parseCard, analyze, dealerDist }   // exposed for tests only
   });
 })();
 
-} catch (e) { console.error('Speed Dial: features/casinohelper.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/casinohelper.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+} catch (e) { console.error('Speed Dial: features/blackjack.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/blackjack.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+
+try {
+// Speed Dial feature: Poker v0.1.0
+// Casino Texas Hold'em (page.php?sid=holdem): your chance to win against random hands, your outs, and whether a call pays off.
+// Reads only the cards the page shows. It NEVER clicks anything and uses no API. Switch it on or off in Settings > Features.
+//   - Win / tie / lose chance by playing the hand out 2,500 times against the number of opponents set in Rules (random hands, so it flatters
+//     your hand a little: real opponents who stay in usually hold more than random cards). The rating compares it with a fair share (1 / players).
+//   - Outs (flop and turn): unseen cards that lift your hand to a better type than before AND than the board alone, with the chance to hit.
+//   - Pot odds: type the pot (with their bet) and the amount to call; you see the equity you need against the equity you have.
+//   - Your two cards and the board are told apart by name (hero / community ancestors) and, failing that, by position (a row of 3+ cards is the board).
+//   - Manual mode: tap rank then suit yourself if the page markup is not recognised. Settings > Terminal lists every card it saw (rank+suit/role@x,y).
+//   - The number of opponents is saved under speedDial.poker1.
+(function () {
+  'use strict';
+  const SD = window.SpeedDial;
+  if (!SD) return;
+
+  const LS = 'speedDial.poker1';
+  const TRIALS = 2500;
+
+  // ---------- cards ----------
+  const RL = [null, 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];   // rank 1..13
+
+  const RK = '13|12|11|10|[1-9]|[ajqk]|ace|king|queen|jack|ten';
+  const SU = 'hearts?|diamonds?|spades?|clubs?';
+  const RA = new RegExp('(?:^|[\\s_\\-./])(' + SU + ')[\\s_\\-.]*(' + RK + ')(?![a-z0-9])', 'i');                       // hearts-10, spades_A, clubs K
+  const RB = new RegExp('(?:^|[\\s_\\-./])(' + RK + ')[\\s_\\-.]*(?:of[\\s_\\-.]*)?(' + SU + ')(?![a-z])', 'i');         // 7 of hearts, 10-spades
+  const WORD = { a: 1, ace: 1, j: 11, jack: 11, q: 12, queen: 12, k: 13, king: 13, ten: 10 };
+  const SYM = { '\u2660': 's', '\u2665': 'h', '\u2666': 'd', '\u2663': 'c' };
+  const rankOf = s => { s = String(s).toLowerCase(); return WORD[s] || parseInt(s, 10) || 0; };
+
+  // el needs: className, getAttribute(), textContent. Returns { r: 1..13, s: suit letter c/d/h/s or '?' } or null.
+  function parseCard(el) {
+    const cn = el.className && typeof el.className === 'object' ? (el.className.baseVal || '') : (el.className || '');
+    const g = n => (el.getAttribute && el.getAttribute(n)) || '';
+    const src = String(g('src')).split('/').pop();
+    // every attribute is tested on its own: joining them could glue a suit from one onto a rank from another
+    const fields = [cn, g('aria-label'), g('alt'), g('title'), g('data-card'), (g('data-rank') + ' ' + g('data-suit')).trim(), src];
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      if (!f) continue;
+      let m = RA.exec(f);
+      if (m) { const r = rankOf(m[2]); if (r >= 1 && r <= 13) return { r, s: m[1][0].toLowerCase() }; }
+      m = RB.exec(f);
+      if (m) { const r = rankOf(m[1]); if (r >= 1 && r <= 13) return { r, s: m[2][0].toLowerCase() }; }
+    }
+    const tx = String(el.textContent || '').trim();
+    if (tx.length && tx.length <= 4) {
+      const m = /^(10|[2-9]|[AJQK])\s*([\u2660\u2665\u2666\u2663])$/.exec(tx) || /^([\u2660\u2665\u2666\u2663])\s*(10|[2-9]|[AJQK])$/.exec(tx);
+      if (m) {
+        const sym = SYM[m[1]] ? m[1] : m[2], rk = sym === m[1] ? m[2] : m[1], r = rankOf(rk);
+        if (r) return { r, s: SYM[sym] };
+      }
+    }
+    return null;
+  }
+
+
+  // ---------- poker maths ----------
+  // a card is one number: rank (2..14, ace = 14) * 4 + suit (0 clubs, 1 diamonds, 2 hearts, 3 spades)
+  const SUITS = 'cdhs';
+  const SYMS = ['\u2663', '\u2666', '\u2665', '\u2660'];
+  const RLC = [null, null, '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+  const HANDS = ['High card', 'Pair', 'Two pair', 'Three of a kind', 'Straight', 'Flush', 'Full house', 'Four of a kind', 'Straight flush'];
+  const toCode = c => { const s = SUITS.indexOf(c.s); return s < 0 ? null : (c.r === 1 ? 14 : c.r) * 4 + s; };
+  const CAT = 759375;   // 15^5: score = category * CAT + kickers
+
+  const CNT = new Int8Array(15), SCN = new Int8Array(4), SMK = new Int32Array(4);
+  const pack = (c, a, b, d, e, f) => ((((c * 15 + (a || 0)) * 15 + (b || 0)) * 15 + (d || 0)) * 15 + (e || 0)) * 15 + (f || 0);
+
+  function straightTop(mask) {   // bit r = rank r (2..14); the ace also counts low. Returns the top rank of the best straight, or 0
+    if (mask & 16384) mask |= 2;
+    for (let h = 14; h >= 5; h--) { const need = 31 << (h - 4); if ((mask & need) === need) return h; }
+    return 0;
+  }
+  function kick(x1, x2, n) {   // the n highest ranks present that are not x1 / x2
+    const k = [];
+    for (let r = 14; r >= 2 && k.length < n; r--) if (CNT[r] && r !== x1 && r !== x2) k.push(r);
+    return k;
+  }
+
+  // best 5-card hand out of the first n cards (n = 2..7); a higher number is a better hand, equal numbers tie
+  function score(a, n) {
+    CNT.fill(0); SCN.fill(0); SMK.fill(0);
+    let all = 0;
+    for (let i = 0; i < n; i++) { const r = a[i] >> 2, s = a[i] & 3; CNT[r]++; SCN[s]++; SMK[s] |= 1 << r; all |= 1 << r; }
+    let fs = -1;
+    for (let s = 0; s < 4; s++) if (SCN[s] >= 5) fs = s;
+    if (fs >= 0) { const t = straightTop(SMK[fs]); if (t) return pack(8, t); }
+    let quad = 0, t1 = 0, t2 = 0, p1 = 0, p2 = 0;
+    for (let r = 14; r >= 2; r--) {
+      const c = CNT[r];
+      if (c === 4) quad = r;
+      else if (c === 3) { if (!t1) t1 = r; else if (!t2) t2 = r; }
+      else if (c === 2) { if (!p1) p1 = r; else if (!p2) p2 = r; }
+    }
+    if (quad) return pack(7, quad, kick(quad, 0, 1)[0]);
+    if (t1 && (t2 || p1)) return pack(6, t1, t2 > p1 ? t2 : p1);
+    if (fs >= 0) { const f = []; for (let r = 14; r >= 2 && f.length < 5; r--) if (SMK[fs] & (1 << r)) f.push(r); return pack(5, f[0], f[1], f[2], f[3], f[4]); }
+    const st = straightTop(all);
+    if (st) return pack(4, st);
+    if (t1) { const k = kick(t1, 0, 2); return pack(3, t1, k[0], k[1]); }
+    if (p2) { const k = kick(p1, p2, 1); return pack(2, p1, p2, k[0]); }
+    if (p1) { const k = kick(p1, 0, 3); return pack(1, p1, k[0], k[1], k[2]); }
+    const k = kick(0, 0, 5);
+    return pack(0, k[0], k[1], k[2], k[3], k[4]);
+  }
+  const catOf = (a, n) => Math.floor(score(a, n) / CAT);
+
+  // play the hand out `trials` times: random board for what is missing, random hands for `opp` opponents
+  function equity(hand, board, opp, trials) {
+    const used = new Set(hand.concat(board)), deck = [];
+    for (let r = 2; r <= 14; r++) for (let s = 0; s < 4; s++) { const c = r * 4 + s; if (!used.has(c)) deck.push(c); }
+    const miss = 5 - board.length, need = miss + 2 * opp, n = deck.length;
+    if (hand.length !== 2 || miss < 0 || need > n) return null;
+    const mine = new Int32Array(7), oth = new Int32Array(7);
+    mine[0] = hand[0]; mine[1] = hand[1]; oth[2] = 0;
+    let win = 0, tie = 0, share = 0;
+    for (let t = 0; t < trials; t++) {
+      for (let j = 0; j < need; j++) { const k = j + Math.floor(Math.random() * (n - j)), x = deck[j]; deck[j] = deck[k]; deck[k] = x; }
+      for (let j = 0; j < 5; j++) { const c = j < board.length ? board[j] : deck[j - board.length]; mine[2 + j] = c; oth[2 + j] = c; }
+      const ms = score(mine, 7);
+      let best = -1, same = 0;
+      for (let o = 0; o < opp; o++) {
+        oth[0] = deck[miss + 2 * o]; oth[1] = deck[miss + 2 * o + 1];
+        const sc = score(oth, 7);
+        if (sc > best) { best = sc; same = 1; } else if (sc === best) same++;
+      }
+      if (ms > best) { win++; share += 1; } else if (ms === best) { tie++; share += 1 / (same + 1); }
+    }
+    return { win: win / trials, tie: tie / trials, eq: share / trials };
+  }
+
+  function preName(h) {
+    let a = h[0] >> 2, b = h[1] >> 2;
+    const su = (h[0] & 3) === (h[1] & 3);
+    if (a < b) { const t = a; a = b; b = t; }
+    return a === b ? 'Pocket ' + RLC[a] + RLC[a] : RLC[a] + ' ' + RLC[b] + (su ? ' suited' : ' offsuit');
+  }
+
+  // everything the panel shows for one situation
+  function analyze(hand, board, opp, trials) {
+    const q = equity(hand, board, opp, trials || TRIALS);
+    if (!q) return null;
+    const out = { opp, win: q.win, tie: q.tie, lose: Math.max(0, 1 - q.win - q.tie), eq: q.eq };
+    const all = hand.concat(board);
+    if (board.length >= 3) { out.cat = catOf(all, all.length); out.name = HANDS[out.cat]; } else out.name = preName(hand);
+    const ratio = out.eq * (opp + 1);   // 1 = exactly a fair share
+    out.rate = ratio >= 1.8 ? 'STRONG' : ratio >= 1.2 ? 'GOOD' : ratio >= 0.85 ? 'FAIR' : 'WEAK';
+    if ((board.length === 3 || board.length === 4) && out.cat < 6) {
+      const used = new Set(all);
+      let n = 0, left = 0;
+      for (let r = 2; r <= 14; r++) for (let s = 0; s < 4; s++) {
+        const c = r * 4 + s;
+        if (used.has(c)) continue;
+        left++;
+        const nb = board.concat([c]), a = hand.concat(nb);
+        const cat = catOf(a, a.length);
+        if (cat > out.cat && cat > catOf(nb, nb.length)) n++;   // better than before, and not just the board improving for everybody
+      }
+      if (n) { out.outs = n; out.hit = n / left; out.river = board.length === 3 ? 1 - ((left - n) * (left - n - 1)) / (left * (left - 1)) : n / left; }
+    }
+    return out;
+  }
+
+  // ---------- page reading ----------
+  const SEL = '[class*="hearts" i],[class*="diamonds" i],[class*="spades" i],[class*="clubs" i],[class*="heart-" i],[class*="spade-" i],[class*="club-" i],[class*="diamond-" i],' +
+    '[class*="card" i],img[alt],[aria-label],[data-card],[title]';
+  const mine = el => !!el.closest('#csh, #sdial');
+  const seen = el => !!(el.getClientRects && el.getClientRects().length);
+
+  const BACKS = /^(back|facedown|face-down|cardback|card-back)$/i;   // class token of a card lying face down
+  const faceDown = el => String(typeof el.className === 'string' ? el.className : '').split(/\s+/).some(t => BACKS.test(t));
+
+  function shown(el) {   // really on screen: has a size, not hidden, not (almost) transparent
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return false;
+    for (let n = el, i = 0; n && n.nodeType === 1 && i < 6; i++, n = n.parentElement) {
+      let cs;
+      try { cs = getComputedStyle(n); } catch (e) { break; }
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.1) return false;
+    }
+    return true;
+  }
+
+
+  function onTop(el) {   // nothing unrelated is painted over the middle of the card (an old card under a new one, a flipped-away face)
+    const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return true;   // cannot test off screen
+    const hit = document.elementFromPoint(x, y);
+    return !hit || el.contains(hit) || hit.contains(el) || mine(hit);
+  }
+
+  const BOARDRE = /community|board|flop|river|table-?cards|(^|[^a-z])turn([^a-z]|$)/i;
+  const HERORE = /hero|(^|[^a-z])(self|you|your|my|mine)([^a-z]|$)/i;
+
+  function roleOf(el) {   // 'b' = board, 'h' = your hand, from the names of its ancestors
+    let n = el;
+    for (let i = 0; n && n !== document.body && i < 7; i++, n = n.parentElement) {
+      const id = (n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : '');
+      if (BOARDRE.test(id)) return 'b';
+      if (HERORE.test(id)) return 'h';
+    }
+    return null;
+  }
+
+  function readCards() {
+    const root = document.querySelector('.content-wrapper') || document;   // the game only: not Torn's sidebar, chat or header
+    const list = [];
+    root.querySelectorAll(SEL).forEach(el => {
+      if (mine(el) || !seen(el) || faceDown(el)) return;
+      const c = parseCard(el);
+      if (c) list.push({ el, r: c.r, s: c.s });
+    });
+    const inner = list.filter(a => !list.some(b => b !== a && a.el.contains(b.el)));   // innermost element of each card only
+    inner.forEach((c, i) => {
+      const b = c.el.getBoundingClientRect();
+      c.i = i; c.x = b.left + b.width / 2; c.y = b.top + b.height / 2; c.h = b.height;
+      c.shown = shown(c.el); c.top = c.shown && onTop(c.el); c.role = roleOf(c.el);
+    });
+    return inner;
+  }
+
+  function rowsOf(arr) {   // cards that sit on the same line
+    const out = [];
+    arr.slice().sort((a, b) => a.y - b.y).forEach(c => {
+      const r = out[out.length - 1];
+      if (r && Math.abs(c.y - r.y) <= 0.5 * (c.h || 60)) r.cs.push(c); else out.push({ y: c.y, cs: [c] });
+    });
+    return out;
+  }
+  const pickBoard = arr => {   // the fullest row of 3+ cards
+    const rs = rowsOf(arr).filter(r => r.cs.length >= 3);
+    return rs.length ? rs.reduce((x, r) => (r.cs.length > x.cs.length ? r : x), rs[0]).cs : [];
+  };
+  const pickHand = arr => {    // a row of at most 2 cards, the lowest one on the screen
+    const rs = rowsOf(arr).filter(r => r.cs.length <= 2);
+    return rs.length ? rs.reduce((x, r) => (r.y > x.y ? r : x), rs[0]).cs : [];
+  };
+
+  function splitPoker(cards) {
+    const vis = cards.filter(c => c.shown), list = vis.length ? vis : cards;
+    const byX = (a, b) => a.x - b.x;
+    let hand = list.filter(c => c.role === 'h').sort(byX).slice(0, 2), board = list.filter(c => c.role === 'b').sort(byX).slice(0, 5);
+    const rest = list.filter(c => !c.role);
+    if (!board.length) board = pickBoard(rest).sort(byX).slice(0, 5);
+    if (!hand.length) hand = pickHand(rest.filter(c => board.indexOf(c) < 0)).sort(byX).slice(0, 2);
+    return { hand, board };
+  }
+
+
+  // ---------- UI ----------
+  const CSS = `
+    #csh,#csh *{box-sizing:border-box;font-family:inherit}
+    #csh{max-width:100%;margin:10px 0 0;width:100%;font-size:12px;line-height:1.4;color:#ccc;text-align:left;font-weight:400}
+    #csh button{font-family:inherit;font-size:12px;font-weight:400;cursor:pointer;touch-action:manipulation}
+    #csh .hd{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:linear-gradient(to bottom,#454545,#363636);border-top:1px solid #555;border-bottom:1px solid #1c1c1c}
+    #csh .hd b{color:#fff;font-size:13px;font-weight:700}
+    #csh .bd{padding:10px 12px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
+    #csh .big{font-size:22px;font-weight:700;letter-spacing:.02em;line-height:1.1}
+    #csh .big small{font-size:12px;font-weight:400;color:#999;letter-spacing:0;margin-left:6px}
+    #csh .bar{display:flex;height:8px;margin:8px 0 4px;border-radius:4px;overflow:hidden;background:#161616}
+    #csh .bar i{display:block;height:100%}
+    #csh .bar .w{background:#85b200}#csh .bar .p{background:#777}#csh .bar .l{background:#e0584a}
+    #csh .lg{display:flex;justify-content:space-between;color:#999}
+    #csh .why{margin-top:6px;color:#bbb}
+    #csh .nt{margin-top:6px;color:#d9a441}
+    #csh .ok{color:#85b200}#csh .warn{color:#d9a441}#csh .bad{color:#e0584a}#csh .dim{color:#999}
+    #csh .ft{display:flex;gap:6px;padding:8px 12px 10px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
+    #csh .ft button,#csh .opt button{flex:1;height:30px;border:1px solid #1a1a1a;border-radius:4px;color:#ccc;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f)}
+    #csh .ft button.on{color:#fff;box-shadow:inset 0 -2px 0 #85b200}
+    #csh .pn{padding:2px 12px 10px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
+    #csh .pn label{display:block;margin:8px 0 4px;font-size:11px;color:#888}
+    #csh .seg{display:flex}
+    #csh .seg button{flex:1;height:30px;border:1px solid #1a1a1a;margin-left:-1px;color:#bbb;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f)}
+    #csh .seg button:first-child{margin-left:0;border-radius:4px 0 0 4px}
+    #csh .seg button:last-child{border-radius:0 4px 4px 0}
+    #csh .seg button.on{color:#fff;background:linear-gradient(to bottom,#555,#444);box-shadow:inset 0 -2px 0 #85b200}
+    #csh .kp{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:6px}
+    #csh .kp button{height:32px;border:1px solid #1a1a1a;border-radius:4px;color:#ddd;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f);padding:0}
+    #csh .mh{display:flex;align-items:center;gap:8px;padding:4px 0}
+    #csh .mh button{flex:none;min-width:64px;height:28px;border:1px solid #1a1a1a;border-radius:4px;color:#bbb;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f)}
+    #csh .mh button.on{color:#fff;box-shadow:inset 0 -2px 0 #85b200}
+    #csh .mh span{flex:1;min-width:0;color:#fff;font-weight:700;letter-spacing:.04em}
+    #csh.fx{position:fixed;left:0;right:0;bottom:0;z-index:99998;margin:0}
+    #csh .po{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
+    #csh .po input{flex:1;min-width:0;width:70px;height:28px;border:1px solid #1a1a1a;border-radius:4px;background:#1c1c1c;color:#ddd;padding:0 8px;font-size:12px}
+    #csh .po .pv{flex:0 0 100%}
+    #csh .rd{color:#e0584a}
+    #csh .seg button.rd{color:#e0584a}
+  `;
+
+
+  const pc = x => Math.round(x * 100);
+  const num = v => parseFloat(String(v).replace(/[^0-9.]/g, '')) || 0;
+  const cardsHtml = codes => codes.map(c => '<span class="' + (((c & 3) === 1 || (c & 3) === 2) ? 'rd' : '') + '">' + RLC[c >> 2] + SYMS[c & 3] + '</span>').join(' ');
+  const txt = codes => codes.map(c => RLC[c >> 2] + SYMS[c & 3]).join(' ');
+
+  function start(ctx) {
+    let P = Object.assign({ opp: 3 }, SD.read(LS, null) || {});
+    if (!(P.opp >= 1 && P.opp <= 8)) P.opp = 3;
+    const save = () => SD.write(LS, P);
+    const M = { on: false, tgt: 'h', pr: 0, ps: '', h: [], b: [] };   // manual entry (not saved)
+    let rulesOpen = false, last = '', misses = 0, dumped = false, readCount = '', active = false, ckey = '', R = null;
+
+    ctx.css(CSS);
+    const box = document.createElement('div');
+    box.id = 'csh';
+    box.innerHTML = '<div class="hd"></div><div class="rs"></div>' +
+      '<div class="po" style="display:none"><span class="dim">Pot</span><input class="ip" inputmode="decimal" placeholder="pot with bets"><span class="dim">Call</span><input class="ic" inputmode="decimal" placeholder="to call"><div class="pv"></div></div>' +
+      '<div class="ft"><button data-a="man">Manual</button><button data-a="rules"></button></div><div class="mp"></div><div class="ru"></div>';
+    const q = s => box.querySelector(s), hd = q('.hd'), rs = q('.rs'), po = q('.po'), ip = q('.ip'), ic = q('.ic'), pv = q('.pv'), bMan = q('[data-a="man"]'), bRules = q('[data-a="rules"]'), mp = q('.mp'), ru = q('.ru');
+
+    // ----- what the page (or the manual keypad) says right now -----
+    function readState() {
+      if (M.on) return { src: 'manual', hand: M.h.slice(), board: M.b.slice() };
+      const cards = readCards();
+      if (!cards.length) return { src: 'none' };
+      const sp = splitPoker(cards), hand = [], board = [];
+      let bad = false;
+      const add = (list, c) => { const x = toCode(c); if (x === null) bad = true; else if (hand.indexOf(x) < 0 && board.indexOf(x) < 0) list.push(x); };
+      sp.hand.forEach(c => add(hand, c));
+      sp.board.forEach(c => add(board, c));
+      return { src: 'page', hand, board, bad, count: cards.length, sig: cards.slice(0, 9).map(c => RL[c.r] + c.s + '/' + (c.role || '-') + (c.shown ? '' : '!hid') + (c.shown && !c.top ? '!cov' : '') + '@' + Math.round(c.x) + ',' + Math.round(c.y)).join(' ') };
+    }
+
+    // ----- drawing -----
+    const bar = (w, p, l) => '<div class="bar"><i class="w" style="width:' + w * 100 + '%"></i><i class="p" style="width:' + p * 100 + '%"></i><i class="l" style="width:' + l * 100 + '%"></i></div>';
+    const wait = t => '<div class="bd"><span class="dim">' + t + '</span></div>';
+
+    function solve(hand, board) {
+      const k = hand.join(',') + '|' + board.join(',') + '|' + P.opp;
+      if (k !== ckey) { ckey = k; R = analyze(hand, board, P.opp); }
+      return R;
+    }
+
+    function renderBody(s) {
+      if (s.src === 'none') return wait('Waiting for your cards...');
+      if (s.bad) return wait('Suits are not readable on this page. Use Manual.');
+      if (s.hand.length < 2) return wait(s.src === 'manual' ? 'Tap your two cards.' : 'Waiting for your two cards...');
+      const a = solve(s.hand, s.board);
+      if (!a) return wait('Cannot work this out (too many cards).');
+      const c = a.rate === 'WEAK' ? 'bad' : a.rate === 'FAIR' ? 'warn' : 'ok';
+      let h = '<div class="bd"><div class="big ' + c + '">' + a.rate + '<small>' + pc(a.eq) + '% equity \u00b7 ' + a.name + '</small></div>' + bar(a.win, a.tie, a.lose) +
+        '<div class="lg"><span class="ok">Win ' + pc(a.win) + '%</span><span>Tie ' + pc(a.tie) + '%</span><span class="bad">Lose ' + pc(a.lose) + '%</span></div>' +
+        '<div class="why">You ' + cardsHtml(s.hand) + (s.board.length ? ' \u00b7 Board ' + cardsHtml(s.board) : ' \u00b7 before the flop') + '</div>';
+      if (a.outs) h += '<div class="why">Outs: ' + a.outs + ' \u00b7 ' + pc(a.hit) + '% next card' + (s.board.length === 3 ? ' \u00b7 ' + pc(a.river) + '% by the river' : '') + '</div>';
+      return h + '<div class="why dim">vs ' + a.opp + ' random hand' + (a.opp > 1 ? 's' : '') + ' (set the number in Rules)</div></div>';
+    }
+
+    function updatePot() {
+      const pot = num(ip.value), call = num(ic.value);
+      if (!R || !(call > 0)) { pv.innerHTML = '<span class="dim">Type the pot and the amount to call.</span>'; return; }
+      const need = call / (pot + call), ok = R.eq >= need;
+      pv.innerHTML = '<span class="' + (ok ? 'ok' : 'bad') + '">' + (ok ? 'Calling pays off' : 'Calling loses money') + '</span> <span class="dim">you need ' + pc(need) + '%, you have ' + pc(R.eq) + '%</span>';
+    }
+
+    function render(s) {
+      hd.innerHTML = '<b>Casino helper</b><span class="dim">Poker' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span>';
+      rs.innerHTML = renderBody(s);
+      const ready = s.src !== 'none' && !s.bad && s.hand.length === 2 && !!R;
+      if (!ready) R = null;
+      po.style.display = ready ? '' : 'none';
+      if (ready) updatePot();
+      bMan.classList.toggle('on', M.on);
+      bRules.textContent = 'Rules ' + (rulesOpen ? '\u25b2' : '\u25bc');
+      let h = '';
+      if (M.on) {
+        h += '<div class="pn"><div class="mh"><button data-t="h" class="' + (M.tgt === 'h' ? 'on' : '') + '">Hand</button><span>' + (M.h.length ? cardsHtml(M.h) : '-') + '</span></div>' +
+          '<div class="mh"><button data-t="b" class="' + (M.tgt === 'b' ? 'on' : '') + '">Board</button><span>' + (M.b.length ? cardsHtml(M.b) : '-') + '</span></div><div class="kp">';
+        for (let r = 1; r <= 13; r++) h += '<button data-r="' + r + '" class="' + (M.pr === r ? 'on' : '') + '">' + RL[r] + '</button>';
+        h += '<button data-a="undo">\u232b</button></div><div class="seg" style="margin-top:6px">';
+        SUITS.split('').forEach((su, i) => { h += '<button data-s="' + su + '" class="' + (M.ps === su ? 'on ' : '') + (i === 1 || i === 2 ? 'rd' : '') + '">' + SYMS[i] + '</button>'; });
+        h += '</div><div class="mh" style="margin-top:6px"><button data-a="clear" style="flex:1">New hand</button></div></div>';
+      }
+      mp.innerHTML = h;
+      let g = '';
+      if (rulesOpen) {
+        g = '<div class="pn"><label>Opponents still in the hand</label><div class="seg">';
+        for (let n = 1; n <= 8; n++) g += '<button data-o="' + n + '" class="' + (P.opp === n ? 'on' : '') + '">' + n + '</button>';
+        g += '</div></div>';
+      }
+      ru.innerHTML = g;
+    }
+
+    // ----- taps -----
+    function tryAdd() {
+      if (!M.pr || !M.ps) return;
+      const code = (M.pr === 1 ? 14 : M.pr) * 4 + SUITS.indexOf(M.ps);
+      M.pr = 0; M.ps = '';
+      if (M.h.indexOf(code) >= 0 || M.b.indexOf(code) >= 0) { SD.toast('That card is already used'); return; }
+      if (M.tgt === 'h') { if (M.h.length < 2) M.h.push(code); else { SD.toast('Hand is full'); return; } if (M.h.length === 2) M.tgt = 'b'; }
+      else if (M.b.length < 5) M.b.push(code);
+      else SD.toast('Board is full');
+    }
+    box.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      const d = b.dataset;
+      if (d.a === 'man') { M.on = !M.on; last = ''; }
+      else if (d.a === 'rules') { rulesOpen = !rulesOpen; last = ''; }
+      else if (d.a === 'clear') { M.h = []; M.b = []; M.pr = 0; M.ps = ''; M.tgt = 'h'; last = ''; }
+      else if (d.a === 'undo') { const l = M.tgt === 'h' && M.h.length ? M.h : M.b.length ? M.b : M.h; l.pop(); if (!M.h.length) M.tgt = 'h'; last = ''; }
+      else if (d.t) { M.tgt = d.t; last = ''; }
+      else if (d.r) { M.pr = M.pr === +d.r ? 0 : +d.r; tryAdd(); last = ''; }
+      else if (d.s) { M.ps = M.ps === d.s ? '' : d.s; tryAdd(); last = ''; }
+      else if (d.o) { P.opp = +d.o; save(); last = ''; }
+      else return;
+      tick(true);
+    });
+    ip.addEventListener('input', updatePot);
+    ic.addEventListener('input', updatePot);
+
+    // ----- mounting and loop -----
+    function mount() {
+      if (box.isConnected) return;
+      const t = document.querySelector('.content-title'), w = document.querySelector('.content-wrapper');
+      box.classList.remove('fx');
+      if (t) t.insertAdjacentElement('afterend', box);
+      else if (w) w.insertBefore(box, w.firstChild);
+      else { box.classList.add('fx'); document.body.appendChild(box); }
+    }
+
+    function tick(force) {
+      if (document.hidden && force !== true) return;
+      const sid = (new URLSearchParams(location.search).get('sid') || '').toLowerCase();
+      if (sid !== 'holdem' && sid !== 'poker') { if (box.isConnected) box.remove(); active = false; return; }
+      if (!active) { active = true; last = ''; misses = 0; dumped = false; SD.log('poker', 'page: ' + sid); }
+      mount();
+      const s = readState();
+      if (s.src === 'none') {
+        misses++;
+        if (misses >= 6 && !dumped) {
+          dumped = true;
+          const sample = [];
+          document.querySelectorAll('[class*="card" i]').forEach(el => { if (sample.length < 8 && !mine(el)) sample.push(el.tagName.toLowerCase() + '.' + String(typeof el.className === 'string' ? el.className : '').trim().replace(/\s+/g, '.').slice(0, 70)); });
+          SD.log('poker', 'no cards read. card-like elements: ' + (sample.join(' | ') || 'none'), 'w');
+        }
+      } else misses = 0;
+      const key = JSON.stringify([s.src, s.hand, s.board, s.bad, s.sig, M.on, M.tgt, M.pr, M.ps, rulesOpen, P]);
+      if (key === last) return;
+      last = key;
+      if (s.src !== 'none') {
+        const line = 'poker hand=' + (s.hand.length ? txt(s.hand) : '?') + ' board=' + (s.board.length ? txt(s.board) : '-') + ' opp=' + P.opp + ' (' + s.src + (s.bad ? ', suit unknown' : '') + ')' + (s.sig ? ' [' + s.sig + ']' : '');
+        if (line !== readCount) { readCount = line; SD.log('poker', line); }
+      }
+      render(s);
+    }
+
+    tick(true);
+    ctx.every(tick, 700);   // cleared by the core when the feature is switched off
+
+    return { stop() { box.remove(); } };
+  }
+
+  SD.feature({
+    id: 'poker',
+    group: 'Casino',
+    label: 'Poker',
+    where: 'Casino (Poker, Texas Hold\'em)',
+    info: 'Win chance, outs and pot odds for Texas Hold\'em, against random hands. Reads the cards, never clicks.',
+    match: /^\/page\.php$/,
+    start,
+    engine: { parseCard, score, equity, analyze, splitPoker, toCode }   // exposed for tests only
+  });
+})();
+
+} catch (e) { console.error('Speed Dial: features/poker.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/poker.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
     window.SpeedDial.start({ apiKey: '###PDA-APIKEY###' }); // filled in by Torn PDA
   } catch (e) { console.error('Speed Dial:', e); }

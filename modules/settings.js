@@ -1,11 +1,13 @@
-// Speed Dial module: Settings v0.7.0
+// Speed Dial module: Settings v0.8.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
 //   Menu          - two groups: "On screen" (max 3 circles) and "Show More" (everything else). The pin moves a module
 //                   between the groups. Edit mode: drag the handle to reorder inside a group, and remove your own shortcuts.
 //   Features      - on/off switch for every page feature (things that run on a Torn page, outside the circles).
-//                   The "!" next to a feature opens a small pop-up with a one-line explanation.
+//                   A row of filter chips on top (All + one per category, swipe it sideways), then one section per category
+//                   (title + count) with a card per feature: name, "!" and the switch. The "!" opens a small pop-up with the
+//                   one-line explanation and the page it works on. The chosen filter is remembered (speedDial.featcat1).
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
 //   Terminal      - the debug log (SD.log in core.js): what Speed Dial did, API calls, storage writes, warnings and errors.
 //                   Lines live in memory only; Save keeps a copy in storage so it survives a reload (view it with Saved).
@@ -113,8 +115,16 @@
     #sdial .cz .it .del{display:none;color:var(--sd-redt)}
     #sdial .cz.edit .it.cu .del{display:flex}
     #sdial .cz .fl{max-height:42vh;overflow-y:auto;touch-action:pan-y;margin-bottom:2px}
+    #sdial .cz .fc{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;touch-action:pan-x;margin:0 0 6px;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    #sdial .cz .fc::-webkit-scrollbar{display:none}
+    #sdial .cz .fc button{flex:0 0 auto;height:30px;padding:0 14px;border-radius:15px;white-space:nowrap;font-size:12px}
+    #sdial .cz .fc button.on{background:#25360f;border-color:var(--sd-green);color:#c6e66a}
+    #sdial .cz .fh{display:flex;align-items:center;gap:6px;margin:8px 2px 5px;font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--sd-text2)}
+    #sdial .cz .fh:first-child{margin-top:2px}
+    #sdial .cz .fh:before{content:'';flex:0 0 auto;width:3px;height:14px;border-radius:2px;background:var(--sd-green)}
+    #sdial .cz .fh i{font-style:normal;font-weight:400;color:var(--sd-dim)}
     #sdial .cz .fe{padding:10px 4px;color:var(--sd-dim);font-size:12px;text-align:center}
-    #sdial .cz .fw{border-radius:8px;background:var(--sd-bg2);margin-bottom:3px}
+    #sdial .cz .fw{border-radius:8px;background:var(--sd-bg2);border:1px solid var(--sd-line);margin-bottom:4px}
     #sdial .cz .fr{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 10px}
     #sdial .cz .fr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .cz .fr .inf{flex:0 0 auto;width:26px;height:26px;padding:0;border-radius:50%;border:1px solid #4a4a4a;background:none;color:var(--sd-dim);font-size:13px;font-weight:700;line-height:1}
@@ -162,7 +172,7 @@
         '<div class="gh"><span>On screen</span><b class="cnt"></b></div><div class="lst lf"></div>' +
         '<div class="gh"><span>Show More</span></div><div class="lst lm"></div>' +
         '<button class="edit">Edit</button></div>' +
-      '<div class="pg pf"><div class="fl"></div></div>' +
+      '<div class="pg pf"><div class="fc"></div><div class="fl"></div></div>' +
       '<div class="pg pt"><div class="tm">' +
         '<div class="fr"><span class="nm">Logging</span><button class="sw" role="switch" aria-label="Logging"><i></i></button></div>' +
         '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button></div>' +
@@ -176,7 +186,7 @@
         '<div class="rw"><input class="iu" placeholder="/page.php?sid=..." autocomplete="off" autocapitalize="off" spellcheck="false"><button class="here">This page</button></div>' +
         '<button class="add">Add</button>' +
       '</div>';
-    const qk = el.querySelector('.qk'), lf = el.querySelector('.lf'), lm = el.querySelector('.lm'), cnt = el.querySelector('.cnt'), fl = el.querySelector('.fl');
+    const qk = el.querySelector('.qk'), lf = el.querySelector('.lf'), lm = el.querySelector('.lm'), cnt = el.querySelector('.cnt'), fl = el.querySelector('.fl'), fc = el.querySelector('.fc');
     const inE = el.querySelector('.ie'), inN = el.querySelector('.in'), inU = el.querySelector('.iu');
     const hb = el.querySelector('.hb'), cur = el.querySelector('.cur'), mn = el.querySelector('.mn');
     let drag = null;
@@ -339,8 +349,15 @@
       tip = t;
     }
 
+    const FCK = 'speedDial.featcat1';   // the filter chip you picked last
+    let fcat = SD.read(FCK, 'All');
+    if (typeof fcat !== 'string') fcat = 'All';
+    const groupOf = f => f.group || 'Other';
+
     function renderFeat() {
       closeTip();
+      const keep = fc.scrollLeft;
+      fc.innerHTML = '';
       fl.innerHTML = '';
       if (!SD.features.length) {
         const e = document.createElement('div');
@@ -349,27 +366,46 @@
         fl.appendChild(e);
         return;
       }
-      SD.features.forEach(f => {
-        const w = document.createElement('div');
-        w.className = 'fw';
-        w.innerHTML = '<div class="fr"><span class="nm"></span><button class="inf" aria-label="About this feature">!</button>' +
-          '<button class="sw" role="switch"><i></i></button></div>';
-        w.querySelector('.nm').textContent = f.label;
-        const sw = w.querySelector('.sw');
-        const paint = () => {
-          const on = SD.featureOn(f.id);
-          sw.classList.toggle('on', on);
-          sw.setAttribute('aria-checked', on ? 'true' : 'false');
-        };
-        paint();
-        w.querySelector('.inf').addEventListener('click', () => openTip(f));
-        sw.addEventListener('click', () => {
-          const now = !SD.featureOn(f.id);
-          SD.setFeature(f.id, now);
+      // categories: alphabetical, "Other" last
+      const names = Array.from(new Set(SD.features.map(groupOf))).sort((a, b) => (a === 'Other') - (b === 'Other') || a.localeCompare(b));
+      if (fcat !== 'All' && names.indexOf(fcat) < 0) fcat = 'All';
+      ['All'].concat(names).forEach(n => {
+        const b = document.createElement('button');
+        b.textContent = n;
+        b.className = n === fcat ? 'on' : '';
+        b.addEventListener('click', () => { fcat = n; SD.write(FCK, fcat); renderFeat(); });
+        fc.appendChild(b);
+      });
+      fc.scrollLeft = keep;
+      names.filter(n => fcat === 'All' || n === fcat).forEach(n => {
+        const list = SD.features.filter(f => groupOf(f) === n).sort((a, b) => a.label.localeCompare(b.label));
+        const h = document.createElement('div');
+        h.className = 'fh';
+        h.innerHTML = '<span></span><i>' + list.length + '</i>';
+        h.firstChild.textContent = n;
+        fl.appendChild(h);
+        list.forEach(f => {
+          const w = document.createElement('div');
+          w.className = 'fw';
+          w.innerHTML = '<div class="fr"><span class="nm"></span><button class="inf" aria-label="About this feature">!</button>' +
+            '<button class="sw" role="switch"><i></i></button></div>';
+          w.querySelector('.nm').textContent = f.label;
+          const sw = w.querySelector('.sw');
+          const paint = () => {
+            const on = SD.featureOn(f.id);
+            sw.classList.toggle('on', on);
+            sw.setAttribute('aria-checked', on ? 'true' : 'false');
+          };
           paint();
-          if (now && !SD.featureFits(f.id) && f.where) SD.toast(f.label + ' is on. It starts on: ' + f.where);
+          w.querySelector('.inf').addEventListener('click', () => openTip(f));
+          sw.addEventListener('click', () => {
+            const now = !SD.featureOn(f.id);
+            SD.setFeature(f.id, now);
+            paint();
+            if (now && !SD.featureFits(f.id) && f.where) SD.toast(f.label + ' is on. It starts on: ' + f.where);
+          });
+          fl.appendChild(w);
         });
-        fl.appendChild(w);
       });
     }
 

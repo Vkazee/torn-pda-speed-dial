@@ -417,6 +417,7 @@
   SD.feature({
     id: 'gymguide',
     label: 'Gym Guide',
+    group: 'Gym',
     where: 'Gym',
     info: 'Highlights the best gym to train next, with stat progress and gym access info.',
     match: /^\/gym\.php/,

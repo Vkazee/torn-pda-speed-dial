@@ -1,19 +1,21 @@
-// Speed Dial feature: Casino Helper v0.3.0
-// High-Low and Blackjack advisor. Shows the chance of every choice and which one to take next.
-// Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API. Switch it on or off in Settings > Features.
-//   - Blackjack: exact odds (win / push / lose) for Stand, Hit, Double and Split, worked out for the dealer card you see.
-//     Infinite deck, dealer stands on all 17 and checks for blackjack (all changeable in Rules). Only actions whose buttons are enabled on the page are recommended.
-//   - High-Low: chance that YOUR (face-down) card is higher, lower or the same as the DEALER's card (full deck minus the dealer card).
-//     The dealer card is picked by name (dealer ancestor), then by position; face-down, hidden, faded-out and covered cards are ignored.
+// Speed Dial feature: Blackjack v0.1.0
+// Casino Blackjack (page.php?sid=blackjack): the chance of every move and which one to take next.
+// Split off the old Casino Helper (one page = one feature file). Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API.
+// Switch it on or off in Settings > Features.
+//   - Exact odds (win / push / lose) for Stand, Hit, Double and Split, worked out for the dealer card you see.
+//     Infinite deck, dealer stands on all 17 and checks for blackjack (all changeable in Rules).
+//     Only moves whose buttons are enabled on the page are recommended; a button that is not recognised counts as available.
 //   - Manual mode: tap the ranks yourself if the page markup is not recognised. Settings > Terminal tells what was (not) read.
-//   - Between rounds (play buttons gone or greyed out) the panel goes back to its standard "waiting" state and typed-in cards are cleared.
+//   - Between rounds (play buttons gone or greyed out) the panel goes back to "waiting" and typed-in cards are cleared.
+//   - Rules are saved under speedDial.blackjack1 (the rules of the old combined helper, speedDial.casino1, are carried over).
 // No strategy beats the house over time. This only stops you from making a worse choice than necessary.
 (function () {
   'use strict';
   const SD = window.SpeedDial;
   if (!SD) return;
 
-  const LS = 'speedDial.casino1';
+  const LS = 'speedDial.blackjack1';
+  const OLD = 'speedDial.casino1';
 
   // ---------- cards ----------
   const RL = [null, 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];   // rank 1..13
@@ -25,9 +27,10 @@
   const RA = new RegExp('(?:^|[\\s_\\-./])(' + SU + ')[\\s_\\-.]*(' + RK + ')(?![a-z0-9])', 'i');                       // hearts-10, spades_A, clubs K
   const RB = new RegExp('(?:^|[\\s_\\-./])(' + RK + ')[\\s_\\-.]*(?:of[\\s_\\-.]*)?(' + SU + ')(?![a-z])', 'i');         // 7 of hearts, 10-spades
   const WORD = { a: 1, ace: 1, j: 11, jack: 11, q: 12, queen: 12, k: 13, king: 13, ten: 10 };
+  const SYM = { '\u2660': 's', '\u2665': 'h', '\u2666': 'd', '\u2663': 'c' };
   const rankOf = s => { s = String(s).toLowerCase(); return WORD[s] || parseInt(s, 10) || 0; };
 
-  // el needs: className, getAttribute(), textContent. Returns { r: 1..13, s: suit letter } or null.
+  // el needs: className, getAttribute(), textContent. Returns { r: 1..13, s: suit letter c/d/h/s or '?' } or null.
   function parseCard(el) {
     const cn = el.className && typeof el.className === 'object' ? (el.className.baseVal || '') : (el.className || '');
     const g = n => (el.getAttribute && el.getAttribute(n)) || '';
@@ -45,23 +48,14 @@
     const tx = String(el.textContent || '').trim();
     if (tx.length && tx.length <= 4) {
       const m = /^(10|[2-9]|[AJQK])\s*([\u2660\u2665\u2666\u2663])$/.exec(tx) || /^([\u2660\u2665\u2666\u2663])\s*(10|[2-9]|[AJQK])$/.exec(tx);
-      if (m) { const rk = /^[\u2660-\u2666]$/.test(m[1]) ? m[2] : m[1]; const r = rankOf(rk); if (r) return { r, s: '?' }; }
+      if (m) {
+        const sym = SYM[m[1]] ? m[1] : m[2], rk = sym === m[1] ? m[2] : m[1], r = rankOf(rk);
+        if (r) return { r, s: SYM[sym] };
+      }
     }
     return null;
   }
 
-  // ---------- High-Low ----------
-  // every draw comes from a full 52-card deck minus the card on the table
-  function highLow(rank, o) {
-    const val = r => (o.aceHigh && r === 1 ? 14 : r);
-    const cur = val(rank);
-    let hi = 0, lo = 0, tie = 0;
-    for (let r = 1; r <= 13; r++) {
-      const n = r === rank ? 3 : 4, v = val(r);
-      if (v > cur) hi += n; else if (v < cur) lo += n; else tie += n;
-    }
-    return { higher: hi / 51, lower: lo / 51, tie: tie / 51, pick: hi >= lo ? 'Higher' : 'Lower' };
-  }
 
   // ---------- Blackjack ----------
   // hand state = (h: total with every ace as 1, a: has an ace). An ace counts 11 whenever that does not bust.
@@ -185,6 +179,7 @@
     return out;
   }
 
+
   // ---------- page reading ----------
   const SEL = '[class*="hearts" i],[class*="diamonds" i],[class*="spades" i],[class*="clubs" i],[class*="heart-" i],[class*="spade-" i],[class*="club-" i],[class*="diamond-" i],' +
     '[class*="card" i],img[alt],[aria-label],[data-card],[title]';
@@ -192,9 +187,8 @@
   const PLAYER = /(^|[^a-z])(player|you|your|user)([^a-z]|$)/i;
   const BTN = 'button,a,li,[role="button"],input[type="button"],input[type="submit"],[class*="btn" i],[class*="button" i],[class*="action" i]';
   // label = letters only, so "HIT ME", "Double<br>Down" and "double down" all match. Exact words only (a "Hit list" link must not count).
-  const LABEL = { hit: 'H', hitme: 'H', stand: 'S', double: 'D', doubledown: 'D', split: 'P', higher: 'U', high: 'U', lower: 'L', low: 'L' };
+  const LABEL = { hit: 'H', hitme: 'H', stand: 'S', double: 'D', doubledown: 'D', split: 'P' };
   const OFF = /(^|[\s_-])(disabled|inactive|unavailable)([\s_-]|$)/i;
-
   const mine = el => !!el.closest('#csh, #sdial');
   const seen = el => !!(el.getClientRects && el.getClientRects().length);
 
@@ -212,12 +206,6 @@
     return true;
   }
 
-  function onTop(el) {   // nothing unrelated is painted over the middle of the card (an old card under a new one, a flipped-away face)
-    const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
-    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return true;   // cannot test off screen
-    const hit = document.elementFromPoint(x, y);
-    return !hit || el.contains(hit) || hit.contains(el) || mine(hit);
-  }
 
   function readCards() {
     const root = document.querySelector('.content-wrapper') || document;   // the game only: not Torn's sidebar, chat or header
@@ -228,31 +216,8 @@
       if (c) list.push({ el, r: c.r, s: c.s });
     });
     const inner = list.filter(a => !list.some(b => b !== a && a.el.contains(b.el)));   // innermost element of each card only
-    inner.forEach((c, i) => {
-      const b = c.el.getBoundingClientRect();
-      c.i = i; c.x = b.left + b.width / 2;
-      c.shown = shown(c.el); c.top = c.shown && onTop(c.el); c.role = roleOf(c.el);
-    });
+    inner.forEach(c => { c.shown = shown(c.el); });
     return inner;
-  }
-
-  // High-Low: the card the odds are about is the DEALER's face-up card (yours is face down until you choose).
-  // Order: visible cards only, then not-yours, then named "dealer", then on top, then leftmost (the dealer sits left), then newest in the page.
-  function pickDealer(cards) {
-    if (!cards.length) return null;
-    const vis = cards.filter(c => c.shown), pool = vis.length ? vis : cards;
-    const notMine = pool.filter(c => c.role !== 'p'), base = notMine.length ? notMine : pool;
-    const named = base.filter(c => c.role === 'd'), from = named.length ? named : base;
-    const better = (a, b) => {
-      if (a.top !== b.top) return a.top;
-      if (!named.length && Math.abs(a.x - b.x) > 8) return a.x < b.x;
-      return a.i > b.i;
-    };
-    return from.reduce((x, c) => (x === null || better(c, x) ? c : x), null);
-  }
-
-  function describe(cards, pick) {   // one short line for Settings > Terminal: what was seen and which one was used
-    return cards.slice(0, 6).map(c => (c === pick ? '*' : '') + RL[c.r] + (c.s !== '?' ? c.s : '') + '/' + (c.role || '-') + (c.shown ? '' : '!hid') + (c.shown && !c.top ? '!cov' : '') + '@' + Math.round(c.x)).join(' ');
   }
 
   function roleOf(el) {
@@ -298,8 +263,6 @@
     return false;
   }
 
-  // The actions the page shows right now. on = enabled, blocked = shown but greyed out.
-  // A button that is not recognised is in neither set: unknown is NOT the same as unavailable.
   function readButtons() {
     const root = document.querySelector('.content-wrapper') || document;
     const st = {};
@@ -336,12 +299,6 @@
     #csh .why{margin-top:6px;color:#bbb}
     #csh .nt{margin-top:6px;color:#d9a441}
     #csh .ok{color:#85b200}#csh .warn{color:#d9a441}#csh .bad{color:#e0584a}#csh .dim{color:#999}
-    #csh .hl{display:flex;align-items:center;gap:8px;padding:3px 0}
-    #csh .hl .k{flex:none;width:54px;color:#999}
-    #csh .hl .t{flex:1;height:6px;border-radius:3px;background:#161616;overflow:hidden}
-    #csh .hl .t i{display:block;height:100%;background:#5b7fa8}
-    #csh .hl.n .k{color:#85b200}#csh .hl.n .t i{background:#85b200}
-    #csh .hl .v{flex:none;width:40px;text-align:right}
     #csh .ft{display:flex;gap:6px;padding:8px 12px 10px;background:#2c2c2c;border-bottom:1px solid #1c1c1c}
     #csh .ft button,#csh .opt button{flex:1;height:30px;border:1px solid #1a1a1a;border-radius:4px;color:#ccc;background:linear-gradient(to bottom,#3d3d3d,#2f2f2f)}
     #csh .ft button.on{color:#fff;box-shadow:inset 0 -2px 0 #85b200}
@@ -361,46 +318,41 @@
     #csh.fx{position:fixed;left:0;right:0;bottom:0;z-index:99998;margin:0}
   `;
 
+
   const NAME = { S: 'Stand', H: 'Hit', D: 'Double', P: 'Split' };
   const pc = x => Math.round(x * 100);
   const evs = x => (x >= 0 ? '+' : '\u2212') + Math.abs(x).toFixed(2);
   const cls = p => (p >= 0.55 ? 'ok' : p >= 0.45 ? 'warn' : 'bad');
 
+
   function start(ctx) {
-    let P = Object.assign({ h17: false, das: true, peek: true, aceHigh: true }, SD.read(LS, null) || {});
+    const old = SD.read(OLD, null) || {}, keep = {};
+    ['h17', 'das', 'peek'].forEach(k => { if (typeof old[k] === 'boolean') keep[k] = old[k]; });
+    let P = Object.assign({ h17: false, das: true, peek: true }, keep, SD.read(LS, null) || {});
     const save = () => SD.write(LS, P);
-    const M = { on: false, tgt: 'd', d: [], p: [], hl: null };   // manual entry (not saved)
-    let rulesOpen = false, shown = null, last = '', misses = 0, dumped = false, readCount = '';
-    let sawTurn = false, wasOver = false;   // sawTurn: this page has shown its play buttons at least once; wasOver: the round was over on the last look
+    const M = { on: false, tgt: 'd', d: [], p: [] };   // manual entry (not saved)
+    let rulesOpen = false, last = '', misses = 0, dumped = false, readCount = '', sawTurn = false, wasOver = false, active = false;
 
     ctx.css(CSS);
     const box = document.createElement('div');
     box.id = 'csh';
 
     // ----- what the page (or the manual keypad) says right now -----
-    function readState(game) {
-      // is a round being played? Over = the play buttons (Hit/Stand, Higher/Lower) were seen on this page and none is enabled now
-      const b = readButtons(), keys = game === 'highlow' ? ['U', 'L'] : ['H', 'S'];
+    function readState() {
+      // is a round being played? Over = the play buttons (Hit / Stand) were seen on this page and none is enabled now
+      const b = readButtons(), keys = ['H', 'S'];
       if (keys.some(k => b.on.has(k) || b.blocked.has(k))) sawTurn = true;
-      const turn = keys.some(k => b.on.has(k));
-      const over = sawTurn && !turn;
-      if (over !== wasOver) { wasOver = over; if (over) { M.d = []; M.p = []; M.hl = null; } }   // round just ended: forget the cards typed in
-      if (M.on) {
-        if (game === 'highlow') return { game, src: 'manual', cur: M.hl };
-        return { game, src: 'manual', dealer: M.d.slice(0, 1), hand: M.p.slice(), extraDealer: Math.max(0, M.d.length - 1), blocked: b.blocked };
-      }
-      if (over) return { game, src: 'idle' };
+      const turn = keys.some(k => b.on.has(k)), over = sawTurn && !turn;
+      if (over !== wasOver) { wasOver = over; if (over) { M.d = []; M.p = []; } }   // round just ended: forget the cards typed in
+      if (M.on) return { src: 'manual', dealer: M.d.slice(0, 1), hand: M.p.slice(), extraDealer: Math.max(0, M.d.length - 1), blocked: b.blocked };
+      if (over) return { src: 'idle' };
       const cards = readCards();
-      if (!cards.length) return { game, src: 'none' };
-      if (game === 'highlow') {
-        const pk = pickDealer(cards);
-        return { game, src: 'page', cur: pk.r, count: cards.length, sig: describe(cards, pk) };
-      }
+      if (!cards.length) return { src: 'none' };
       const vis = cards.filter(c => c.shown), sp = split2(vis.length ? vis : cards), hs = hands(sp.player);
-      if (sp.dealer.length > 1 && !turn) return { game, src: 'idle' };   // dealer turned his second card and you cannot act: round over
+      if (sp.dealer.length > 1 && !turn) return { src: 'idle' };   // dealer turned his second card and you cannot act: round over
       const h = hs.list[hs.active] || [];
       return {
-        game, src: 'page',
+        src: 'page',
         dealer: sp.dealer.slice(0, 1).map(c => c.r),
         extraDealer: Math.max(0, sp.dealer.length - 1),
         hand: h.map(c => c.r),
@@ -435,17 +387,6 @@
       return h + '</div>';
     }
 
-    function renderHL(s) {
-      if (!s.cur) return '<div class="bd"><span class="dim">' + (s.src === 'manual' ? 'Tap the dealer card.' : 'Waiting for the dealer card...') + '</span></div>';
-      const r = highLow(s.cur, P), top = r.pick === 'Higher' ? r.higher : r.lower;
-      const row = (k, v, best) => '<div class="hl' + (best ? ' n' : '') + '"><span class="k">' + k + '</span><div class="t"><i style="width:' + v * 100 + '%"></i></div><span class="v ' + (best ? cls(v) : 'dim') + '">' + pc(v) + '%</span></div>';
-      return '<div class="bd"><div class="big ' + cls(top) + '">' + r.pick.toUpperCase() + '<small>' + pc(top) + '% \u00b7 dealer ' + RL[s.cur] + '</small></div>' +
-        '<div style="margin-top:6px">' + row('Higher', r.higher, r.pick === 'Higher') + row('Lower', r.lower, r.pick === 'Lower') + '</div>' +
-        '<div class="why dim">Same rank: ' + pc(r.tie) + '%' + (P.aceHigh ? ' \u00b7 ace = high' : ' \u00b7 ace = low') + '</div>' +
-        (top < 0.5 ? '<div class="nt">Under 50%: if the game lets you take your winnings now, that is the safer move.</div>' : '') +
-        '</div>';
-    }
-
     function renderNone() {
       return '<div class="bd"><span class="dim">Cards not found on this page yet.</span></div>';
     }
@@ -454,26 +395,20 @@
       return '<div class="bd"><span class="dim">Waiting for the next round...</span></div>';
     }
 
+
     function render(s) {
-      const bj = s.game === 'blackjack';
-      let h = '<div class="hd"><b>Casino helper</b><span class="dim">' + (bj ? 'Blackjack' : 'High-Low') + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
-      h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : bj ? renderBJ(s) : renderHL(s);
+      const sg = (k, la, lb) => '<div class="seg"><button data-s="' + k + '" data-v="0" class="' + (!P[k] ? 'on' : '') + '">' + la + '</button><button data-s="' + k + '" data-v="1" class="' + (P[k] ? 'on' : '') + '">' + lb + '</button></div>';
+      let h = '<div class="hd"><b>Casino helper</b><span class="dim">Blackjack' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
+      h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : renderBJ(s);
       h += '<div class="ft"><button data-a="man" class="' + (M.on ? 'on' : '') + '">Manual</button><button data-a="rules">Rules ' + (rulesOpen ? '\u25b2' : '\u25bc') + '</button></div>';
       if (M.on) {
         const chips = a => a.length ? a.map(r => RL[r]).join(' ') : '-';
-        h += '<div class="pn">';
-        if (bj) h += '<div class="mh"><button data-t="d" class="' + (M.tgt === 'd' ? 'on' : '') + '">Dealer</button><span>' + chips(M.d.slice(0, 1)) + '</span></div>' +
-          '<div class="mh"><button data-t="p" class="' + (M.tgt === 'p' ? 'on' : '') + '">You</button><span>' + chips(M.p) + '</span></div>';
-        h += '<div class="kp">';
+        h += '<div class="pn"><div class="mh"><button data-t="d" class="' + (M.tgt === 'd' ? 'on' : '') + '">Dealer</button><span>' + chips(M.d.slice(0, 1)) + '</span></div>' +
+          '<div class="mh"><button data-t="p" class="' + (M.tgt === 'p' ? 'on' : '') + '">You</button><span>' + chips(M.p) + '</span></div><div class="kp">';
         for (let r = 1; r <= 13; r++) h += '<button data-r="' + r + '">' + RL[r] + '</button>';
         h += '<button data-a="undo">\u232b</button></div><div class="mh" style="margin-top:6px"><button data-a="clear" style="flex:1">Clear</button></div></div>';
       }
-      if (rulesOpen) {
-        const sg = (k, a, b, la, lb) => '<div class="seg"><button data-s="' + k + '" data-v="0" class="' + (!P[k] ? 'on' : '') + '">' + la + '</button><button data-s="' + k + '" data-v="1" class="' + (P[k] ? 'on' : '') + '">' + lb + '</button></div>';
-        h += '<div class="pn">' +
-          (bj ? '<label>Dealer on soft 17</label>' + sg('h17', 0, 1, 'Stands', 'Hits') + '<label>Double after split</label>' + sg('das', 0, 1, 'No', 'Yes') + '<label>Dealer checks for blackjack</label>' + sg('peek', 0, 1, 'No', 'Yes')
-            : '<label>Ace counts as</label>' + sg('aceHigh', 0, 1, 'Low', 'High')) + '</div>';
-      }
+      if (rulesOpen) h += '<div class="pn"><label>Dealer on soft 17</label>' + sg('h17', 'Stands', 'Hits') + '<label>Double after split</label>' + sg('das', 'No', 'Yes') + '<label>Dealer checks for blackjack</label>' + sg('peek', 'No', 'Yes') + '</div>';
       box.innerHTML = h;
     }
 
@@ -484,13 +419,12 @@
       const d = b.dataset;
       if (d.a === 'man') { M.on = !M.on; last = ''; }
       else if (d.a === 'rules') { rulesOpen = !rulesOpen; last = ''; }
-      else if (d.a === 'clear') { M.d = []; M.p = []; M.hl = null; last = ''; }
-      else if (d.a === 'undo') { if (shown === 'highlow') M.hl = null; else (M.tgt === 'd' ? M.d : M.p).pop(); last = ''; }
+      else if (d.a === 'clear') { M.d = []; M.p = []; last = ''; }
+      else if (d.a === 'undo') { (M.tgt === 'd' ? M.d : M.p).pop(); last = ''; }
       else if (d.t) { M.tgt = d.t; last = ''; }
       else if (d.r) {
         const r = parseInt(d.r, 10);
-        if (shown === 'highlow') M.hl = r;
-        else if (M.tgt === 'd') M.d = [r];
+        if (M.tgt === 'd') M.d = [r];
         else if (M.p.length < 8) M.p.push(r);
         last = '';
       } else if (d.s) { P[d.s] = d.v === '1'; save(); last = ''; }
@@ -511,27 +445,26 @@
     function tick(force) {
       if (document.hidden && force !== true) return;
       const sid = (new URLSearchParams(location.search).get('sid') || '').toLowerCase();
-      const game = sid === 'blackjack' || sid === 'highlow' ? sid : null;
-      if (!game) { if (box.isConnected) box.remove(); shown = null; return; }
-      if (game !== shown) { shown = game; last = ''; misses = 0; dumped = false; sawTurn = false; wasOver = false; SD.log('casino', 'page: ' + game); }
+      if (sid !== 'blackjack') { if (box.isConnected) box.remove(); active = false; return; }
+      if (!active) { active = true; last = ''; misses = 0; dumped = false; sawTurn = false; wasOver = false; SD.log('blackjack', 'page: blackjack'); }
       mount();
-      const s = readState(game);
+      const s = readState();
       if (s.src === 'none') {
         misses++;
         if (misses >= 4 && !dumped) {
           dumped = true;
           const sample = [];
           document.querySelectorAll('[class*="card" i]').forEach(el => { if (sample.length < 8 && !mine(el)) sample.push(el.tagName.toLowerCase() + '.' + String(typeof el.className === 'string' ? el.className : '').trim().replace(/\s+/g, '.').slice(0, 70)); });
-          SD.log('casino', 'no cards read. card-like elements: ' + (sample.join(' | ') || 'none'), 'w');
+          SD.log('blackjack', 'no cards read. card-like elements: ' + (sample.join(' | ') || 'none'), 'w');
         }
       } else misses = 0;
-      const key = JSON.stringify([game, s.src, s.cur, s.dealer, s.extraDealer, s.hand, s.multi, s.blocked ? Array.from(s.blocked).sort() : null, s.sig, M.on, M.tgt, rulesOpen, P]);
+      const key = JSON.stringify([s.src, s.dealer, s.extraDealer, s.hand, s.multi, s.blocked ? Array.from(s.blocked).sort() : null, M.on, M.tgt, rulesOpen, P]);
       if (key === last) return;
       last = key;
       if (s.src !== 'none') {
-        const line = s.src === 'idle' ? 'round over: panel reset' : game === 'highlow' ? 'highlow dealer=' + (s.cur ? RL[s.cur] : '?') + ' (' + (s.count || 1) + ' on page, ' + s.src + ')' + (s.sig ? ' [' + s.sig + ']' : '')
+        const line = s.src === 'idle' ? 'round over: panel reset'
           : 'blackjack dealer=' + (s.dealer && s.dealer.length ? s.dealer.map(r => RL[r]) : '?') + ' you=' + (s.hand && s.hand.length ? s.hand.map(r => RL[r]).join(',') : '?') + ' greyed=' + (s.blocked && s.blocked.size ? Array.from(s.blocked).join('') : '-') + ' (' + s.src + ')';
-        if (line !== readCount) { readCount = line; SD.log('casino', line); }
+        if (line !== readCount) { readCount = line; SD.log('blackjack', line); }
       }
       render(s);
     }
@@ -543,12 +476,14 @@
   }
 
   SD.feature({
-    id: 'casinohelper',
-    label: 'Casino Helper',
-    where: 'Casino (High-Low, Blackjack)',
-    info: 'Win chance and the best next move for High-Low and Blackjack.',
+    id: 'blackjack',
+    was: 'casinohelper',   // starts out with the switch of the old combined Casino Helper
+    group: 'Casino',
+    label: 'Blackjack',
+    where: 'Casino (Blackjack)',
+    info: 'Win chance and the best next move (Stand, Hit, Double, Split). Reads the page, never clicks.',
     match: /^\/page\.php$/,
     start,
-    engine: { parseCard, highLow, analyze, dealerDist, pickDealer }   // exposed for tests only
+    engine: { parseCard, analyze, dealerDist }   // exposed for tests only
   });
 })();
