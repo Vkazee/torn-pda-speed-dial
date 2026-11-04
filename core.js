@@ -386,6 +386,8 @@
   const zorder = [];
   const WIN = 'speedDial.win1';   // { moduleId: [x, y] }
   const WM = 4;
+  const TBH = 34;   // title bar height (= --sd-h): the part of a window that always stays visible
+  const NAVB = 0;   // extra px kept free at the bottom (navigation line); raise it if the title bar sinks under a bar
 
   const CSS = `
     #sdial{position:fixed;z-index:2147483647;font:13px/1.25 -apple-system,Roboto,sans-serif;-webkit-tap-highlight-color:transparent;
@@ -504,7 +506,8 @@
       h = el.offsetHeight;
     }
     me.cx = Math.round(clampN(me.px, WM, Math.max(WM, innerWidth - ww - WM)));
-    me.cy = Math.round(clampN(me.py, WM, Math.max(WM, innerHeight - h - WM)));
+    // the window may sink below the bottom edge: only its title bar must stay visible, above the navigation line
+    me.cy = Math.round(clampN(me.py, WM, Math.max(WM, innerHeight - TBH - NAVB - WM)));
     el.style.transform = 'translate3d(' + me.cx + 'px,' + me.cy + 'px,0)';
   }
 
