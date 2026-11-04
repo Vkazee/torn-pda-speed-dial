@@ -1,5 +1,5 @@
-// Speed Dial feature: Poker v0.1.0
-// Casino Texas Hold'em (page.php?sid=holdem): your chance to win against random hands, your outs, and whether a call pays off.
+// Speed Dial feature: Poker Helper v0.2.0
+// Casino Poker (page.php?sid=holdem): your chance to win against random hands, your outs, and whether a call pays off.
 // Reads only the cards the page shows. It NEVER clicks anything and uses no API. Switch it on or off in Settings > Features.
 //   - Win / tie / lose chance by playing the hand out 2,500 times against the number of opponents set in Rules (random hands, so it flatters
 //     your hand a little: real opponents who stay in usually hold more than random cards). The rating compares it with a fair share (1 / players).
@@ -354,7 +354,7 @@
     }
 
     function render(s) {
-      hd.innerHTML = '<b>Casino helper</b><span class="dim">Poker' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span>';
+      hd.innerHTML = '<b>Poker Helper</b>';
       rs.innerHTML = renderBody(s);
       const ready = s.src !== 'none' && !s.bad && s.hand.length === 2 && !!R;
       if (!ready) R = null;
@@ -410,13 +410,37 @@
     ic.addEventListener('input', updatePot);
 
     // ----- mounting and loop -----
+    // The title row (game name + its icons) is drawn late on some pages, so the panel is put right under it on every tick, not only once.
+    let titleEl = null, anchor = '';
+    const elName = e => e.tagName.toLowerCase() + '.' + String(typeof e.className === 'string' ? e.className : '').trim().replace(/\s+/g, '.').slice(0, 60);
+    function findTitle() {
+      if (titleEl && titleEl.isConnected) return titleEl;
+      titleEl = document.querySelector('.content-title');
+      if (titleEl) return titleEl;
+      const root = document.querySelector('.content-wrapper') || document.body, want = 'poker';
+      const hs = root.querySelectorAll('h1,h2,h3,h4,[class*="title" i]');
+      for (let i = 0; i < hs.length; i++) {
+        const h = hs[i], tx = (h.textContent || '').trim().toLowerCase();
+        if (mine(h) || box.contains(h) || tx.indexOf(want) !== 0 || tx.length > want.length + 25) continue;
+        let el = h;   // up to the whole title row: the biggest ancestor that is still a thin strip
+        while (el.parentElement && el.parentElement !== root && el.parentElement !== document.body && el.parentElement.getBoundingClientRect().height <= 100) el = el.parentElement;
+        titleEl = el;
+        return el;
+      }
+      return null;
+    }
+
     function mount() {
-      if (box.isConnected) return;
-      const t = document.querySelector('.content-title'), w = document.querySelector('.content-wrapper');
+      const t = findTitle(), w = document.querySelector('.content-wrapper');
+      if (t && t.nextElementSibling === box) return;   // already right under the title
       box.classList.remove('fx');
-      if (t) t.insertAdjacentElement('afterend', box);
-      else if (w) w.insertBefore(box, w.firstChild);
-      else { box.classList.add('fx'); document.body.appendChild(box); }
+      if (t) {
+        t.insertAdjacentElement('afterend', box);
+        if (anchor !== 't') { anchor = 't'; SD.log('poker', 'panel placed under the title: ' + elName(t)); }
+      } else if (!box.isConnected) {
+        if (w) w.insertBefore(box, w.firstChild); else { box.classList.add('fx'); document.body.appendChild(box); }
+        if (anchor !== 'f') { anchor = 'f'; SD.log('poker', 'title not found (yet): panel put at the top of the page', 'w'); }
+      }
     }
 
     function tick(force) {
@@ -454,9 +478,9 @@
   SD.feature({
     id: 'poker',
     group: 'Casino',
-    label: 'Poker',
-    where: 'Casino (Poker, Texas Hold\'em)',
-    info: 'Win chance, outs and pot odds for Texas Hold\'em, against random hands. Reads the cards, never clicks.',
+    label: 'Poker Helper',
+    where: 'Casino (Poker)',
+    info: 'Win chance, outs and pot odds against random hands.',
     match: /^\/page\.php$/,
     start,
     engine: { parseCard, score, equity, analyze, splitPoker, toCode }   // exposed for tests only

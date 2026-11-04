@@ -3619,7 +3619,7 @@ try {
 } catch (e) { console.error('Speed Dial: features/gymguide.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/gymguide.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial feature: High-Low v0.1.0
+// Speed Dial feature: High-Low Helper v0.2.0
 // Casino High-Low (page.php?sid=highlow): the chance that YOUR face-down card is higher or lower than the DEALER's card, and which one to pick.
 // Split off the old Casino Helper (one page = one feature file). Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API.
 // Switch it on or off in Settings > Features.
@@ -3882,7 +3882,7 @@ try {
 
     function render(s) {
       const sg = (k, la, lb) => '<div class="seg"><button data-s="' + k + '" data-v="0" class="' + (!P[k] ? 'on' : '') + '">' + la + '</button><button data-s="' + k + '" data-v="1" class="' + (P[k] ? 'on' : '') + '">' + lb + '</button></div>';
-      let h = '<div class="hd"><b>Casino helper</b><span class="dim">High-Low' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
+      let h = '<div class="hd"><b>High-Low Helper</b></div>';
       h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : renderHL(s);
       h += '<div class="ft"><button data-a="man" class="' + (M.on ? 'on' : '') + '">Manual</button><button data-a="rules">Rules ' + (rulesOpen ? '\u25b2' : '\u25bc') + '</button></div>';
       if (M.on) {
@@ -3909,13 +3909,37 @@ try {
     });
 
     // ----- mounting and loop -----
+    // The title row (game name + its icons) is drawn late on some pages, so the panel is put right under it on every tick, not only once.
+    let titleEl = null, anchor = '';
+    const elName = e => e.tagName.toLowerCase() + '.' + String(typeof e.className === 'string' ? e.className : '').trim().replace(/\s+/g, '.').slice(0, 60);
+    function findTitle() {
+      if (titleEl && titleEl.isConnected) return titleEl;
+      titleEl = document.querySelector('.content-title');
+      if (titleEl) return titleEl;
+      const root = document.querySelector('.content-wrapper') || document.body, want = 'high-low';
+      const hs = root.querySelectorAll('h1,h2,h3,h4,[class*="title" i]');
+      for (let i = 0; i < hs.length; i++) {
+        const h = hs[i], tx = (h.textContent || '').trim().toLowerCase();
+        if (mine(h) || box.contains(h) || tx.indexOf(want) !== 0 || tx.length > want.length + 25) continue;
+        let el = h;   // up to the whole title row: the biggest ancestor that is still a thin strip
+        while (el.parentElement && el.parentElement !== root && el.parentElement !== document.body && el.parentElement.getBoundingClientRect().height <= 100) el = el.parentElement;
+        titleEl = el;
+        return el;
+      }
+      return null;
+    }
+
     function mount() {
-      if (box.isConnected) return;
-      const t = document.querySelector('.content-title'), w = document.querySelector('.content-wrapper');
+      const t = findTitle(), w = document.querySelector('.content-wrapper');
+      if (t && t.nextElementSibling === box) return;   // already right under the title
       box.classList.remove('fx');
-      if (t) t.insertAdjacentElement('afterend', box);
-      else if (w) w.insertBefore(box, w.firstChild);
-      else { box.classList.add('fx'); document.body.appendChild(box); }
+      if (t) {
+        t.insertAdjacentElement('afterend', box);
+        if (anchor !== 't') { anchor = 't'; SD.log('highlow', 'panel placed under the title: ' + elName(t)); }
+      } else if (!box.isConnected) {
+        if (w) w.insertBefore(box, w.firstChild); else { box.classList.add('fx'); document.body.appendChild(box); }
+        if (anchor !== 'f') { anchor = 'f'; SD.log('highlow', 'title not found (yet): panel put at the top of the page', 'w'); }
+      }
     }
 
     function tick(force) {
@@ -3954,19 +3978,19 @@ try {
     id: 'highlow',
     was: 'casinohelper',   // starts out with the switch of the old combined Casino Helper
     group: 'Casino',
-    label: 'High-Low',
+    label: 'High-Low Helper',
     where: 'Casino (High-Low)',
-    info: 'Win chance for Higher and Lower against the dealer card. Reads the page, never clicks.',
+    info: 'Win chance for Higher and Lower against the dealer card.',
     match: /^\/page\.php$/,
     start,
     engine: { parseCard, highLow, pickDealer }   // exposed for tests only
   });
 })();
 
-} catch (e) { console.error('Speed Dial: features/highlow.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/highlow.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+} catch (e) { console.error('Speed Dial: features/highlowhelper.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/highlowhelper.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial feature: Blackjack v0.1.0
+// Speed Dial feature: Blackjack Helper v0.2.0
 // Casino Blackjack (page.php?sid=blackjack): the chance of every move and which one to take next.
 // Split off the old Casino Helper (one page = one feature file). Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API.
 // Switch it on or off in Settings > Features.
@@ -4366,7 +4390,7 @@ try {
 
     function render(s) {
       const sg = (k, la, lb) => '<div class="seg"><button data-s="' + k + '" data-v="0" class="' + (!P[k] ? 'on' : '') + '">' + la + '</button><button data-s="' + k + '" data-v="1" class="' + (P[k] ? 'on' : '') + '">' + lb + '</button></div>';
-      let h = '<div class="hd"><b>Casino helper</b><span class="dim">Blackjack' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
+      let h = '<div class="hd"><b>Blackjack Helper</b></div>';
       h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : renderBJ(s);
       h += '<div class="ft"><button data-a="man" class="' + (M.on ? 'on' : '') + '">Manual</button><button data-a="rules">Rules ' + (rulesOpen ? '\u25b2' : '\u25bc') + '</button></div>';
       if (M.on) {
@@ -4401,13 +4425,37 @@ try {
     });
 
     // ----- mounting and loop -----
+    // The title row (game name + its icons) is drawn late on some pages, so the panel is put right under it on every tick, not only once.
+    let titleEl = null, anchor = '';
+    const elName = e => e.tagName.toLowerCase() + '.' + String(typeof e.className === 'string' ? e.className : '').trim().replace(/\s+/g, '.').slice(0, 60);
+    function findTitle() {
+      if (titleEl && titleEl.isConnected) return titleEl;
+      titleEl = document.querySelector('.content-title');
+      if (titleEl) return titleEl;
+      const root = document.querySelector('.content-wrapper') || document.body, want = 'blackjack';
+      const hs = root.querySelectorAll('h1,h2,h3,h4,[class*="title" i]');
+      for (let i = 0; i < hs.length; i++) {
+        const h = hs[i], tx = (h.textContent || '').trim().toLowerCase();
+        if (mine(h) || box.contains(h) || tx.indexOf(want) !== 0 || tx.length > want.length + 25) continue;
+        let el = h;   // up to the whole title row: the biggest ancestor that is still a thin strip
+        while (el.parentElement && el.parentElement !== root && el.parentElement !== document.body && el.parentElement.getBoundingClientRect().height <= 100) el = el.parentElement;
+        titleEl = el;
+        return el;
+      }
+      return null;
+    }
+
     function mount() {
-      if (box.isConnected) return;
-      const t = document.querySelector('.content-title'), w = document.querySelector('.content-wrapper');
+      const t = findTitle(), w = document.querySelector('.content-wrapper');
+      if (t && t.nextElementSibling === box) return;   // already right under the title
       box.classList.remove('fx');
-      if (t) t.insertAdjacentElement('afterend', box);
-      else if (w) w.insertBefore(box, w.firstChild);
-      else { box.classList.add('fx'); document.body.appendChild(box); }
+      if (t) {
+        t.insertAdjacentElement('afterend', box);
+        if (anchor !== 't') { anchor = 't'; SD.log('blackjack', 'panel placed under the title: ' + elName(t)); }
+      } else if (!box.isConnected) {
+        if (w) w.insertBefore(box, w.firstChild); else { box.classList.add('fx'); document.body.appendChild(box); }
+        if (anchor !== 'f') { anchor = 'f'; SD.log('blackjack', 'title not found (yet): panel put at the top of the page', 'w'); }
+      }
     }
 
     function tick(force) {
@@ -4447,20 +4495,20 @@ try {
     id: 'blackjack',
     was: 'casinohelper',   // starts out with the switch of the old combined Casino Helper
     group: 'Casino',
-    label: 'Blackjack',
+    label: 'Blackjack Helper',
     where: 'Casino (Blackjack)',
-    info: 'Win chance and the best next move (Stand, Hit, Double, Split). Reads the page, never clicks.',
+    info: 'Win chance and the best next move (Stand, Hit, Double, Split).',
     match: /^\/page\.php$/,
     start,
     engine: { parseCard, analyze, dealerDist }   // exposed for tests only
   });
 })();
 
-} catch (e) { console.error('Speed Dial: features/blackjack.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/blackjack.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+} catch (e) { console.error('Speed Dial: features/blackjackhelper.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/blackjackhelper.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial feature: Poker v0.1.0
-// Casino Texas Hold'em (page.php?sid=holdem): your chance to win against random hands, your outs, and whether a call pays off.
+// Speed Dial feature: Poker Helper v0.2.0
+// Casino Poker (page.php?sid=holdem): your chance to win against random hands, your outs, and whether a call pays off.
 // Reads only the cards the page shows. It NEVER clicks anything and uses no API. Switch it on or off in Settings > Features.
 //   - Win / tie / lose chance by playing the hand out 2,500 times against the number of opponents set in Rules (random hands, so it flatters
 //     your hand a little: real opponents who stay in usually hold more than random cards). The rating compares it with a fair share (1 / players).
@@ -4815,7 +4863,7 @@ try {
     }
 
     function render(s) {
-      hd.innerHTML = '<b>Casino helper</b><span class="dim">Poker' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span>';
+      hd.innerHTML = '<b>Poker Helper</b>';
       rs.innerHTML = renderBody(s);
       const ready = s.src !== 'none' && !s.bad && s.hand.length === 2 && !!R;
       if (!ready) R = null;
@@ -4871,13 +4919,37 @@ try {
     ic.addEventListener('input', updatePot);
 
     // ----- mounting and loop -----
+    // The title row (game name + its icons) is drawn late on some pages, so the panel is put right under it on every tick, not only once.
+    let titleEl = null, anchor = '';
+    const elName = e => e.tagName.toLowerCase() + '.' + String(typeof e.className === 'string' ? e.className : '').trim().replace(/\s+/g, '.').slice(0, 60);
+    function findTitle() {
+      if (titleEl && titleEl.isConnected) return titleEl;
+      titleEl = document.querySelector('.content-title');
+      if (titleEl) return titleEl;
+      const root = document.querySelector('.content-wrapper') || document.body, want = 'poker';
+      const hs = root.querySelectorAll('h1,h2,h3,h4,[class*="title" i]');
+      for (let i = 0; i < hs.length; i++) {
+        const h = hs[i], tx = (h.textContent || '').trim().toLowerCase();
+        if (mine(h) || box.contains(h) || tx.indexOf(want) !== 0 || tx.length > want.length + 25) continue;
+        let el = h;   // up to the whole title row: the biggest ancestor that is still a thin strip
+        while (el.parentElement && el.parentElement !== root && el.parentElement !== document.body && el.parentElement.getBoundingClientRect().height <= 100) el = el.parentElement;
+        titleEl = el;
+        return el;
+      }
+      return null;
+    }
+
     function mount() {
-      if (box.isConnected) return;
-      const t = document.querySelector('.content-title'), w = document.querySelector('.content-wrapper');
+      const t = findTitle(), w = document.querySelector('.content-wrapper');
+      if (t && t.nextElementSibling === box) return;   // already right under the title
       box.classList.remove('fx');
-      if (t) t.insertAdjacentElement('afterend', box);
-      else if (w) w.insertBefore(box, w.firstChild);
-      else { box.classList.add('fx'); document.body.appendChild(box); }
+      if (t) {
+        t.insertAdjacentElement('afterend', box);
+        if (anchor !== 't') { anchor = 't'; SD.log('poker', 'panel placed under the title: ' + elName(t)); }
+      } else if (!box.isConnected) {
+        if (w) w.insertBefore(box, w.firstChild); else { box.classList.add('fx'); document.body.appendChild(box); }
+        if (anchor !== 'f') { anchor = 'f'; SD.log('poker', 'title not found (yet): panel put at the top of the page', 'w'); }
+      }
     }
 
     function tick(force) {
@@ -4915,16 +4987,16 @@ try {
   SD.feature({
     id: 'poker',
     group: 'Casino',
-    label: 'Poker',
-    where: 'Casino (Poker, Texas Hold\'em)',
-    info: 'Win chance, outs and pot odds for Texas Hold\'em, against random hands. Reads the cards, never clicks.',
+    label: 'Poker Helper',
+    where: 'Casino (Poker)',
+    info: 'Win chance, outs and pot odds against random hands.',
     match: /^\/page\.php$/,
     start,
     engine: { parseCard, score, equity, analyze, splitPoker, toCode }   // exposed for tests only
   });
 })();
 
-} catch (e) { console.error('Speed Dial: features/poker.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/poker.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
+} catch (e) { console.error('Speed Dial: features/pokerhelper.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'features/pokerhelper.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
     window.SpeedDial.start({ apiKey: '###PDA-APIKEY###' }); // filled in by Torn PDA
   } catch (e) { console.error('Speed Dial:', e); }

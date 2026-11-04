@@ -1,4 +1,4 @@
-// Speed Dial feature: High-Low v0.1.0
+// Speed Dial feature: High-Low Helper v0.2.0
 // Casino High-Low (page.php?sid=highlow): the chance that YOUR face-down card is higher or lower than the DEALER's card, and which one to pick.
 // Split off the old Casino Helper (one page = one feature file). Reads only the cards and buttons the page shows. It NEVER clicks anything and uses no API.
 // Switch it on or off in Settings > Features.
@@ -261,7 +261,7 @@
 
     function render(s) {
       const sg = (k, la, lb) => '<div class="seg"><button data-s="' + k + '" data-v="0" class="' + (!P[k] ? 'on' : '') + '">' + la + '</button><button data-s="' + k + '" data-v="1" class="' + (P[k] ? 'on' : '') + '">' + lb + '</button></div>';
-      let h = '<div class="hd"><b>Casino helper</b><span class="dim">High-Low' + (s.src === 'manual' ? ' \u00b7 manual' : '') + '</span></div>';
+      let h = '<div class="hd"><b>High-Low Helper</b></div>';
       h += s.src === 'none' ? renderNone() : s.src === 'idle' ? renderIdle() : renderHL(s);
       h += '<div class="ft"><button data-a="man" class="' + (M.on ? 'on' : '') + '">Manual</button><button data-a="rules">Rules ' + (rulesOpen ? '\u25b2' : '\u25bc') + '</button></div>';
       if (M.on) {
@@ -288,13 +288,37 @@
     });
 
     // ----- mounting and loop -----
+    // The title row (game name + its icons) is drawn late on some pages, so the panel is put right under it on every tick, not only once.
+    let titleEl = null, anchor = '';
+    const elName = e => e.tagName.toLowerCase() + '.' + String(typeof e.className === 'string' ? e.className : '').trim().replace(/\s+/g, '.').slice(0, 60);
+    function findTitle() {
+      if (titleEl && titleEl.isConnected) return titleEl;
+      titleEl = document.querySelector('.content-title');
+      if (titleEl) return titleEl;
+      const root = document.querySelector('.content-wrapper') || document.body, want = 'high-low';
+      const hs = root.querySelectorAll('h1,h2,h3,h4,[class*="title" i]');
+      for (let i = 0; i < hs.length; i++) {
+        const h = hs[i], tx = (h.textContent || '').trim().toLowerCase();
+        if (mine(h) || box.contains(h) || tx.indexOf(want) !== 0 || tx.length > want.length + 25) continue;
+        let el = h;   // up to the whole title row: the biggest ancestor that is still a thin strip
+        while (el.parentElement && el.parentElement !== root && el.parentElement !== document.body && el.parentElement.getBoundingClientRect().height <= 100) el = el.parentElement;
+        titleEl = el;
+        return el;
+      }
+      return null;
+    }
+
     function mount() {
-      if (box.isConnected) return;
-      const t = document.querySelector('.content-title'), w = document.querySelector('.content-wrapper');
+      const t = findTitle(), w = document.querySelector('.content-wrapper');
+      if (t && t.nextElementSibling === box) return;   // already right under the title
       box.classList.remove('fx');
-      if (t) t.insertAdjacentElement('afterend', box);
-      else if (w) w.insertBefore(box, w.firstChild);
-      else { box.classList.add('fx'); document.body.appendChild(box); }
+      if (t) {
+        t.insertAdjacentElement('afterend', box);
+        if (anchor !== 't') { anchor = 't'; SD.log('highlow', 'panel placed under the title: ' + elName(t)); }
+      } else if (!box.isConnected) {
+        if (w) w.insertBefore(box, w.firstChild); else { box.classList.add('fx'); document.body.appendChild(box); }
+        if (anchor !== 'f') { anchor = 'f'; SD.log('highlow', 'title not found (yet): panel put at the top of the page', 'w'); }
+      }
     }
 
     function tick(force) {
@@ -333,9 +357,9 @@
     id: 'highlow',
     was: 'casinohelper',   // starts out with the switch of the old combined Casino Helper
     group: 'Casino',
-    label: 'High-Low',
+    label: 'High-Low Helper',
     where: 'Casino (High-Low)',
-    info: 'Win chance for Higher and Lower against the dealer card. Reads the page, never clicks.',
+    info: 'Win chance for Higher and Lower against the dealer card.',
     match: /^\/page\.php$/,
     start,
     engine: { parseCard, highLow, pickDealer }   // exposed for tests only

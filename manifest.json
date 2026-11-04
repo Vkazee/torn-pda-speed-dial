@@ -9,8 +9,8 @@
     "modules/showmore.js",
     "modules/settings.js",
     "features/gymguide.js",
-    "features/highlow.js",
-    "features/blackjack.js",
-    "features/poker.js"
+    "features/highlowhelper.js",
+    "features/blackjackhelper.js",
+    "features/pokerhelper.js"
   ]
 }
