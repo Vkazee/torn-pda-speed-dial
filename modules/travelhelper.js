@@ -205,11 +205,11 @@
     if (!D) return w;
     const e = elapsed();
     if (depart && (D.state === 'Hospital' || D.state === 'Jail' || D.state === 'Federal')) {
-      w.push(['bad', 'You are in ' + (D.state === 'Hospital' ? 'hospital' : 'jail') + " - you can't fly"]);
+      w.push([D.state === 'Hospital' ? 'bad hosp' : 'bad', 'You are in ' + (D.state === 'Hospital' ? 'hospital' : 'jail') + " - you can't fly"]);
     }
     if (!depart && D.state === 'Hospital') {
       const left = D.until - Math.floor(Date.now() / 1000);
-      w.push(['bad', 'In hospital abroad - you cannot fly back until released' + (left > 0 ? ' (' + SD.dur(left) + ')' : '')]);
+      w.push(['bad hosp', 'In hospital abroad - you cannot fly back until released' + (left > 0 ? ' (' + SD.dur(left) + ')' : '')]);
     }
     [['energy', 'Energy'], ['nerve', 'Nerve']].forEach(([k, l]) => {
       const b = D[k];
@@ -234,24 +234,25 @@
     #sdial .trv .stat{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:var(--sd-bg2);line-height:1.4}
     #sdial .trv .stat b{color:#fff}
     #sdial .trv .opts,#sdial .trv .foot{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .trv .foot{margin:6px 0 0;padding-top:6px;border-top:1px solid #2c2c2c}
+    #sdial .trv .foot{margin:6px 0 0;padding-top:6px;border-top:1px solid var(--sd-hov)}
     #sdial .trv button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 4px}
     #sdial .trv button:active{background:var(--sd-hov)}
     #sdial .trv .list{max-height:30vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .cr{display:flex;align-items:center;min-height:34px;box-sizing:border-box;padding:6px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--st,#5a5a5a)}
+    #sdial .trv .cr{display:flex;align-items:center;min-height:var(--sd-row);box-sizing:border-box;padding:6px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--st,var(--sd-lift))}
     #sdial .trv .cr:active{background:var(--sd-hov)}
-    #sdial .trv .cr.sel{background:#2a3140}
+    #sdial .trv .cr.sel{background:var(--sd-bluebg)}
     #sdial .trv .cr .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .trv .cr .tm{color:var(--sd-text2);font-size:12px;white-space:nowrap}
     #sdial .trv .cr .tm i{font-style:normal;color:var(--sd-dim);margin-left:6px}
-    #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:#20242c;line-height:1.4}
+    #sdial .trv .dt{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:var(--sd-bluebg);line-height:1.4}
     #sdial .trv .dt .sub{color:var(--sd-dim);font-size:11px;margin-bottom:4px}
     #sdial .trv .go{width:100%;flex:none;margin-top:6px;height:var(--sd-h);font-size:12px}
     #sdial .trv .go:disabled{opacity:.4}
-    #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:6px;font-size:12px}
-    #sdial .trv .w.info{background:#26303f;color:#a9c3e8}
-    #sdial .trv .w.warn{background:#3a2f1a;color:#f0d9a0}
-    #sdial .trv .w.bad{background:#3a1f1d;color:#f1b5b0}
+    #sdial .trv .w{margin-top:4px;padding:5px 8px;border-radius:8px;font-size:12px}
+    #sdial .trv .w.info{background:var(--sd-bluebg);color:var(--sd-bluet)}
+    #sdial .trv .w.warn{background:var(--sd-yelbg);color:var(--sd-yel)}
+    #sdial .trv .w.bad{background:var(--sd-redbg);color:var(--sd-redt)}
+    #sdial .trv .w.bad.hosp{background:var(--sd-yelbg);color:var(--sd-yel)}   /* hospital = yellow everywhere (still blocks Go) */
     #sdial .trv .foot .ico{flex:0 0 44px}
     #sdial .trv .skbox{display:none}
     #sdial .trv.stk .skbox{display:block}
@@ -262,17 +263,17 @@
     #sdial .trv .skbox .bar{display:flex;gap:6px;margin-bottom:6px}
     #sdial .trv .skbox select{flex:1;min-width:0;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 6px}
     #sdial .trv .skbox .so{flex:0 0 auto;padding:0 10px}
-    #sdial .trv .skbox .so.on{background:#2a3140;border-color:var(--sd-blue);color:#fff}
+    #sdial .trv .skbox .so.on{background:var(--sd-bluebg);border-color:var(--sd-blue);color:#fff}
     #sdial .trv .skbox .meta{color:var(--sd-dim);font-size:11px;margin-bottom:5px;line-height:1.35}
     #sdial .trv .skl{max-height:52vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid #555}
-    #sdial .trv .sk.up{border-left-color:#4a8f4e}
+    #sdial .trv .sk{padding:6px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-lift)}
+    #sdial .trv .sk.up{border-left-color:var(--sd-ok)}
     #sdial .trv .sk.dn{border-left-color:var(--sd-red)}
     #sdial .trv .sk.out{opacity:.5}
     #sdial .trv .sk .l1{display:flex;align-items:center;gap:8px}
     #sdial .trv .sk .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .trv .sk .pf{font-weight:600;white-space:nowrap;color:var(--sd-dim)}
-    #sdial .trv .sk .pf.up{color:#7fd08a}
+    #sdial .trv .sk .pf.up{color:var(--sd-okt)}
     #sdial .trv .sk .pf.dn{color:var(--sd-redt)}
     #sdial .trv .sk .l2{color:var(--sd-dim);font-size:11px;margin-top:1px}
   `;

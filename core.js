@@ -120,7 +120,25 @@
   SD.icons = {
     refresh: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.5L4 8.5"/><path d="M4 4v4.5h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.5L20 15.5"/><path d="M20 20v-4.5h-4.5"/></svg>'
   };
+  // one palette for every module and feature (features live outside #sdial, so the tokens sit on :root)
+  const TOKENS = `:root{
+    --sd-bg:#1c1c1c;--sd-bg2:#242424;--sd-hov:#2e2e2e;--sd-sink:#161616;
+    --sd-line:#333;--sd-line2:#3a3a3a;--sd-lift:#4a4a4a;
+    --sd-text:#e6e6e6;--sd-text2:#d0d0d0;--sd-dim:#8a8a8a;--sd-mute:#6b6b6b;
+    --sd-red:#e5534b;--sd-redt:#f1807a;--sd-redbg:#3a1f1d;--sd-redbd:#6b2c28;
+    --sd-yel:#d9a441;--sd-yelbg:#3a2f1a;--sd-yelbd:#6b5522;
+    --sd-blue:#4a8fd9;--sd-bluet:#6fa8e8;--sd-bluebg:#2a3140;--sd-bluebd:#2d4a73;
+    --sd-green:#85b200;--sd-greent:#c6e66a;--sd-greenbg:#25360f;--sd-greenbg2:#33491a;
+    --sd-ok:#3f8a45;--sd-okt:#7fd08a;
+    --sd-h:34px;--sd-hi:36px;--sd-hl:38px;--sd-row:40px}`;
+  const ensureTokens = () => {
+    if (!document.head || document.getElementById('sd-tokens')) return;
+    const s = document.createElement('style');
+    s.id = 'sd-tokens'; s.textContent = TOKENS;
+    document.head.appendChild(s);
+  };
   SD.css = (id, text) => {
+    ensureTokens();
     if (document.getElementById(id)) return;
     const s = document.createElement('style');
     s.id = id; s.textContent = text;
@@ -132,7 +150,8 @@
     SD.log('toast', msg);
     if (!toastEl) {
       toastEl = document.createElement('div');
-      toastEl.style.cssText = 'position:fixed;left:50%;bottom:72px;transform:translateX(-50%);max-width:82vw;z-index:2147483647;display:none;background:#1c1c1c;border:1px solid #3a3a3a;color:#e6e6e6;padding:8px 12px;border-radius:10px;font:12px/1.35 -apple-system,Roboto,sans-serif;text-align:center';
+      ensureTokens();
+      toastEl.style.cssText = 'position:fixed;left:50%;bottom:72px;transform:translateX(-50%);max-width:82vw;z-index:2147483647;display:none;background:var(--sd-bg);border:1px solid var(--sd-line2);color:var(--sd-text);padding:8px 12px;border-radius:8px;font:12px/1.35 -apple-system,Roboto,sans-serif;text-align:center';
       document.body.appendChild(toastEl);
     }
     toastEl.textContent = msg;
@@ -391,14 +410,10 @@
 
   const CSS = `
     #sdial{position:fixed;z-index:2147483647;font:13px/1.25 -apple-system,Roboto,sans-serif;-webkit-tap-highlight-color:transparent;
-      --sd-bg:#1c1c1c;--sd-bg2:#242424;--sd-hov:#2e2e2e;--sd-line:#333;--sd-line2:#3a3a3a;
-      --sd-text:#e6e6e6;--sd-text2:#d0d0d0;--sd-dim:#8a8a8a;
-      --sd-red:#e5534b;--sd-redt:#f1807a;--sd-blue:#4a8fd9;--sd-bluet:#6fa8e8;--sd-yel:#d9a441;--sd-green:#85b200;
-      --sd-h:34px;--sd-hi:36px;--sd-hl:38px;
       --st:var(--sd-text2)}
     #sdial *{box-sizing:border-box}
     #sdial svg{width:20px;height:20px;stroke:var(--sd-text2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-    #sdial button.sd-on.sd-on.sd-on{border-color:var(--sd-green);background:#25360f;color:#c6e66a}   /* triple class on purpose: must beat every module's own button rule */
+    #sdial button.sd-on.sd-on.sd-on{border-color:var(--sd-green);background:var(--sd-greenbg);color:var(--sd-greent)}   /* triple class on purpose: must beat every module's own button rule */
     @keyframes sdspin{to{transform:rotate(360deg)}}
     #sdial .spin svg{animation:sdspin .8s linear infinite}
     #sdial .fab{position:relative;z-index:2000;touch-action:none;width:${FAB}px;height:${FAB}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
@@ -423,10 +438,10 @@
     #sdial[data-st="away"] .win{box-shadow:0 0 0 2px rgba(74,143,217,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="hosp"] .win{box-shadow:0 0 0 2px rgba(217,164,65,.3),0 6px 18px rgba(0,0,0,.5)}
     #sdial[data-st="blk"] .win{box-shadow:0 0 0 2px rgba(229,83,75,.35),0 6px 18px rgba(0,0,0,.5)}
-    #sdial .win .tb{flex:0 0 var(--sd-h);height:var(--sd-h);display:flex;align-items:center;padding:0 0 0 10px;background:var(--sd-bg2);border-bottom:1px solid #2c2c2c;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+    #sdial .win .tb{flex:0 0 var(--sd-h);height:var(--sd-h);display:flex;align-items:center;padding:0 0 0 10px;background:var(--sd-bg2);border-bottom:1px solid var(--sd-hov);touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
     #sdial .win.mv .tb{cursor:grabbing}
     #sdial .win .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--sd-text2);pointer-events:none}
-    #sdial .win .cl{flex:0 0 44px;width:44px;height:var(--sd-h);border:0;background:none;color:var(--sd-text2);font-size:14px;padding:0}
+    #sdial .win .cl{flex:0 0 44px;width:44px;height:var(--sd-h);border:0;background:none;color:var(--sd-text2);font-size:13px;padding:0}
     #sdial .win .cl:active{background:var(--sd-hov)}
     #sdial .win .bd{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;padding:6px}
   `;

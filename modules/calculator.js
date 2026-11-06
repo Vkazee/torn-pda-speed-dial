@@ -15,26 +15,26 @@
   const CSS = `
     #sdial .calc{user-select:none;-webkit-user-select:none}
     #sdial .calc .dp{height:68px;padding:4px 8px 6px;margin-bottom:6px;border-radius:8px;background:var(--sd-bg2);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
-    #sdial .calc .ex{position:relative;height:32px;line-height:32px;font-size:26px;color:#f0f0f0;text-align:right;white-space:nowrap;overflow:hidden}
-    #sdial .calc .ex.sm{font-size:20px}
-    #sdial .calc .ex.xs{font-size:15px}
+    #sdial .calc .ex{position:relative;height:32px;line-height:32px;font-size:22px;color:var(--sd-text);text-align:right;white-space:nowrap;overflow:hidden}
+    #sdial .calc .ex.sm{font-size:18px}
+    #sdial .calc .ex.xs{font-size:13px}
     #sdial .calc .ex.dn{height:18px;line-height:18px;font-size:12px;color:var(--sd-dim)}
     #sdial .calc .ex .o{margin:0 2px}
-    #sdial .calc .ex .z{color:#666}
+    #sdial .calc .ex .z{color:var(--sd-mute)}
     #sdial .calc .ex .cr{display:inline-block;width:2px;height:1.1em;margin:0 -1px;background:currentColor;vertical-align:middle;animation:sdcb 1s steps(1) infinite}
     @keyframes sdcb{50%{opacity:0}}
     #sdial .calc .rs{height:20px;line-height:20px;font-size:16px;color:#9b93d4;text-align:right;white-space:nowrap;overflow:hidden}
-    #sdial .calc .rs.dn{height:32px;line-height:32px;font-size:26px;color:#f0f0f0}
-    #sdial .calc .rs.sm{font-size:20px}
-    #sdial .calc .rs.xs{font-size:15px}
+    #sdial .calc .rs.dn{height:32px;line-height:32px;font-size:22px;color:var(--sd-text)}
+    #sdial .calc .rs.sm{font-size:18px}
+    #sdial .calc .rs.xs{font-size:13px}
     #sdial .calc .gr{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
     #sdial .calc .gr button{height:var(--sd-hl);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text);font-size:16px;padding:0;touch-action:manipulation}
     #sdial .calc .gr button:active{background:var(--sd-line)}
-    #sdial .calc .gr .fn{background:#2b2b2b;color:var(--sd-text2);font-size:14px}
-    #sdial .calc .gr .op{background:#2f2f2f;border-color:#444;color:var(--sd-text2);font-size:18px}
+    #sdial .calc .gr .fn{background:var(--sd-hov);color:var(--sd-text2);font-size:13px}
+    #sdial .calc .gr .op{background:var(--sd-hov);border-color:var(--sd-lift);color:var(--sd-text2);font-size:18px}
     #sdial .calc .gr .op.cur{background:var(--sd-line);border-color:var(--sd-dim);color:#fff}
-    #sdial .calc .gr .eq{background:#25360f;border-color:var(--sd-green);color:#c6e66a}
-    #sdial .calc .gr .eq:active{background:#33491a}
+    #sdial .calc .gr .eq{background:var(--sd-greenbg);border-color:var(--sd-green);color:var(--sd-greent)}
+    #sdial .calc .gr .eq:active{background:var(--sd-greenbg2)}
   `;
 
   const SYM = { '+': '+', '-': '\u2212', '*': '\u00D7', '/': '\u00F7' };
