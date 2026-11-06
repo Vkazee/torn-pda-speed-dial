@@ -218,16 +218,15 @@
 
   // ---------- panel (built only when opened) ----------
   const CSS = `
-    #sdial .idock .banner{display:none;margin-bottom:6px;padding:8px 10px;border-radius:8px;background:var(--sd-bg2);border:1px solid var(--sd-line2);color:var(--sd-text2);font-size:12px;line-height:1.35;text-align:center;white-space:pre-line}
-    #sdial .idock .banner.hosp{background:var(--sd-yelbg);border-color:var(--sd-yelbd);color:var(--sd-yel)}
-    #sdial .idock .banner.blk{background:var(--sd-redbg);border-color:var(--sd-redbd);color:var(--sd-redt)}
-    #sdial .idock .banner.away{background:var(--sd-bluebg);border-color:var(--sd-bluebd);color:var(--sd-bluet)}
+    #sdial .idock .banner{display:none;margin-bottom:6px;padding:8px 10px;border-radius:8px;background:#3a2f1a;border:1px solid #6b5522;color:#f0d9a0;font-size:12px;line-height:1.35;text-align:center;white-space:pre-line}
+    #sdial .idock .banner.blk{background:#3a1f1d;border-color:#6b2c28;color:#f1b5b0}
+    #sdial .idock .banner.away{background:#2a3140;border-color:#2d4a73;color:#a9c3e8}
     #sdial .idock .banner.show{display:block}
     #sdial .idock .list{max-height:48vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .idock.blocked .list{opacity:.45}
     #sdial .idock .cd{display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px}
-    #sdial .idock .chip{padding:3px 7px;border-radius:8px;background:var(--sd-bg2);border:1px solid var(--sd-line);color:var(--sd-text2);font-size:11px}
-    #sdial .idock .ir{display:flex;align-items:center;min-height:var(--sd-row);box-sizing:border-box;padding:6px 10px;border-radius:8px;color:var(--sd-text);margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-ok);user-select:none;-webkit-user-select:none}
+    #sdial .idock .chip{padding:3px 7px;border-radius:6px;background:var(--sd-bg2);border:1px solid var(--sd-line);color:var(--sd-text2);font-size:11px}
+    #sdial .idock .ir{display:flex;align-items:center;min-height:40px;box-sizing:border-box;padding:6px 10px;border-radius:8px;color:var(--sd-text);margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid #4a8f4e;user-select:none;-webkit-user-select:none}
     #sdial .idock .ir:active{background:var(--sd-hov)}
     #sdial .idock .ir.out{border-left-color:var(--sd-red);cursor:not-allowed}
     #sdial .idock .ir.out:active{background:var(--sd-bg2)}
@@ -236,7 +235,7 @@
     #sdial .idock .ir.low .qty{color:var(--sd-yel)}
     #sdial .idock .ir.drag{position:relative;z-index:5;background:var(--sd-line);box-shadow:0 4px 12px rgba(0,0,0,.55);opacity:1!important}
     #sdial .idock .ir .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .idock .ir .grip{display:none;align-items:center;justify-content:center;width:32px;height:var(--sd-row);margin:0 2px 0 -8px;touch-action:none;cursor:grab}
+    #sdial .idock .ir .grip{display:none;align-items:center;justify-content:center;width:32px;height:40px;margin:0 2px 0 -8px;touch-action:none;cursor:grab}
     #sdial .idock .ir .grip svg{width:18px;height:18px;stroke:var(--sd-dim)}
     #sdial .idock.edit .ir .grip{display:flex}
     #sdial .idock .ir.drag .grip svg{stroke:var(--sd-text)}
@@ -244,17 +243,17 @@
     #sdial .idock.edit .ir .x{display:block}
     #sdial .idock .qty{margin-left:8px;color:var(--sd-dim);font-size:12px;white-space:nowrap}
     #sdial .idock .ir.out .qty{color:var(--sd-red)}
-    #sdial .idock .tag{margin-left:6px;padding:1px 6px;border-radius:8px;background:var(--sd-bluebg);color:var(--sd-bluet);font-size:11px}
+    #sdial .idock .tag{margin-left:6px;padding:1px 6px;border-radius:6px;background:#2d3b52;color:#9bb8e0;font-size:10px}
     #sdial .idock.asking .list,#sdial .idock.asking .foot{display:none}
     #sdial .idock .confirm{display:none;padding:8px 6px 4px;text-align:center;color:var(--sd-text)}
     #sdial .idock.asking .confirm{display:block}
     #sdial .idock .confirm .q{margin-bottom:10px;line-height:1.4}
-    #sdial .idock .confirm .q b{display:block;font-size:13px;margin-top:2px}
+    #sdial .idock .confirm .q b{display:block;font-size:14px;margin-top:2px}
     #sdial .idock .confirm .btns{display:flex;gap:6px}
     #sdial .idock .confirm button{flex:1;height:var(--sd-hl);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:13px}
-    #sdial .idock .confirm button.ok{background:var(--sd-ok);border-color:var(--sd-ok);color:#fff}
+    #sdial .idock .confirm button.ok{background:#2f6b34;border-color:#3f8a45;color:#fff}
     #sdial .idock .empty{color:var(--sd-dim);padding:10px;text-align:center}
-    #sdial .idock .foot{display:flex;gap:6px;margin-top:4px;padding-top:6px;border-top:1px solid var(--sd-hov)}
+    #sdial .idock .foot{display:flex;gap:6px;margin-top:4px;padding-top:6px;border-top:1px solid #2c2c2c}
     #sdial .idock .foot button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 4px}
     #sdial .idock .foot button:active{background:var(--sd-hov)}
     #sdial .idock .foot .ico{flex:0 0 44px}
@@ -268,15 +267,15 @@
     #sdial .idock .sq:focus{border-color:var(--sd-blue)}
     #sdial .idock .seg{display:flex;gap:6px;margin-bottom:6px}
     #sdial .idock .seg button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0}
-    #sdial .idock .seg button.on{background:var(--sd-bluebg);border-color:var(--sd-blue);color:#fff}
+    #sdial .idock .seg button.on{background:#2a3140;border-color:var(--sd-blue);color:#fff}
     #sdial .idock .res{max-height:38vh;overflow-y:auto;touch-action:pan-y}
-    #sdial .idock .res .r{display:flex;align-items:center;gap:8px;min-height:var(--sd-row);padding:4px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue)}
+    #sdial .idock .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue)}
     #sdial .idock .res .r:active{background:var(--sd-hov)}
     #sdial .idock .res .r.have{opacity:.5}
     #sdial .idock .res .t{flex:1;min-width:0}
     #sdial .idock .res .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .idock .res .ty{display:block;color:var(--sd-dim);font-size:11px}
-    #sdial .idock .res .pl{color:var(--sd-okt);font-size:18px;line-height:1}
+    #sdial .idock .res .pl{color:#7fd08a;font-size:18px;line-height:1}
     #sdial .idock .res .hint{color:var(--sd-dim);padding:12px 6px;text-align:center;font-size:12px}
   `;
 
@@ -418,7 +417,7 @@
     // ----- status banner + cooldown chips -----
     function updateBanner() {
       const d = dd(), blk = isBlocked();
-      if (d.state === 'Okay') { banner.classList.remove('show', 'blk', 'away', 'hosp'); return; }
+      if (d.state === 'Okay') { banner.classList.remove('show', 'blk', 'away'); return; }
       let txt = stLabel();
       if (d.until && d.state !== 'Hospital') {
         const s = d.until - Math.floor(Date.now() / 1000);
@@ -430,7 +429,6 @@
       // same colours as the main circle: red = jail / federal, yellow = hospital, blue = traveling / abroad (the text says when items are blocked)
       const red = d.state === 'Jail' || d.state === 'Federal', md = SD.mode(d);
       banner.classList.toggle('blk', red);
-      banner.classList.toggle('hosp', d.state === 'Hospital');
       banner.classList.toggle('away', !red && d.state !== 'Hospital' && (md === 'flying' || md === 'abroad'));
     }
 

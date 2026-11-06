@@ -26,8 +26,8 @@
   const save = () => SD.write(LS, S);
 
   const strip = s => String(s || '').replace(/<[^>]*>/g, '').trim();
-  const COLOR = { Okay: 'var(--sd-okt)', Hospital: 'var(--sd-yel)', Jail: 'var(--sd-redt)', Federal: 'var(--sd-redt)', Traveling: 'var(--sd-bluet)', Abroad: 'var(--sd-bluet)', Fallen: 'var(--sd-dim)' };
-  const colorOf = s => COLOR[s] || 'var(--sd-text2)';
+  const COLOR = { Okay: '#7fd08a', Hospital: '#d9a441', Jail: '#f1807a', Federal: '#f1807a', Traveling: '#6fa8e8', Abroad: '#6fa8e8', Fallen: '#8a8a8a' };
+  const colorOf = s => COLOR[s] || '#cfcfcf';
 
   // one profile request -> { name, st }
   async function pull(id) {
@@ -84,7 +84,7 @@
 
   // what to show right now: the saved status, but once the cooldown has run out it counts as Okay
   function view(st) {
-    if (!st) return { label: '...', color: 'var(--sd-dim)', rem: 0 };
+    if (!st) return { label: '...', color: '#8a8a8a', rem: 0 };
     const rem = st.until ? st.until - Date.now() / 1000 : 0;
     if (st.state !== 'Okay' && st.until && rem <= 0) return { label: 'Okay', color: COLOR.Okay, rem: 0 };
     return { label: st.state, color: colorOf(st.state), rem: Math.max(0, rem) };
@@ -104,25 +104,25 @@
     #sdial .tg .ad{display:flex;gap:6px;margin-bottom:6px}
     #sdial .tg .ad .go{flex:0 0 auto;height:var(--sd-hi);padding:0 14px}
     #sdial .tg .res{max-height:44vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
-    #sdial .tg .res .r{display:flex;align-items:center;gap:8px;min-height:var(--sd-row);padding:4px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue)}
+    #sdial .tg .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue)}
     #sdial .tg .res .r:active{background:var(--sd-hov)}
     #sdial .tg .res .r.have{opacity:.5}
     #sdial .tg .res .lv{flex:0 0 auto;color:var(--sd-dim);font-size:11px}
-    #sdial .tg .res .pl{flex:0 0 18px;text-align:center;color:var(--sd-okt);font-size:18px;line-height:1}
+    #sdial .tg .res .pl{flex:0 0 18px;text-align:center;color:#7fd08a;font-size:18px;line-height:1}
     #sdial .tg .res .hint{color:var(--sd-dim);padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
     #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .tg .em{padding:14px 6px;text-align:center;color:var(--sd-dim);font-size:12px;line-height:1.4}
-    #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:var(--sd-bg2);border-left:3px solid var(--c,var(--sd-lift))}
+    #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:var(--sd-bg2);border-left:3px solid var(--c,#5a5a5a)}
     #sdial .tg .tr:active{background:var(--sd-hov)}
     #sdial .tg .r1{display:flex;align-items:center;gap:8px}
     #sdial .tg .who{flex:1;min-width:0}
     #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sd-text);text-decoration:none;font-size:13px}
-    #sdial .tg .id{display:block;color:var(--sd-mute);font-size:11px;margin-top:1px}
+    #sdial .tg .id{display:block;color:#6b6b6b;font-size:11px;margin-top:1px}
     #sdial .tg .id em{font-style:normal;color:var(--sd-dim);margin-left:8px}
     #sdial .tg .sx{flex:0 0 auto;text-align:right;max-width:46%}
     #sdial .tg .sl{display:block;font-weight:600;font-size:12px;color:var(--c)}
     #sdial .tg .cd{display:block;color:var(--sd-text2);font-size:11px;margin-top:1px;min-height:13px}
-    #sdial .tg .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid var(--sd-hov);color:var(--sd-dim);font-size:11px;line-height:1.35;word-break:break-word}
+    #sdial .tg .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid #2f2f2f;color:var(--sd-dim);font-size:11px;line-height:1.35;word-break:break-word}
     #sdial .tg .tr.open .dt{display:block}
     #sdial .tg .rm{display:none;flex:0 0 var(--sd-h);width:var(--sd-h);height:var(--sd-h);padding:0;color:var(--sd-redt)}
     #sdial .tg.ed .rm{display:block}
@@ -131,22 +131,22 @@
     #sdial .tg .pg button{flex:0 0 44px;padding:0}
     #sdial .tg .pg button svg{width:18px;height:18px}
     #sdial .tg .pn{flex:1;text-align:center;color:var(--sd-text2);font-size:13px}
-    #sdial .tg .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid var(--sd-hov)}
+    #sdial .tg .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
     #sdial .tg .foot .add,#sdial .tg .foot .edit{flex:1;padding:0 4px}
     #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
-    #sdial .tg .foot .fb.act{background:var(--sd-bluebg);border-color:var(--sd-blue)}
+    #sdial .tg .foot .fb.act{background:#2a3140;border-color:var(--sd-blue)}
     #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
     #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
     #sdial .tgpop{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
-    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:12px;border:1px solid var(--st);background:var(--sd-bg);color:var(--sd-text);box-shadow:0 8px 24px rgba(0,0,0,.6)}
-    #sdial .tgpop .th{padding:2px 4px 8px;font-size:13px;font-weight:700}
-    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:var(--sd-row);margin-top:4px;padding:0 12px;border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text);font-size:13px;text-align:left}
+    #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:var(--sd-bg);color:var(--sd-text);box-shadow:0 8px 24px rgba(0,0,0,.6)}
+    #sdial .tgpop .th{padding:2px 4px 8px;font-size:14px;font-weight:700}
+    #sdial .tgpop .op{display:flex;align-items:center;gap:10px;width:100%;height:44px;margin-top:4px;padding:0 12px;border-radius:10px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text);font-size:14px;text-align:left}
     #sdial .tgpop .op:active{background:var(--sd-hov)}
-    #sdial .tgpop .op i{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid var(--sd-lift)}
-    #sdial .tgpop .op.on{border-color:var(--sd-blue);background:var(--sd-bluebg)}
+    #sdial .tgpop .op i{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid #5a5a5a}
+    #sdial .tgpop .op.on{border-color:var(--sd-blue);background:#2a3140}
     #sdial .tgpop .op.on i{border-color:var(--sd-blue);background:radial-gradient(circle,var(--sd-blue) 0 40%,transparent 45%)}
     #sdial .tgpop .op span{flex:1}
-    #sdial .tgpop .cx{width:100%;height:var(--sd-hl);margin-top:8px;border-radius:8px;border:1px solid var(--sd-line);background:none;color:var(--sd-text2);font-size:13px}
+    #sdial .tgpop .cx{width:100%;height:38px;margin-top:8px;border-radius:10px;border:1px solid var(--sd-line);background:none;color:var(--sd-text2);font-size:13px}
     #sdial .tgpop .cx:active{background:var(--sd-hov)}
   `;
 

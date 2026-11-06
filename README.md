@@ -62,29 +62,31 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 
 How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps the last good copy in localStorage (works if GitHub is unreachable), and runs them as inline scripts using the page's CSP nonce, because Torn blocks `eval`.
 
+## Rule for every new module or feature: saved data goes through `SD.read` / `SD.write`
+
+Never touch `localStorage` directly. `SD.read(key, default)` and `SD.write(key, value)` are what keep the data in Torn PDA's native storage (see "Saved data"). The key MUST start with `speedDial.` (or the old prefixes `itemDock.`, `travelHelper.`, `gymGuide.`); `store.js` only saves keys with those prefixes to the app, any other key silently stays in localStorage only. Read once when the module loads, keep it in memory, call `SD.write` after each change. Data that can be re-fetched (API caches) may use `sessionStorage` or memory instead.
+
+## Rule for every new module or feature: log what it does with `SD.log`
+
+`SD.log('tag', 'message')` adds a line to the Terminal (tag = short name, 10 characters at most). Use `SD.log('tag', 'message', 'w')` for a warning and `'e'` for an error. Log module opens that matter, API/HTTP calls (`SD.api` already logs its own), and **every `catch` block**: an empty `catch (e) {}` hides the problem, so log the message or write a short comment on why it is safe to ignore. Never put your API key or other secrets in a message (the key is masked anyway, but do not rely on it).
+
 ## Rule for every new module: colours and sizes come from the tokens
 
-`core.js` defines CSS variables on `:root` (injected by `SD.css`), so modules **and** page features (Gym Guide, card helpers) all use the same palette. Use them instead of hex values or fixed heights; one change reaches everything.
+`core.js` defines CSS variables on `#sdial`; use them instead of hex values or fixed heights so every module looks the same and one change reaches everything.
 
 | Token | Value | Use |
 |---|---|---|
-| `--sd-bg` / `--sd-bg2` / `--sd-hov` / `--sd-sink` | `#1c1c1c` / `#242424` / `#2e2e2e` / `#161616` | window / card and button / pressed and panel body / bar track, switch off |
-| `--sd-line` / `--sd-line2` / `--sd-lift` | `#333` / `#3a3a3a` / `#4a4a4a` | border / stronger border / raised border or selected state |
-| `--sd-text` / `--sd-text2` / `--sd-dim` / `--sd-mute` | `#e6e6e6` / `#d0d0d0` / `#8a8a8a` / `#6b6b6b` | main / button text / secondary text / hint text |
-| `--sd-red`, `-redt`, `-redbg`, `-redbd` | `#e5534b`, `#f1807a`, `#3a1f1d`, `#6b2c28` | red accent, text, tinted background, border (jail, federal, errors) |
-| `--sd-yel`, `-yelbg`, `-yelbd` | `#d9a441`, `#3a2f1a`, `#6b5522` | **hospital**, warnings (text, background, border) |
-| `--sd-blue`, `-bluet`, `-bluebg`, `-bluebd` | `#4a8fd9`, `#6fa8e8`, `#2a3140`, `#2d4a73` | traveling / abroad, chosen option |
-| `--sd-green`, `-greent`, `-greenbg`, `-greenbg2` | `#85b200`, `#c6e66a`, `#25360f`, `#33491a` | a mode or switch that is on |
-| `--sd-ok`, `--sd-okt` | `#3f8a45`, `#7fd08a` | success / Okay status (accent, text) |
-| `--sd-h` / `--sd-hi` / `--sd-hl` / `--sd-row` | 34 / 36 / 38 / 40 px | button / input / large button / list row |
-
-Status colours are the same everywhere: **red = jail / federal, yellow = hospital (home or abroad), blue = traveling / abroad, green = Okay.**
-
-Scales: font 11 / 12 / 13 / 16 / 18 / 22 px; radius 4 (tags, bars) / 8 (buttons, cards, inputs) / 12 (windows, popups, tiles) / 999 (pills).
+| `--sd-bg` / `--sd-bg2` / `--sd-hov` | `#1c1c1c` / `#242424` / `#2e2e2e` | window / card and button / pressed |
+| `--sd-line` / `--sd-line2` | `#333` / `#3a3a3a` | border / stronger border (inputs, circles) |
+| `--sd-text` / `--sd-text2` / `--sd-dim` | `#e6e6e6` / `#d0d0d0` / `#8a8a8a` | main / button text / secondary text |
+| `--sd-red` / `--sd-redt` | `#e5534b` / `#f1807a` | red accent / red text |
+| `--sd-blue` / `--sd-bluet` | `#4a8fd9` / `#6fa8e8` | blue accent / blue text |
+| `--sd-yel`, `--sd-green` | `#d9a441`, `#85b200` | yellow, green accent |
+| `--sd-h` / `--sd-hi` / `--sd-hl` | 34 / 36 / 38 px | standard button / input / large button height |
 
 **Edit / Done buttons:** call `SD.editBtn(button, on)`; it sets the text and the green `sd-on` look, so every window's Edit mode looks the same. Green = a mode or switch that is on, blue = the chosen option, grey = the current page or tab.
 
-Circle sizes are named constants at the top of `core.js` (`FAB` 40, `MOD` 36, `GAP`, `OFF`). `store.js` writes a warning to the Terminal when a key has no known prefix.
+Circle sizes are named constants at the top of `core.js` (`FAB` 40, `MOD` 36, `GAP`, `OFF`). Tinted status backgrounds (chips, warnings) may still use their own hex. Page features outside `#sdial` (Gym Guide) cannot see the tokens and keep their own palette. `store.js` writes a warning to the Terminal when a key has no known prefix.
 
 ## Adding a New Module
 
