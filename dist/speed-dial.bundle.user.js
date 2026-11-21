@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.8.0
+// @version      0.8.1
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -1988,7 +1988,7 @@ try {
     #sdial .tg.adding .addv{display:block}
     #sdial .tg.adding .main{display:none}
     #sdial .tg .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--sd-text);font-size:13px}
-    #sdial .tg .ah .back{flex:0 0 32px;width:32px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .tg .ah .back{flex:0 0 36px;width:36px;padding:0;display:flex;align-items:center;justify-content:center}
     #sdial .tg .ad{display:flex;gap:6px;margin-bottom:6px}
     #sdial .tg .ad .go{flex:0 0 auto;height:var(--sd-hi);padding:0 14px}
     #sdial .tg .res{max-height:44vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
@@ -2523,14 +2523,16 @@ try {
 } catch (e) { console.error('Speed Dial: modules/calculator.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/calculator.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Market v0.1.0
+// Speed Dial module: Market v0.2.0
 // Looks at what other players sell, straight from the official API. Four tools in one window:
-//   - Price checker: Search an item, then the tabs Market (item market) and Bazaar show its cheapest listings.
+//   - Price checker: Add (search) an item, then the tabs Market (item market) and Bazaar show its cheapest listings.
 //   - Watchlist: the main view. Each item shows its lowest price (item market or bazaar); green = at or below the alert price you set.
 //   - Margin: the lowest listing against Torn's market value and the shop prices (shop to market, market to shop). Before fees.
 //   - Sell: a price for your own bazaar listing, a little under the lowest listing (you choose how much). Copy puts the number on the clipboard.
 // Nothing runs while the window is closed: no polling and no alerts in the background. Prices load when you open an item,
-// when you tap Refresh (once every 30 seconds) and, for watchlist items older than 2 minutes, when the window opens.
+// when you tap Refresh (once every 30 seconds, with the countdown on the button like Targets) and, for watchlist items older than 2 minutes, when the window opens.
+// Look and wording follow Targets and the Travel Helper Stocks box: prices are green (#7fd08a) like the Stocks profit, a loss is red,
+// the bottom bar is Add | Edit | Refresh, the remove button is the red cross of Targets, header buttons are 36px like Stocks, toasts say "Updated".
 (function () {
   'use strict';
   const SD = window.SpeedDial;
@@ -2695,63 +2697,66 @@ try {
 
   // ---------- panel (built only when opened) ----------
   const CSS = `
+    #sdial .mk button:disabled{opacity:.4}
     #sdial .mk .mainv,#sdial .mk .srv,#sdial .mk .dtv{display:none}
     #sdial .mk:not(.searching):not(.detail) .mainv{display:block}
     #sdial .mk.searching .srv{display:block}
     #sdial .mk.detail .dtv{display:block}
-    #sdial .mk .banner{display:none;margin-bottom:6px;padding:8px 10px;border-radius:8px;background:#1f3a22;border:1px solid #2f6b34;color:#b6e3bb;font-size:12px;line-height:1.35;text-align:center}
+    #sdial .mk .banner{display:none;margin-bottom:6px;padding:6px 10px;border-radius:8px;background:#1f3a22;border:1px solid #2f6b34;color:#b6e3bb;font-size:12px;line-height:1.35;text-align:center}
     #sdial .mk .banner.show{display:block}
-    #sdial .mk .list{max-height:48vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
-    #sdial .mk .ir{display:flex;align-items:center;min-height:44px;padding:6px 10px;border-radius:8px;color:var(--sd-text);margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-line2);user-select:none;-webkit-user-select:none}
+    #sdial .mk .list{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
+    #sdial .mk .ir{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;color:var(--sd-text);margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid #555;user-select:none;-webkit-user-select:none}
     #sdial .mk .ir:active{background:var(--sd-hov)}
-    #sdial .mk .ir.hit{border-left-color:var(--sd-green)}
-    #sdial .mk .ir.none{opacity:.6}
+    #sdial .mk .ir.hit{border-left-color:#4a8f4e}
+    #sdial .mk .ir.none{opacity:.5}
     #sdial .mk .ir .t{flex:1;min-width:0}
-    #sdial .mk .ir .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .mk .ir .sub{display:block;color:var(--sd-dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .mk .ir .pr{margin-left:8px;font-size:12px;white-space:nowrap;text-align:right}
-    #sdial .mk .ir.hit .pr{color:#7fd08a}
-    #sdial .mk .ir .x{display:none;width:28px;height:28px;margin:0 -6px 0 4px;border:0;background:none;color:var(--sd-red);font-size:18px;padding:0}
-    #sdial .mk.edit .ir .x{display:block}
-    #sdial .mk .empty,#sdial .mk .hint{color:var(--sd-dim);padding:10px;text-align:center;font-size:12px;line-height:1.4}
-    #sdial .mk .stamp{color:var(--sd-dim);font-size:10.5px;text-align:center;margin-top:2px}
-    #sdial .mk .foot{display:flex;gap:6px;margin-top:4px;padding-top:6px;border-top:1px solid #2c2c2c}
-    #sdial .mk .foot button{flex:1;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 4px}
-    #sdial .mk .foot button:active{background:var(--sd-hov)}
-    #sdial .mk .foot .ico{flex:0 0 44px}
+    #sdial .mk .ir .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+    #sdial .mk .ir .sub{display:block;color:var(--sd-dim);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sdial .mk .ir .pr{flex:0 0 auto;font-size:12px;font-weight:600;white-space:nowrap;text-align:right;color:#7fd08a}
+    #sdial .mk .ir.none .pr{color:var(--sd-dim)}
+    #sdial .mk .ir .rm{display:none;flex:0 0 var(--sd-h);width:var(--sd-h);height:var(--sd-h);padding:0;color:var(--sd-redt)}
+    #sdial .mk.edit .ir .rm{display:block}
+    #sdial .mk .empty,#sdial .mk .hint{color:var(--sd-dim);padding:12px 6px;text-align:center;font-size:12px;line-height:1.4}
+    #sdial .mk .stamp{color:var(--sd-dim);font-size:11px;margin-top:4px;line-height:1.35}
+    #sdial .mk .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
+    #sdial .mk button{height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 10px}
+    #sdial .mk button:active{background:var(--sd-hov)}
+    #sdial .mk .foot .add,#sdial .mk .foot .edit{flex:1;padding:0 4px}
+    #sdial .mk .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
+    #sdial .mk .rf .rs{font-size:11px;min-width:16px;text-align:left}
     #sdial .mk .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--sd-text);font-size:13px}
     #sdial .mk .ah .dn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .mk .ah button{flex:0 0 var(--sd-h);height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);display:flex;align-items:center;justify-content:center;padding:0}
-    #sdial .mk .ah button:active{background:var(--sd-hov)}
+    #sdial .mk .ah button{flex:0 0 36px;width:36px;padding:0;display:flex;align-items:center;justify-content:center}
     #sdial .mk .sq,#sdial .mk .fi{width:100%;height:var(--sd-hi);border-radius:8px;border:1px solid var(--sd-line2);background:var(--sd-bg2);color:var(--sd-text);font-size:16px;padding:0 10px;margin-bottom:6px;outline:none}
     #sdial .mk .sq:focus,#sdial .mk .fi:focus{border-color:var(--sd-blue)}
     #sdial .mk .seg{display:flex;gap:6px;margin-bottom:6px}
-    #sdial .mk .seg button{flex:1;min-width:0;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 2px}
+    #sdial .mk .seg button{flex:1;min-width:0;padding:0 2px}
     #sdial .mk .seg button.on{background:#2a3140;border-color:var(--sd-blue);color:#fff}
-    #sdial .mk .res{max-height:38vh;overflow-y:auto;touch-action:pan-y}
+    #sdial .mk .res{max-height:44vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .mk .res .r{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 10px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue)}
     #sdial .mk .res .r:active{background:var(--sd-hov)}
     #sdial .mk .res .t{flex:1;min-width:0}
     #sdial .mk .res .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .mk .res .ty{display:block;color:var(--sd-dim);font-size:11px}
     #sdial .mk .res .st{color:var(--sd-yel);font-size:14px}
-    #sdial .mk .dc{max-height:42vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
-    #sdial .mk .dc .hd{display:flex;justify-content:space-between;color:var(--sd-dim);font-size:11px;margin-bottom:4px}
-    #sdial .mk .dc .lr,#sdial .mk .dc .kv{display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;background:var(--sd-bg2);margin-bottom:3px}
-    #sdial .mk .dc .lr.lo{border-left:3px solid var(--sd-green)}
+    #sdial .mk .dc{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
+    #sdial .mk .dc .hd{display:flex;justify-content:space-between;color:var(--sd-dim);font-size:11px;margin-bottom:5px;line-height:1.35}
+    #sdial .mk .dc .lr,#sdial .mk .dc .kv{display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:8px;background:var(--sd-bg2);margin-bottom:3px;border-left:3px solid #555}
+    #sdial .mk .dc .lr.lo{border-left-color:#4a8f4e}
+    #sdial .mk .dc .lr .p,#sdial .mk .dc .kv .v.pr{font-weight:600;color:#7fd08a}
     #sdial .mk .dc .lr .q,#sdial .mk .dc .kv .k{color:var(--sd-dim)}
-    #sdial .mk .dc .kv .v{text-align:right}
-    #sdial .mk .dc .pos{color:#7fd08a}
-    #sdial .mk .dc .neg{color:var(--sd-redt)}
+    #sdial .mk .dc .kv .v{text-align:right;font-weight:600}
+    #sdial .mk .dc .kv .v.pos{color:#7fd08a}
+    #sdial .mk .dc .kv .v.neg{color:var(--sd-redt)}
+    #sdial .mk .dc .kv .v.pr.dm{color:var(--sd-dim)}
     #sdial .mk .dc .ur{display:flex;align-items:center;gap:8px;margin:2px 0 6px;color:var(--sd-text2);font-size:12px}
     #sdial .mk .dc .ur .fi{flex:1;margin:0}
-    #sdial .mk .dc .sg{padding:10px;border-radius:8px;background:var(--sd-bg2);border-left:3px solid var(--sd-blue);text-align:center;margin-bottom:4px}
+    #sdial .mk .dc .sg{padding:8px 10px;border-radius:8px;background:var(--sd-bg2);border-left:3px solid #4a8f4e;text-align:center;margin-bottom:4px}
     #sdial .mk .dc .sg .k{color:var(--sd-dim);font-size:11px}
-    #sdial .mk .dc .sg .v{font-size:18px;margin:2px 0 8px}
-    #sdial .mk .dc .sg button{width:100%;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg);color:var(--sd-text2);font-size:12px;padding:0}
-    #sdial .mk .dc .sg button:active{background:var(--sd-hov)}
+    #sdial .mk .dc .sg .v{font-size:18px;font-weight:600;color:#7fd08a;margin:2px 0 8px}
+    #sdial .mk .dc .sg button{width:100%;background:var(--sd-bg)}
     #sdial .mk .wr{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
-    #sdial .mk .wr button{flex:0 0 auto;height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 10px}
+    #sdial .mk .wr button{flex:0 0 auto}
     #sdial .mk .wr button.on{border-color:var(--sd-yel);color:var(--sd-yel)}
     #sdial .mk .wr .fi{flex:1;min-width:0;height:var(--sd-h);margin:0;font-size:14px}
   `;
@@ -2764,11 +2769,11 @@ try {
     el.innerHTML =
       '<div class="mainv">' +
         '<div class="banner"></div><div class="list"></div><div class="stamp"></div>' +
-        '<div class="foot"><button class="srch">Search</button><button class="edit">Edit</button><button class="sync ico" aria-label="Refresh">' + SD.icons.refresh + '</button></div>' +
+        '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
       '</div>' +
       '<div class="srv">' +
-        '<div class="ah"><button class="back" aria-label="Back">' + backSvg + '</button><span class="dn">Search item</span></div>' +
-        '<input class="sq" type="text" placeholder="Search item name" autocomplete="off" autocapitalize="off" spellcheck="false">' +
+        '<div class="ah"><button class="back" aria-label="Back">' + backSvg + '</button><span class="dn">Add item</span></div>' +
+        '<input class="sq" type="text" placeholder="Item name" autocomplete="off" autocapitalize="off" spellcheck="false">' +
         '<div class="res"></div>' +
       '</div>' +
       '<div class="dtv">' +
@@ -2780,7 +2785,7 @@ try {
     const q = s => el.querySelector(s);
     const list = q('.list'), banner = q('.banner'), stamp = q('.stamp');
     const srv = q('.srv'), qIn = q('.sq'), res = q('.res');
-    const dtv = q('.dtv'), dc = q('.dc'), wt = q('.wt'), thIn = q('.th');
+    const dtv = q('.dtv'), dc = q('.dc'), wt = q('.wt'), thIn = q('.th'), rf = q('.rf'), rs = q('.rs');
     let cur = null;     // the item open in the detail view: { id, name, tab, from, loading, err, catTried }
 
     // ----- watchlist (main view) -----
@@ -2790,7 +2795,7 @@ try {
       const hits = [];
       let latest = 0;
       if (!S.w.length) {
-        list.innerHTML = '<div class="empty">Nothing watched yet.<br>Tap Search, open an item and tap Watch.</div>';
+        list.innerHTML = '<div class="empty">Nothing watched yet.<br>Tap Add, open an item and tap Watch.</div>';
       }
       S.w.forEach(w => {
         const L = lowOf(w.id);
@@ -2799,14 +2804,14 @@ try {
         latest = Math.max(latest, L.im ? L.im.t : 0, L.bz ? L.bz.t : 0);
         const row = document.createElement('div');
         row.className = 'ir' + (hit ? ' hit' : '') + (L.best ? '' : ' none');
-        row.innerHTML = '<span class="t"><span class="nm"></span><span class="sub"></span></span><span class="pr"></span><button class="x" aria-label="Remove">\u00d7</button>';
+        row.innerHTML = '<span class="t"><span class="nm"></span><span class="sub"></span></span><span class="pr"></span><button class="rm" aria-label="Remove">\u2715</button>';
         row.querySelector('.nm').textContent = w.name;
         let sub = L.best ? srcName(L.best.src) + (L.best.q > 1 ? ' \u00d7' + L.best.q : '') : (L.im || L.bz ? 'No listings' : 'Not loaded yet');
         if (w.th > 0) sub += ' \u00b7 alert ' + money(w.th);
         row.querySelector('.sub').textContent = sub;
         row.querySelector('.pr').textContent = L.best ? money(L.best.p) : '\u2013';
         row.addEventListener('click', e => {
-          if (e.target.classList.contains('x')) {
+          if (e.target.closest('.rm')) {
             S.w = S.w.filter(x => x.id !== w.id);
             delete S.last[w.id]; delete S.npc[w.id];
             save();
@@ -2821,25 +2826,37 @@ try {
         banner.textContent = hits.length + ' at or below your price: ' + hits.slice(0, 3).join(', ') + (hits.length > 3 ? ' +' + (hits.length - 3) : '');
         banner.classList.add('show');
       } else banner.classList.remove('show');
-      stamp.textContent = latest ? 'Prices from ' + SD.hhmm(latest) : '';
+      stamp.textContent = latest ? 'Updated ' + SD.hhmm(latest) : '';
+    }
+
+    // every second: Refresh button countdown (same as Targets)
+    function tick() {
+      const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
+      rs.textContent = left > 0 ? left + 's' : '';
+      rf.disabled = left > 0 || rbusy;
     }
 
     async function refreshWatch(manual) {
-      if (!S.w.length || rbusy) return;
+      if (rbusy) return;
+      if (!SD.hasKey) return manual ? SD.toast('No API key available') : undefined;
+      if (!S.w.length) return;
       if (manual) {
-        const left = COOL - (Date.now() - S.rt);
-        if (left > 0) return SD.toast('Refresh again in ' + Math.ceil(left / 1000) + 's');
-        S.rt = Date.now();
+        const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
+        if (left > 0) return SD.toast('Wait ' + left + 's');
+        S.rt = Date.now();   // manual refresh starts the cooldown right away, so a double tap cannot send twice
         save();
       }
       const ids = manual ? S.w.map(w => w.id) : S.w.filter(w => stale(w.id)).map(w => w.id);
       if (!ids.length) return;
       rbusy = true;
+      tick();
       let r;
       try { r = await refreshItems(ids); } finally { rbusy = false; }
-      if (ctx.alive) fillList();
-      if (r.bad) SD.toast('Market: ' + r.bad + ' request' + (r.bad > 1 ? 's' : '') + ' failed (' + ((r.first && r.first.message) || 'error') + ')');
-      else if (manual && ctx.alive) SD.toast('Refreshed');
+      if (!ctx.alive) return;
+      fillList();
+      tick();
+      if (r.bad) SD.toast('Updated, ' + r.bad + ' failed (' + ((r.first && r.first.message) || 'error') + ')');
+      else if (manual) SD.toast('Updated');
     }
 
     // ----- search view -----
@@ -2922,6 +2939,8 @@ try {
       c.loading = false;
       r.errs.forEach(e => { c.err[e.kind] = e.msg; });
       renderDetail();
+      if (r.bad) SD.toast('Updated, ' + r.bad + ' failed (' + ((r.first && r.first.message) || 'error') + ')');
+      else if (manual) SD.toast('Updated');
     }
 
     function syncTabs() {
@@ -2988,9 +3007,9 @@ try {
         w.innerHTML = '<div class="hint">' + (c.loading ? 'Loading...' : c.err[kind] ? 'Could not load (' + SD.esc(c.err[kind]) + ')' : 'No data yet. Tap refresh.') + '</div>';
         return w;
       }
-      let h = '<div class="hd"><span>Cheapest listings' + (kind === 'im' && d.avg ? ' \u00b7 avg ' + money(d.avg) : '') + '</span><span>' + SD.hhmm(d.t) + '</span></div>';
+      let h = '<div class="hd"><span>Cheapest listings' + (kind === 'im' && d.avg ? ' \u00b7 avg ' + money(d.avg) : '') + '</span><span>Updated ' + SD.hhmm(d.t) + '</span></div>';
       if (!d.l.length) h += '<div class="hint">No listings</div>';
-      d.l.slice(0, SHOW).forEach((x, i) => { h += '<div class="lr' + (i === 0 ? ' lo' : '') + '"><span>' + money(x.p) + '</span><span class="q">\u00d7' + x.q.toLocaleString('en-US') + '</span></div>'; });
+      d.l.slice(0, SHOW).forEach((x, i) => { h += '<div class="lr' + (i === 0 ? ' lo' : '') + '"><span class="p">' + money(x.p) + '</span><span class="q">\u00d7' + x.q.toLocaleString('en-US') + '</span></div>'; });
       if (d.l.length > SHOW) h += '<div class="hint">+' + (d.l.length - SHOW) + ' more</div>';
       w.innerHTML = h;
       return w;
@@ -3012,14 +3031,14 @@ try {
       const sg = n => (n >= 0 ? '+' : '\u2212') + money(Math.abs(n));
       const cls = n => (n >= 0 ? 'pos' : 'neg');
       const row = (k, v, cl) => '<div class="kv"><span class="k">' + k + '</span><span class="v' + (cl ? ' ' + cl : '') + '">' + v + '</span></div>';
-      let h = row('Lowest listing', L.best ? money(L.best.p) + ' \u00b7 ' + srcName(L.best.src) : (c.loading ? 'Loading...' : 'none'));
+      let h = row('Lowest listing', L.best ? money(L.best.p) + ' \u00b7 ' + srcName(L.best.src) : (c.loading ? 'Loading...' : 'none'), L.best ? 'pr' : 'pr dm');
       if (npc.mv > 0) {
         let t = money(npc.mv);
         if (L.best) { const p = (L.best.p - npc.mv) / npc.mv * 100; t += ' (' + (p >= 0 ? '+' : '\u2212') + Math.abs(p).toFixed(1) + '%)'; }
-        h += row('Market value', t);
+        h += row('Market value', t, 'pr');
       }
-      if (npc.b > 0) h += row('Shop price', money(npc.b));
-      if (npc.s > 0) h += row('Shop pays', money(npc.s));
+      if (npc.b > 0) h += row('Shop price', money(npc.b), 'pr');
+      if (npc.s > 0) h += row('Shop pays', money(npc.s), 'pr');
       if (L.best && npc.b > 0) { const m = L.best.p - npc.b; h += row('Shop \u2192 market', sg(m) + ' (' + (m / npc.b * 100).toFixed(0) + '%)', cls(m)); }
       if (L.best && npc.s > 0) { const m = npc.s - L.best.p; h += row('Market \u2192 shop', sg(m) + ' (' + (m / L.best.p * 100).toFixed(0) + '%)', cls(m)); }
       if (!(npc.b > 0) && !(npc.s > 0)) h += '<div class="hint">Shops do not trade this item</div>';
@@ -3068,13 +3087,14 @@ try {
     }
 
     // ----- footer -----
-    q('.srch').addEventListener('click', openSearch);
+    q('.add').addEventListener('click', openSearch);
     q('.edit').addEventListener('click', e => { SD.editBtn(e.currentTarget, el.classList.toggle('edit')); });
-    const syncBtn = q('.sync');
-    syncBtn.addEventListener('click', () => { SD.spin(syncBtn, refreshWatch(true)); });
+    rf.addEventListener('click', () => { SD.spin(rf, refreshWatch(true)); });
 
     // ----- go -----
     fillList();
+    tick();
+    ctx.every(tick, 1000);
     refreshWatch(false);
     SD.log('market', 'opened: ' + S.w.length + ' watched item(s)');
     return { unmount() { cur = null; } };
@@ -3083,7 +3103,7 @@ try {
   SD.register({
     id: 'market',
     label: 'Market',
-    width: 260,
+    width: 270,
     // price tag
     icon: '<path d="M12 2H2v10l9.29 9.29a2.4 2.4 0 0 0 3.42 0l6.58-6.58a2.4 2.4 0 0 0 0-3.42L12 2z"/><path d="M7 7h.01"/>',
     mount

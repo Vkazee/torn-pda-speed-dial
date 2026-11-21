@@ -100,7 +100,7 @@
     #sdial .tg.adding .addv{display:block}
     #sdial .tg.adding .main{display:none}
     #sdial .tg .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--sd-text);font-size:13px}
-    #sdial .tg .ah .back{flex:0 0 32px;width:32px;padding:0;display:flex;align-items:center;justify-content:center}
+    #sdial .tg .ah .back{flex:0 0 36px;width:36px;padding:0;display:flex;align-items:center;justify-content:center}
     #sdial .tg .ad{display:flex;gap:6px;margin-bottom:6px}
     #sdial .tg .ad .go{flex:0 0 auto;height:var(--sd-hi);padding:0 14px}
     #sdial .tg .res{max-height:44vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
