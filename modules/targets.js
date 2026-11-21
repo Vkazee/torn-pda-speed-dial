@@ -136,7 +136,8 @@
     #sdial .tg .foot .fb{flex:0 0 40px;padding:0;display:flex;align-items:center;justify-content:center}
     #sdial .tg .foot .fb.act{background:#2a3140;border-color:var(--sd-blue)}
     #sdial .tg .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
-    #sdial .tg .rf .rs{font-size:11px;min-width:16px;text-align:left}
+    #sdial .tg .rf .rs{font-size:11px;text-align:left}
+    #sdial .tg .rf .rs:empty{display:none}
     #sdial .tgpop{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
     #sdial .tgpop .tc{width:100%;max-width:260px;padding:12px;border-radius:14px;border:1px solid var(--st);background:var(--sd-bg);color:var(--sd-text);box-shadow:0 8px 24px rgba(0,0,0,.6)}
     #sdial .tgpop .th{padding:2px 4px 8px;font-size:14px;font-weight:700}

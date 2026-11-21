@@ -1,4 +1,4 @@
-// Speed Dial module: Market v0.2.0
+// Speed Dial module: Market v0.2.1
 // Looks at what other players sell, straight from the official API. Four tools in one window:
 //   - Price checker: Add (search) an item, then the tabs Market (item market) and Bazaar show its cheapest listings.
 //   - Watchlist: the main view. Each item shows its lowest price (item market or bazaar); green = at or below the alert price you set.
@@ -48,19 +48,28 @@
   // Item market v2 answers { itemmarket: { item: { average_price }, listings: [{ price, amount }] } }.
   // Bazaar: v2 /market/{id}/bazaar if it exists, else v1 market/{id}?selections=bazaar ([{ cost, quantity }]).
   // Torn flags the v2 market as still changing, so the reader accepts a list under "listings", a plain list, or an object of listings.
-  function parseListings(node) {
-    let arr = null;
-    if (Array.isArray(node)) arr = node;
-    else if (node && Array.isArray(node.listings)) arr = node.listings;
-    else if (node && typeof node === 'object') {
-      const v = Object.values(node).filter(x => x && typeof x === 'object' && ('cost' in x || 'price' in x));
-      if (v.length) arr = v;
+  const isL = x => x && typeof x === 'object' && ('cost' in x || 'price' in x);
+  function findList(node, depth) {      // first list of listings anywhere in the reply (an array, or an object of listings)
+    if (!node || typeof node !== 'object' || depth > 3) return null;
+    if (Array.isArray(node)) {
+      if (node.some(isL)) return node;
+      for (const v of node) { const r = findList(v, depth + 1); if (r) return r; }
+      return null;
     }
-    return (arr || []).map(l => ({
+    const vals = Object.values(node);
+    if (vals.some(isL)) return vals.filter(isL);
+    if (node.listings) { const r = findList(node.listings, depth + 1); if (r) return r; }
+    for (const v of vals) { const r = findList(v, depth + 1); if (r) return r; }
+    return null;
+  }
+  function parseListings(node) {
+    return (findList(node, 0) || []).map(l => ({
       p: num(l.price != null ? l.price : l.cost),
       q: num(l.amount != null ? l.amount : (l.quantity != null ? l.quantity : 1))
     })).filter(l => l.p > 0).sort((a, b) => a.p - b.p);
   }
+  // an empty node is a real "nobody sells it"; a node with content but no readable listings means the reply format changed
+  const hasBody = node => !!node && typeof node === 'object' && (Array.isArray(node) ? node.length > 0 : Object.keys(node).some(k => k !== 'item'));
 
   async function fetchIM(id) {
     const j = await SD.api('https://api.torn.com/v2/market/' + id + '/itemmarket');
@@ -71,18 +80,25 @@
 
   async function fetchBZ(id) {
     const order = S.bz === 'v1' ? ['v1', 'v2'] : ['v2', 'v1'];
-    let err = null;
+    let err = null, empty = null;
     for (const v of order) {
       try {
         const j = await SD.api(v === 'v2' ? 'https://api.torn.com/v2/market/' + id + '/bazaar' : 'https://api.torn.com/market/' + id + '?selections=bazaar');
-        if (!j || !('bazaar' in j)) { err = new Error('bazaar reply not understood (' + v + ')'); SD.log('market', err.message, 'w'); continue; }
+        if (!j || !('bazaar' in j)) { err = new Error('bazaar reply not understood (' + v + ')'); SD.log('market', err.message + ' keys: ' + Object.keys(j || {}).join(','), 'w'); continue; }
+        const l = parseListings(j.bazaar);
+        if (!l.length && hasBody(j.bazaar)) {   // content we could not read: log its shape and try the other endpoint
+          SD.log('market', 'bazaar ' + v + ' reply has no readable listings, keys: ' + Object.keys(j.bazaar || {}).join(',') + ' | ' + JSON.stringify(j.bazaar).slice(0, 160), 'w');
+          empty = { l, t: Date.now(), odd: true };
+          continue;
+        }
         if (S.bz !== v) { S.bz = v; save(); SD.log('market', 'bazaar endpoint now ' + v); }
-        return { l: parseListings(j.bazaar), t: Date.now() };
+        return { l, t: Date.now() };
       } catch (e) {
         err = e;
         if (e && e.api && e.code === 5) break;   // rate limit: the other endpoint would hit the same limit
       }
     }
+    if (empty) return empty;
     throw err || new Error('bazaar failed');
   }
 
@@ -198,7 +214,8 @@
     #sdial .mk button:active{background:var(--sd-hov)}
     #sdial .mk .foot .add,#sdial .mk .foot .edit{flex:1;padding:0 4px}
     #sdial .mk .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
-    #sdial .mk .rf .rs{font-size:11px;min-width:16px;text-align:left}
+    #sdial .mk .rf .rs{font-size:11px;text-align:left}
+    #sdial .mk .rf .rs:empty{display:none}
     #sdial .mk .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--sd-text);font-size:13px}
     #sdial .mk .ah .dn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sdial .mk .ah button{flex:0 0 36px;width:36px;padding:0;display:flex;align-items:center;justify-content:center}
@@ -483,7 +500,7 @@
         return w;
       }
       let h = '<div class="hd"><span>Cheapest listings' + (kind === 'im' && d.avg ? ' \u00b7 avg ' + money(d.avg) : '') + '</span><span>Updated ' + SD.hhmm(d.t) + '</span></div>';
-      if (!d.l.length) h += '<div class="hint">No listings</div>';
+      if (!d.l.length) h += '<div class="hint">' + (d.odd ? 'Listings found but not readable (see Terminal log)' : 'No listings') + '</div>';
       d.l.slice(0, SHOW).forEach((x, i) => { h += '<div class="lr' + (i === 0 ? ' lo' : '') + '"><span class="p">' + money(x.p) + '</span><span class="q">\u00d7' + x.q.toLocaleString('en-US') + '</span></div>'; });
       if (d.l.length > SHOW) h += '<div class="hint">+' + (d.l.length - SHOW) + ' more</div>';
       w.innerHTML = h;
