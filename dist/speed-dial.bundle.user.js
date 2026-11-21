@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.10.0
+// @version      0.11.0
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -130,7 +130,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.13.0
+// Speed Dial core v0.14.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -141,7 +141,7 @@ try {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.13.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.14.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -153,14 +153,36 @@ try {
 
   // ---------- debug log (the Terminal page in Settings) ----------
   // Kept in memory only: a ring buffer of the last LOGMAX lines. No timer, no API call, nothing is drawn unless the Terminal page is open.
-  // It reaches storage only when you tap Save in Terminal (key speedDial.log1). Anything that looks like your API key is masked before it is stored.
+  // It reaches storage only when you tap Save in Terminal (key speedDial.log1), with ONE exception: warnings and errors are also kept automatically
+  // (key speedDial.problems1, the Problems view in Terminal) so a problem that happens while the Terminal is closed is not lost.
+  // Anything that looks like your API key is masked before it is stored.
   // New modules and features: call SD.log('tag', 'message') for what they do, and SD.log('tag', 'message', 'w') (warn) or 'e' (error) when something goes wrong,
   // especially inside a catch block, so errors are never silent.
   const LOGMAX = 300;
   const DBG = 'speedDial.dbg1';     // { on: true | false }, logging switch (default on)
   const LOGK = 'speedDial.log1';    // the saved copy of the log
+  const PK = 'speedDial.problems1'; // warnings + errors, kept automatically: [{ t: last time, g, m, l, c: how many times }]
+  const PMAX = 50;                  // most distinct problems kept (the oldest drop out first)
   const buf = [];
   const subs = new Set();
+  let prob = null, inProb = false;
+  const loadProb = () => {
+    if (!prob) { const v = SD.read(PK, []); prob = Array.isArray(v) ? v.filter(x => x && typeof x.m === 'string') : []; }
+    return prob;
+  };
+  const probKey = e => e.g + '|' + e.l + '|' + e.m.replace(/\d+/g, '#');   // numbers (ms, ids, counts) do not make a problem "different"
+  // the same problem again only raises its counter and its time, so an offline phone cannot flood the list
+  function keepProblem(e) {
+    if (inProb || typeof SD.read !== 'function' || typeof SD.write !== 'function') return;   // inProb: writing may log, never loop
+    inProb = true;
+    try {
+      const p = loadProb(), k = probKey(e), i = p.findIndex(x => probKey(x) === k);
+      if (i > -1) { const x = p.splice(i, 1)[0]; x.c = (x.c || 1) + 1; x.t = e.t; x.m = e.m; p.push(x); }
+      else p.push({ t: e.t, g: e.g, m: e.m.slice(0, 300), l: e.l, c: 1 });
+      while (p.length > PMAX) p.shift();
+      SD.write(PK, p);
+    } catch (x) { /* the problem log must never break logging */ } finally { inProb = false; }
+  }
   let dbgOn = true;
   const mask = s => {
     s = String(s);
@@ -176,6 +198,7 @@ try {
     const e = { t: ts || Date.now(), g: String(tag).slice(0, 10), m: mask(m).slice(0, 400), l: (lvl === 'e' || lvl === 'w') ? lvl : 'i' };
     buf.push(e);
     if (buf.length > LOGMAX) buf.shift();
+    if (e.l !== 'i') keepProblem(e);
     tell(e);
   };
   SD.logs = () => buf.slice();
@@ -190,6 +213,8 @@ try {
     if (on) SD.log('log', 'logging switched on');
   };
   SD.logSave = () => { SD.write(LOGK, buf.slice()); return buf.length; };
+  SD.problems = () => loadProb().slice();
+  SD.problemsClear = () => { prob = []; SD.write(PK, []); };
   SD.logSaved = () => { const v = SD.read(LOGK, []); return Array.isArray(v) ? v : []; };
   SD.logUnsave = () => SD.write(LOGK, []);
   SD.logTime = t => new Date(t).toTimeString().slice(0, 8);
@@ -3304,18 +3329,14 @@ try {
 } catch (e) { console.error('Speed Dial: modules/quicknotes.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/quicknotes.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Daily Checklist v0.1.0
-// A checklist that clears itself every day at midnight Torn time (TCT = UTC).
-//   - My tasks: tasks you add yourself (Add). Tap a row to check it. Edit shows a red cross per task (tap once to arm, again to delete).
-//   - Auto items: built-in items that check themselves from the Torn API. Edit shows an On/Off switch per item.
-//       Refills (on by default, 1 API call: user selections=refills): free energy refill, nerve refill, token refill.
-//       Daily log (off by default, 1 API call: user selections=log since midnight TCT, needs a Full Access key):
-//       Xanax taken, an item bought in the city, casino tokens used.
-//     An auto item only ever checks itself (never unchecks), and you can always tap it yourself, so a wrong or missing
-//     answer from the API never gets in the way. If Torn refuses (key level too low) or the reply is not understood, the
-//     whole group becomes manual with a small note and is only tried again after 24 hours.
-//   - Bottom bar: Add | Edit | Refresh (30 s cooldown with the countdown on the button, like Targets and Market).
-// The new day is noticed when the window opens (and while it stays open); nothing runs while the window is closed.
+// Speed Dial module: Daily Checklist v0.2.0
+// A plain checklist of your own tasks that clears itself every day at midnight Torn time (TCT = UTC).
+//   - Add: type a task (several in a row is fine). Tap a row to check it.
+//   - Edit: shows a red cross per task. Tap it once to arm it ("Delete?"), tap again to delete the task.
+//   - Progress at the top ("3/7" with a bar, "All done" when everything is checked).
+//   - Every check is cleared when a new TCT day starts; the tasks stay. The new day is noticed when the window opens
+//     (and while it stays open); nothing runs while the window is closed.
+// No API at all. (An earlier version had auto-checking refill and daily-log items; they were dropped on purpose.)
 // Saved under speedDial.daily1.
 (function () {
   'use strict';
@@ -3323,96 +3344,31 @@ try {
   if (!SD) return;
 
   const LS = 'speedDial.daily1';
-  const MAX = 30;                    // most own tasks
-  const MAXT = 60;                   // task title length
-  const COOL = 30000;                // Refresh button cooldown
-  const FRESH = 120000;              // opening the window reloads auto items only when the last load is older than this
-  const RETRY = 24 * 3600 * 1000;    // a group that Torn refused is not asked again for this long
-  const KEY_ERR = [2, 5, 8, 9, 10, 13, 14, 18, 19, 21];   // key / limit problems say nothing about the key's access level
-
-  // Auto items. g = which API call answers it.
-  const AUTO = [
-    { k: 'refE', g: 'ref', t: 'Energy refill', w: 'energy' },
-    { k: 'refN', g: 'ref', t: 'Nerve refill', w: 'nerve' },
-    { k: 'refT', g: 'ref', t: 'Token refill', w: 'token' },
-    { k: 'xan', g: 'log', t: 'Take Xanax' },
-    { k: 'city', g: 'log', t: 'Buy in the city' },
-    { k: 'tok', g: 'log', t: 'Use casino tokens' }
-  ];
-  const NA_NOTE = { ref: 'Manual', log: 'Manual \u00b7 needs Full Access' };
+  const MAX = 30;      // most tasks
+  const MAXT = 60;     // task title length
 
   const S = SD.read(LS, null) || {};
   S.d = typeof S.d === 'string' ? S.d : '';
   S.list = (Array.isArray(S.list) ? S.list : []).filter(t => t && typeof t.id === 'number').map(t => ({ id: t.id, t: String(t.t || ''), done: !!t.done }));
   const maxId = S.list.reduce((m, t) => Math.max(m, t.id), 0);
   if (typeof S.n !== 'number' || S.n <= maxId) S.n = maxId + 1;
-  S.done = S.done && typeof S.done === 'object' ? S.done : {};
-  S.on = Object.assign({ refE: true, refN: true, refT: true, xan: false, city: false, tok: false }, S.on && typeof S.on === 'object' ? S.on : {});
-  S.na = S.na && typeof S.na === 'object' ? S.na : {};
-  S.rt = +S.rt || 0;   // last manual refresh (cooldown)
-  S.ft = +S.ft || 0;   // last time the auto items were loaded
+  ['done', 'on', 'na', 'rt', 'ft'].forEach(k => { delete S[k]; });   // leftovers of the auto-item version
   const save = () => SD.write(LS, S);
 
   const today = () => new Date().toISOString().slice(0, 10);   // TCT date
-  const naNow = g => !!S.na[g] && Date.now() - S.na[g] < RETRY;
   function rollover() {   // new TCT day: clear every check, keep the tasks
     const d = today();
     if (S.d === d) return false;
-    S.d = d; S.done = {}; S.ft = 0;
+    S.d = d;
     S.list.forEach(t => { t.done = false; });
     save();
     SD.log('daily', 'new day ' + d + ': checks cleared');
     return true;
   }
 
-  // ---------- reading the API ----------
-  function flatBools(node) {   // every true/false in the reply with its key path (an object with a boolean "used" counts as that boolean)
-    const out = [];
-    (function walk(o, p, d) {
-      if (!o || typeof o !== 'object' || d > 2) return;
-      Object.keys(o).forEach(k => {
-        const v = o[k], path = (p + '_' + k).toLowerCase();
-        if (typeof v === 'boolean') out.push([path, v]);
-        else if (v && typeof v === 'object' && typeof v.used === 'boolean') out.push([path, v.used]);
-        else walk(v, path, d + 1);
-      });
-    })(node, '', 0);
-    return out;
-  }
-  async function loadRefills() {
-    const j = await SD.api('https://api.torn.com/user/?selections=refills');
-    const node = j && j.refills !== undefined ? j.refills : j;
-    const flat = flatBools(node);
-    const res = {};
-    let seen = 0;
-    AUTO.filter(a => a.g === 'ref').forEach(a => {
-      const hit = flat.find(f => f[0].indexOf(a.w) > -1 && f[0].indexOf('used') > -1) || flat.find(f => f[0].indexOf(a.w) > -1 && f[0].indexOf('avail') < 0);
-      if (hit) { res[a.k] = hit[1]; seen++; }
-    });
-    if (!seen) throw Object.assign(new Error('refills reply not understood: ' + JSON.stringify(node).slice(0, 160)), { odd: true });
-    return res;
-  }
-  async function loadLog() {
-    const p = S.d.split('-').map(Number);
-    const from = Math.floor(Date.UTC(p[0], p[1] - 1, p[2]) / 1000);
-    const j = await SD.api('https://api.torn.com/user/?selections=log&from=' + from);
-    if (!j || !('log' in j)) throw Object.assign(new Error('log not in reply: ' + Object.keys(j || {}).join(',')), { odd: true });
-    const arr = Object.values(j.log || {}).filter(e => e && typeof e === 'object');
-    const titles = {};
-    arr.forEach(e => { const t = String(e.title || e.log || '?'); titles[t] = (titles[t] || 0) + 1; });
-    SD.log('daily', 'log since midnight TCT: ' + arr.length + ' entr' + (arr.length === 1 ? 'y' : 'ies') + (arr.length >= 100 ? ' (limit reached, older ones are missing)' : '') + ' | ' + Object.keys(titles).slice(0, 15).join('; '));
-    const text = e => (String(e.title || '') + ' ' + String(e.category || '')).toLowerCase();
-    return {
-      xan: arr.some(e => e.data && +e.data.item === 206 && /use/.test(text(e))),
-      city: arr.some(e => /city/.test(text(e)) && /buy|bought|purchas/.test(text(e))),
-      tok: arr.some(e => /casino/.test(text(e)) && /token/.test(text(e)))
-    };
-  }
-
   const CSS = `
     #sdial .dl button{height:var(--sd-h);border-radius:8px;border:1px solid var(--sd-line);background:var(--sd-bg2);color:var(--sd-text2);font-size:12px;padding:0 10px}
     #sdial .dl button:active{background:var(--sd-hov)}
-    #sdial .dl button:disabled{opacity:.4}
     #sdial .dl .mainv,#sdial .dl .addv{display:none}
     #sdial .dl:not(.adding) .mainv{display:block}
     #sdial .dl.adding .addv{display:block}
@@ -3421,29 +3377,20 @@ try {
     #sdial .dl .pg .bar i{display:block;height:100%;width:0;background:#4a8f4e;transition:width .2s}
     #sdial .dl .pg .tx.all{color:#7fd08a}
     #sdial .dl .list{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
-    #sdial .dl .sec{color:var(--sd-dim);font-size:11px;margin:4px 2px 3px}
     #sdial .dl .tr{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;margin-bottom:3px;background:var(--sd-bg2);border-left:3px solid #555;color:var(--sd-text);min-height:36px;user-select:none;-webkit-user-select:none}
     #sdial .dl .tr:active{background:var(--sd-hov)}
     #sdial .dl .tr.done{border-left-color:#4a8f4e}
     #sdial .dl .tr.done .nm{text-decoration:line-through;color:var(--sd-dim)}
-    #sdial .dl .tr.off{opacity:.5}
     #sdial .dl .cb{flex:0 0 20px;width:20px;height:20px;border-radius:5px;border:2px solid #666;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
     #sdial .dl .tr.done .cb{background:#4a8f4e;border-color:#4a8f4e}
     #sdial .dl .tr.done .cb::after{content:"\\2713";color:#fff;font-size:13px;line-height:1}
-    #sdial .dl .tr .t{flex:1;min-width:0}
-    #sdial .dl .tr .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
-    #sdial .dl .tr .sub{display:block;color:var(--sd-dim);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #sdial .dl .tr .rm,#sdial .dl .tr .sw{display:none}
+    #sdial .dl .tr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+    #sdial .dl .tr .rm{display:none}
     #sdial .dl.ed .tr .rm{display:block;flex:0 0 var(--sd-h);width:var(--sd-h);height:var(--sd-h);padding:0;color:var(--sd-redt)}
     #sdial .dl.ed .tr .rm.arm{flex:0 0 auto;width:auto;padding:0 8px;border-color:var(--sd-red);background:#3a1f1d;color:#f1b5b0}
-    #sdial .dl.ed .tr .sw{display:block;flex:0 0 auto;min-width:44px;padding:0 8px}
-    #sdial .dl.ed .tr .sw.on{border-color:#4a8f4e;color:#7fd08a}
     #sdial .dl .em{padding:14px 6px;text-align:center;color:var(--sd-dim);font-size:12px;line-height:1.4}
     #sdial .dl .foot{display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid #2c2c2c}
     #sdial .dl .foot .add,#sdial .dl .foot .edit{flex:1;padding:0 4px}
-    #sdial .dl .foot .rf{flex:0 0 auto;min-width:52px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:4px}
-    #sdial .dl .rf .rs{font-size:11px;text-align:left}
-    #sdial .dl .rf .rs:empty{display:none}
     #sdial .dl .ah{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--sd-text);font-size:13px}
     #sdial .dl .ah .back{flex:0 0 36px;width:36px;padding:0;display:flex;align-items:center;justify-content:center}
     #sdial .dl .ah .ok{flex:0 0 auto}
@@ -3461,130 +3408,42 @@ try {
         '<div class="mainv">' +
           '<div class="pg"><span class="tx"></span><span class="bar"><i></i></span></div>' +
           '<div class="list"></div>' +
-          '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button><button class="rf" aria-label="Refresh">' + SD.icons.refresh + '<span class="rs"></span></button></div>' +
+          '<div class="foot"><button class="add">Add</button><button class="edit">Edit</button></div>' +
         '</div>' +
         '<div class="addv">' +
           '<div class="ah"><button class="back" aria-label="Back">' + BACK + '</button><input class="ti" type="text" maxlength="' + MAXT + '" placeholder="New task" autocomplete="off" spellcheck="false"><button class="ok">Add</button></div>' +
-          '<div class="hint">Tasks you add are checked by hand and cleared every day at midnight Torn time.</div>' +
+          '<div class="hint">Checks are cleared every day at midnight Torn time.</div>' +
         '</div>' +
       '</div>';
     const q = s => el.querySelector(s);
-    const root = q('.dl'), list = q('.list'), ptx = q('.pg .tx'), pbar = q('.pg i'), rf = q('.rf'), rs = q('.rs'), ti = q('.ti');
-    let busy = false, armed = 0, armT = 0;
+    const root = q('.dl'), list = q('.list'), ptx = q('.pg .tx'), pbar = q('.pg i'), ti = q('.ti');
+    let armed = 0, armT = 0;
 
-    // ---------- list ----------
-    const visibleAuto = () => AUTO.filter(a => S.on[a.k] || root.classList.contains('ed'));
     function render() {
-      const keep = list.scrollTop, ed = root.classList.contains('ed');
-      const autos = visibleAuto();
-      let total = 0, done = 0;
-      AUTO.forEach(a => { if (S.on[a.k]) { total++; if (S.done[a.k]) done++; } });
-      S.list.forEach(t => { total++; if (t.done) done++; });
+      const keep = list.scrollTop;
+      const total = S.list.length, done = S.list.filter(t => t.done).length;
       ptx.textContent = total ? (done === total ? 'All done' : done + '/' + total) : '';
       ptx.classList.toggle('all', total > 0 && done === total);
       pbar.style.width = total ? Math.round(done / total * 100) + '%' : '0';
-
       list.innerHTML = '';
-      if (!autos.length && !S.list.length) { list.innerHTML = '<div class="em">No tasks.<br>Tap Add, or Edit to switch on auto items.</div>'; return; }
-      const sec = txt => { const d = document.createElement('div'); d.className = 'sec'; d.textContent = txt; list.appendChild(d); };
-      const row = (key, title, sub, isDone, isOff) => {
+      if (!total) { list.innerHTML = '<div class="em">No tasks yet.<br>Tap Add.</div>'; return; }
+      S.list.forEach(t => {
         const r = document.createElement('div');
-        r.className = 'tr' + (isDone ? ' done' : '') + (isOff ? ' off' : '');
-        r.dataset.k = key;
-        r.innerHTML = '<span class="cb"></span><span class="t"><span class="nm"></span><span class="sub"></span></span>';
-        r.querySelector('.nm').textContent = title;
-        const s = r.querySelector('.sub');
-        if (sub) s.textContent = sub; else s.remove();
-        return r;
-      };
-      if (autos.length) {
-        sec('Auto');
-        autos.forEach(a => {
-          const r = row('a:' + a.k, a.t, naNow(a.g) ? NA_NOTE[a.g] : 'Auto', !!S.done[a.k] && !!S.on[a.k], !S.on[a.k]);
-          const b = document.createElement('button');
-          b.className = 'sw' + (S.on[a.k] ? ' on' : '');
-          b.textContent = S.on[a.k] ? 'On' : 'Off';
-          r.appendChild(b);
-          list.appendChild(r);
-        });
-      }
-      if (S.list.length) {
-        sec('My tasks');
-        S.list.forEach(t => {
-          const r = row('t:' + t.id, t.t, '', t.done, false);
-          const b = document.createElement('button');
-          b.className = 'rm';
-          b.setAttribute('aria-label', 'Delete');
-          if (armed === t.id) { b.textContent = 'Delete?'; b.classList.add('arm'); } else b.textContent = '\u2715';
-          r.appendChild(b);
-          list.appendChild(r);
-        });
-      }
+        r.className = 'tr' + (t.done ? ' done' : '');
+        r.dataset.id = t.id;
+        r.innerHTML = '<span class="cb"></span><span class="nm"></span><button class="rm" aria-label="Delete"></button>';
+        r.querySelector('.nm').textContent = t.t;
+        const b = r.querySelector('.rm');
+        if (armed === t.id) { b.textContent = 'Delete?'; b.classList.add('arm'); } else b.textContent = '\u2715';
+        list.appendChild(r);
+      });
       list.scrollTop = keep;
     }
 
-    // ---------- refresh ----------
-    function tick() {
-      if (rollover()) { render(); refresh(false, true); }
-      const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
-      rs.textContent = left > 0 ? left + 's' : '';
-      rf.disabled = left > 0 || busy;
-    }
-    // manual: user tapped Refresh (cooldown, toasts). force: ignore the "loaded recently" rule (an item was just switched on).
-    async function refresh(manual, force) {
-      if (busy) return;
-      if (!SD.hasKey) return manual ? SD.toast('No API key available') : undefined;
-      const groups = ['ref', 'log'].filter(g => AUTO.some(a => a.g === g && S.on[a.k]) && !naNow(g));
-      if (!groups.length) return manual ? SD.toast('Nothing to update') : undefined;
-      if (manual) {
-        const left = Math.ceil((COOL - (Date.now() - S.rt)) / 1000);
-        if (left > 0) return SD.toast('Wait ' + left + 's');
-        S.rt = Date.now();
-        save();
-      } else if (!force && Date.now() - S.ft < FRESH) return;
-      busy = true; tick();
-      let bad = 0, first = null;
-      for (const g of groups) {
-        try {
-          const r = g === 'ref' ? await loadRefills() : await loadLog();
-          AUTO.forEach(a => { if (a.g === g && r[a.k] === true) S.done[a.k] = true; });
-          delete S.na[g];
-        } catch (e) {
-          if (e && e.odd) {
-            S.na[g] = Date.now();
-            SD.log('daily', g + ' ' + e.message + ' | becomes manual for 24h', 'w');
-          } else if (e && e.api && KEY_ERR.indexOf(e.code) < 0) {
-            S.na[g] = Date.now();
-            SD.log('daily', g + ' refused by Torn (' + e.message + '); becomes manual for 24h', 'w');
-          } else { bad++; first = first || e; }
-        }
-      }
-      S.ft = Date.now();
-      save();
-      busy = false;
-      if (!ctx.alive) return;
-      render(); tick();
-      if (bad) SD.toast('Updated, ' + bad + ' failed (' + ((first && first.message) || 'error') + ')');
-      else if (manual) SD.toast('Updated');
-    }
-
-    // ---------- events ----------
     list.addEventListener('click', e => {
       const row = e.target.closest('.tr');
       if (!row) return;
-      const key = row.dataset.k, ed = root.classList.contains('ed');
-      if (key.indexOf('a:') === 0) {
-        const k = key.slice(2);
-        if (e.target.closest('.sw')) {
-          S.on[k] = !S.on[k]; save(); render();
-          if (S.on[k]) refresh(false, true);
-          return;
-        }
-        if (ed || !S.on[k]) return;
-        S.done[k] = !S.done[k]; save(); render();
-        return;
-      }
-      const id = +key.slice(2), t = S.list.find(x => x.id === id);
+      const id = +row.dataset.id, t = S.list.find(x => x.id === id);
       if (!t) return;
       if (e.target.closest('.rm')) {
         if (armed !== id) {   // first tap arms, second tap deletes
@@ -3598,7 +3457,7 @@ try {
         armed = 0; save(); render();
         return;
       }
-      if (ed) return;
+      if (root.classList.contains('ed')) return;   // in Edit mode a tap on the row does nothing (avoids checking by accident)
       t.done = !t.done; save(); render();
     });
     q('.edit').addEventListener('click', e => {
@@ -3606,7 +3465,6 @@ try {
       SD.editBtn(e.currentTarget, on);
       armed = 0; render();
     });
-    rf.addEventListener('click', () => { SD.spin(rf, refresh(true)); });
 
     function addTask() {
       const v = ti.value.trim();
@@ -3623,21 +3481,18 @@ try {
     ti.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTask(); } });
     q('.back').addEventListener('click', () => { root.classList.remove('adding'); ti.blur(); render(); });
 
-    // ---------- start ----------
     rollover();
     render();
-    tick();
-    ctx.every(tick, 1000);
-    refresh(false);
-    SD.log('daily', 'opened: ' + S.list.length + ' task(s), auto on: ' + AUTO.filter(a => S.on[a.k]).map(a => a.k).join(',') + (Object.keys(S.na).filter(naNow).length ? ' | manual groups: ' + Object.keys(S.na).filter(naNow).join(',') : ''));
+    ctx.every(() => { if (rollover()) render(); }, 30000);   // a new day while the window stays open
+    SD.log('daily', 'opened: ' + S.list.length + ' task(s)');
     return { unmount() { clearTimeout(armT); } };
   }
 
   SD.register({
     id: 'daily',
-    label: 'Daily',
+    label: 'Daily Checklist',
     width: 270,
-    // checklist: box with a tick and lines
+    // checklist: boxes with a tick and lines
     icon: '<path d="M4 6l1.5 1.5L8 5"/><path d="M4 12l1.5 1.5L8 11"/><path d="M4 18l1.5 1.5L8 17"/><path d="M12 6h8M12 12h8M12 18h8"/>',
     mount
   });
@@ -3735,7 +3590,7 @@ try {
 } catch (e) { console.error('Speed Dial: modules/showmore.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/showmore.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Settings v0.8.0
+// Speed Dial module: Settings v0.9.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
@@ -3912,7 +3767,7 @@ try {
       '<div class="pg pf"><div class="fc"></div><div class="fl"></div></div>' +
       '<div class="pg pt"><div class="tm">' +
         '<div class="fr"><span class="nm">Logging</span><button class="sw" role="switch" aria-label="Logging"><i></i></button></div>' +
-        '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button></div>' +
+        '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button><button data-v="prob">Problems</button></div>' +
         '<div class="bar"><button data-f="i">All</button><button data-f="w">Warn+</button><button data-f="e">Errors</button></div>' +
         '<div class="out"></div><div class="ct"></div>' +
         '<div class="bar"><button class="tp">Pause</button><button class="tc">Clear</button><button class="tcp">Copy</button><button class="ts">Save</button></div>' +
@@ -3972,19 +3827,23 @@ try {
     const RANK = { i: 0, w: 1, e: 2 };
     const MAXLINES = 300;
 
-    const source = () => (T.view === 'saved' ? SD.logSaved() : SD.logs());
+    const source = () => (T.view === 'saved' ? SD.logSaved() : T.view === 'prob' ? SD.problems() : SD.logs());
+    const when = t => {   // problems can be old: add the date when it is not today
+      const d = new Date(t), n = new Date();
+      return (d.toDateString() === n.toDateString() ? '' : d.toLocaleDateString([], { day: '2-digit', month: 'short' }) + ' ') + SD.logTime(t);
+    };
     const passes = e => RANK[e.l] >= RANK[T.lvl];
     const lineEl = e => {
       const d = document.createElement('div');
       d.className = 'ln ' + e.l;
       const a = document.createElement('span'), b = document.createElement('span');
-      a.className = 'tt'; a.textContent = SD.logTime(e.t) + ' ';
+      a.className = 'tt'; a.textContent = (T.view === 'prob' ? when(e.t) : SD.logTime(e.t)) + ' ';
       b.className = 'tg'; b.textContent = e.g + ' ';
-      d.appendChild(a); d.appendChild(b); d.appendChild(document.createTextNode(e.m));
+      d.appendChild(a); d.appendChild(b); d.appendChild(document.createTextNode(e.m + (T.view === 'prob' && e.c > 1 ? '  (x' + e.c + ')' : '')));
       return d;
     };
     const count = () => {
-      ct.textContent = T.n + ' line' + (T.n === 1 ? '' : 's') + (T.view === 'live' && T.paused ? ' (paused)' : '') + (T.view === 'live' && !SD.logIsOn() ? ' (logging is off)' : '');
+      ct.textContent = T.n + (T.view === 'prob' ? ' problem' : ' line') + (T.n === 1 ? '' : 's') + (T.view === 'live' && T.paused ? ' (paused)' : '') + (T.view === 'live' && !SD.logIsOn() ? ' (logging is off)' : '');
     };
     function drawTerm() {
       out.innerHTML = '';
@@ -3993,13 +3852,14 @@ try {
       if (!rows.length) {
         const n = document.createElement('div');
         n.className = 'none';
-        n.textContent = T.view === 'saved' ? 'Nothing saved yet. Tap Save in Live.' : 'No lines.';
+        n.textContent = T.view === 'saved' ? 'Nothing saved yet. Tap Save in Live.' : T.view === 'prob' ? 'No problems saved. Warnings and errors are kept here automatically.' : 'No lines.';
         out.appendChild(n);
       } else rows.forEach(e => out.appendChild(lineEl(e)));
       out.scrollTop = out.scrollHeight;
       count();
     }
     const onLine = e => {
+      if (T.view === 'prob') { if (e === null || e.l !== 'i') { drawTerm(); paintTerm(); } return; }   // a new problem while Problems is open
       if (T.view !== 'live') return;
       if (e === null) { drawTerm(); return; }                    // Clear
       if (T.paused || !passes(e)) return;
@@ -4020,7 +3880,9 @@ try {
       tsw.setAttribute('aria-checked', on ? 'true' : 'false');
       bP.textContent = T.paused ? 'Resume' : 'Pause';
       bP.disabled = T.view !== 'live';
-      bS.disabled = !SD.logIsOn() && !SD.logs().length;
+      bS.disabled = T.view === 'prob' || (!SD.logIsOn() && !SD.logs().length);
+      const np = SD.problems().length, pb = tm.querySelector('.bar button[data-v="prob"]');
+      if (pb) pb.textContent = 'Problems' + (np ? ' (' + np + ')' : '');
     }
     function startTerm() {
       stopTerm();
@@ -4035,7 +3897,9 @@ try {
     tsw.addEventListener('click', () => { SD.logSet(!SD.logIsOn()); paintTerm(); count(); });
     bP.addEventListener('click', () => { T.paused = !T.paused; if (!T.paused) drawTerm(); paintTerm(); count(); });
     bC.addEventListener('click', () => {
-      if (T.view === 'saved') { SD.logUnsave(); drawTerm(); SD.toast('Saved log cleared'); } else SD.logClear();
+      if (T.view === 'saved') { SD.logUnsave(); drawTerm(); SD.toast('Saved log cleared'); }
+      else if (T.view === 'prob') { SD.problemsClear(); paintTerm(); drawTerm(); SD.toast('Problems cleared'); }
+      else SD.logClear();
     });
     bS.addEventListener('click', () => {
       const n = SD.logSave();
@@ -4044,8 +3908,8 @@ try {
     });
     bCp.addEventListener('click', () => {
       const rows = source().filter(passes);
-      const head = 'Speed Dial v' + SD.ver + ' | ' + (T.view === 'saved' ? 'saved log' : 'live log') + ' | native storage: ' + (window.__sdStore && window.__sdStore.native ? 'yes' : 'no') + ' | ' + rows.length + ' line(s)';
-      const text = head + '\n' + rows.map(e => SD.logTime(e.t) + ' [' + e.g + '] ' + (e.l === 'e' ? 'ERROR ' : e.l === 'w' ? 'WARN ' : '') + e.m).join('\n');
+      const head = 'Speed Dial v' + SD.ver + ' | ' + (T.view === 'saved' ? 'saved log' : T.view === 'prob' ? 'problem log' : 'live log') + ' | native storage: ' + (window.__sdStore && window.__sdStore.native ? 'yes' : 'no') + ' | ' + rows.length + ' line(s)';
+      const text = head + '\n' + rows.map(e => (T.view === 'prob' ? when(e.t) : SD.logTime(e.t)) + ' [' + e.g + '] ' + (e.l === 'e' ? 'ERROR ' : e.l === 'w' ? 'WARN ' : '') + e.m + (T.view === 'prob' && e.c > 1 ? ' (x' + e.c + ')' : '')).join('\n');
       copyText(text).then(ok => SD.toast(ok ? 'Copied ' + rows.length + ' line(s)' : 'Could not copy. Select the text and copy it by hand.'));
     });
     // clipboard API when the page allows it, otherwise the old selection trick

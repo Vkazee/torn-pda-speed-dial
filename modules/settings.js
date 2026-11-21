@@ -1,4 +1,4 @@
-// Speed Dial module: Settings v0.8.0
+// Speed Dial module: Settings v0.9.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
@@ -175,7 +175,7 @@
       '<div class="pg pf"><div class="fc"></div><div class="fl"></div></div>' +
       '<div class="pg pt"><div class="tm">' +
         '<div class="fr"><span class="nm">Logging</span><button class="sw" role="switch" aria-label="Logging"><i></i></button></div>' +
-        '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button></div>' +
+        '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button><button data-v="prob">Problems</button></div>' +
         '<div class="bar"><button data-f="i">All</button><button data-f="w">Warn+</button><button data-f="e">Errors</button></div>' +
         '<div class="out"></div><div class="ct"></div>' +
         '<div class="bar"><button class="tp">Pause</button><button class="tc">Clear</button><button class="tcp">Copy</button><button class="ts">Save</button></div>' +
@@ -235,19 +235,23 @@
     const RANK = { i: 0, w: 1, e: 2 };
     const MAXLINES = 300;
 
-    const source = () => (T.view === 'saved' ? SD.logSaved() : SD.logs());
+    const source = () => (T.view === 'saved' ? SD.logSaved() : T.view === 'prob' ? SD.problems() : SD.logs());
+    const when = t => {   // problems can be old: add the date when it is not today
+      const d = new Date(t), n = new Date();
+      return (d.toDateString() === n.toDateString() ? '' : d.toLocaleDateString([], { day: '2-digit', month: 'short' }) + ' ') + SD.logTime(t);
+    };
     const passes = e => RANK[e.l] >= RANK[T.lvl];
     const lineEl = e => {
       const d = document.createElement('div');
       d.className = 'ln ' + e.l;
       const a = document.createElement('span'), b = document.createElement('span');
-      a.className = 'tt'; a.textContent = SD.logTime(e.t) + ' ';
+      a.className = 'tt'; a.textContent = (T.view === 'prob' ? when(e.t) : SD.logTime(e.t)) + ' ';
       b.className = 'tg'; b.textContent = e.g + ' ';
-      d.appendChild(a); d.appendChild(b); d.appendChild(document.createTextNode(e.m));
+      d.appendChild(a); d.appendChild(b); d.appendChild(document.createTextNode(e.m + (T.view === 'prob' && e.c > 1 ? '  (x' + e.c + ')' : '')));
       return d;
     };
     const count = () => {
-      ct.textContent = T.n + ' line' + (T.n === 1 ? '' : 's') + (T.view === 'live' && T.paused ? ' (paused)' : '') + (T.view === 'live' && !SD.logIsOn() ? ' (logging is off)' : '');
+      ct.textContent = T.n + (T.view === 'prob' ? ' problem' : ' line') + (T.n === 1 ? '' : 's') + (T.view === 'live' && T.paused ? ' (paused)' : '') + (T.view === 'live' && !SD.logIsOn() ? ' (logging is off)' : '');
     };
     function drawTerm() {
       out.innerHTML = '';
@@ -256,13 +260,14 @@
       if (!rows.length) {
         const n = document.createElement('div');
         n.className = 'none';
-        n.textContent = T.view === 'saved' ? 'Nothing saved yet. Tap Save in Live.' : 'No lines.';
+        n.textContent = T.view === 'saved' ? 'Nothing saved yet. Tap Save in Live.' : T.view === 'prob' ? 'No problems saved. Warnings and errors are kept here automatically.' : 'No lines.';
         out.appendChild(n);
       } else rows.forEach(e => out.appendChild(lineEl(e)));
       out.scrollTop = out.scrollHeight;
       count();
     }
     const onLine = e => {
+      if (T.view === 'prob') { if (e === null || e.l !== 'i') { drawTerm(); paintTerm(); } return; }   // a new problem while Problems is open
       if (T.view !== 'live') return;
       if (e === null) { drawTerm(); return; }                    // Clear
       if (T.paused || !passes(e)) return;
@@ -283,7 +288,9 @@
       tsw.setAttribute('aria-checked', on ? 'true' : 'false');
       bP.textContent = T.paused ? 'Resume' : 'Pause';
       bP.disabled = T.view !== 'live';
-      bS.disabled = !SD.logIsOn() && !SD.logs().length;
+      bS.disabled = T.view === 'prob' || (!SD.logIsOn() && !SD.logs().length);
+      const np = SD.problems().length, pb = tm.querySelector('.bar button[data-v="prob"]');
+      if (pb) pb.textContent = 'Problems' + (np ? ' (' + np + ')' : '');
     }
     function startTerm() {
       stopTerm();
@@ -298,7 +305,9 @@
     tsw.addEventListener('click', () => { SD.logSet(!SD.logIsOn()); paintTerm(); count(); });
     bP.addEventListener('click', () => { T.paused = !T.paused; if (!T.paused) drawTerm(); paintTerm(); count(); });
     bC.addEventListener('click', () => {
-      if (T.view === 'saved') { SD.logUnsave(); drawTerm(); SD.toast('Saved log cleared'); } else SD.logClear();
+      if (T.view === 'saved') { SD.logUnsave(); drawTerm(); SD.toast('Saved log cleared'); }
+      else if (T.view === 'prob') { SD.problemsClear(); paintTerm(); drawTerm(); SD.toast('Problems cleared'); }
+      else SD.logClear();
     });
     bS.addEventListener('click', () => {
       const n = SD.logSave();
@@ -307,8 +316,8 @@
     });
     bCp.addEventListener('click', () => {
       const rows = source().filter(passes);
-      const head = 'Speed Dial v' + SD.ver + ' | ' + (T.view === 'saved' ? 'saved log' : 'live log') + ' | native storage: ' + (window.__sdStore && window.__sdStore.native ? 'yes' : 'no') + ' | ' + rows.length + ' line(s)';
-      const text = head + '\n' + rows.map(e => SD.logTime(e.t) + ' [' + e.g + '] ' + (e.l === 'e' ? 'ERROR ' : e.l === 'w' ? 'WARN ' : '') + e.m).join('\n');
+      const head = 'Speed Dial v' + SD.ver + ' | ' + (T.view === 'saved' ? 'saved log' : T.view === 'prob' ? 'problem log' : 'live log') + ' | native storage: ' + (window.__sdStore && window.__sdStore.native ? 'yes' : 'no') + ' | ' + rows.length + ' line(s)';
+      const text = head + '\n' + rows.map(e => (T.view === 'prob' ? when(e.t) : SD.logTime(e.t)) + ' [' + e.g + '] ' + (e.l === 'e' ? 'ERROR ' : e.l === 'w' ? 'WARN ' : '') + e.m + (T.view === 'prob' && e.c > 1 ? ' (x' + e.c + ')' : '')).join('\n');
       copyText(text).then(ok => SD.toast(ok ? 'Copied ' + rows.length + ' line(s)' : 'Could not copy. Select the text and copy it by hand.'));
     });
     // clipboard API when the page allows it, otherwise the old selection trick

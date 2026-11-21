@@ -1,4 +1,4 @@
-// Speed Dial core v0.13.0
+// Speed Dial core v0.14.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -9,7 +9,7 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.13.0' };
+  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.14.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -21,14 +21,36 @@
 
   // ---------- debug log (the Terminal page in Settings) ----------
   // Kept in memory only: a ring buffer of the last LOGMAX lines. No timer, no API call, nothing is drawn unless the Terminal page is open.
-  // It reaches storage only when you tap Save in Terminal (key speedDial.log1). Anything that looks like your API key is masked before it is stored.
+  // It reaches storage only when you tap Save in Terminal (key speedDial.log1), with ONE exception: warnings and errors are also kept automatically
+  // (key speedDial.problems1, the Problems view in Terminal) so a problem that happens while the Terminal is closed is not lost.
+  // Anything that looks like your API key is masked before it is stored.
   // New modules and features: call SD.log('tag', 'message') for what they do, and SD.log('tag', 'message', 'w') (warn) or 'e' (error) when something goes wrong,
   // especially inside a catch block, so errors are never silent.
   const LOGMAX = 300;
   const DBG = 'speedDial.dbg1';     // { on: true | false }, logging switch (default on)
   const LOGK = 'speedDial.log1';    // the saved copy of the log
+  const PK = 'speedDial.problems1'; // warnings + errors, kept automatically: [{ t: last time, g, m, l, c: how many times }]
+  const PMAX = 50;                  // most distinct problems kept (the oldest drop out first)
   const buf = [];
   const subs = new Set();
+  let prob = null, inProb = false;
+  const loadProb = () => {
+    if (!prob) { const v = SD.read(PK, []); prob = Array.isArray(v) ? v.filter(x => x && typeof x.m === 'string') : []; }
+    return prob;
+  };
+  const probKey = e => e.g + '|' + e.l + '|' + e.m.replace(/\d+/g, '#');   // numbers (ms, ids, counts) do not make a problem "different"
+  // the same problem again only raises its counter and its time, so an offline phone cannot flood the list
+  function keepProblem(e) {
+    if (inProb || typeof SD.read !== 'function' || typeof SD.write !== 'function') return;   // inProb: writing may log, never loop
+    inProb = true;
+    try {
+      const p = loadProb(), k = probKey(e), i = p.findIndex(x => probKey(x) === k);
+      if (i > -1) { const x = p.splice(i, 1)[0]; x.c = (x.c || 1) + 1; x.t = e.t; x.m = e.m; p.push(x); }
+      else p.push({ t: e.t, g: e.g, m: e.m.slice(0, 300), l: e.l, c: 1 });
+      while (p.length > PMAX) p.shift();
+      SD.write(PK, p);
+    } catch (x) { /* the problem log must never break logging */ } finally { inProb = false; }
+  }
   let dbgOn = true;
   const mask = s => {
     s = String(s);
@@ -44,6 +66,7 @@
     const e = { t: ts || Date.now(), g: String(tag).slice(0, 10), m: mask(m).slice(0, 400), l: (lvl === 'e' || lvl === 'w') ? lvl : 'i' };
     buf.push(e);
     if (buf.length > LOGMAX) buf.shift();
+    if (e.l !== 'i') keepProblem(e);
     tell(e);
   };
   SD.logs = () => buf.slice();
@@ -58,6 +81,8 @@
     if (on) SD.log('log', 'logging switched on');
   };
   SD.logSave = () => { SD.write(LOGK, buf.slice()); return buf.length; };
+  SD.problems = () => loadProb().slice();
+  SD.problemsClear = () => { prob = []; SD.write(PK, []); };
   SD.logSaved = () => { const v = SD.read(LOGK, []); return Array.isArray(v) ? v : []; };
   SD.logUnsave = () => SD.write(LOGK, []);
   SD.logTime = t => new Date(t).toTimeString().slice(0, 8);
