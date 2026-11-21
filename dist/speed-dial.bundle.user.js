@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.8.2
+// @version      0.8.4
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -2524,12 +2524,12 @@ try {
 } catch (e) { console.error('Speed Dial: modules/calculator.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/calculator.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Market v0.2.1
+// Speed Dial module: Market v0.3.0
 // Looks at what other players sell, straight from the official API. Four tools in one window:
-//   - Price checker: Add (search) an item, then the tabs Market (item market) and Bazaar show its cheapest listings.
-//   - Watchlist: the main view. Each item shows its lowest price (item market or bazaar); green = at or below the alert price you set.
+//   - Price checker: Add (search) an item, then the tab Market shows its cheapest item market listings.
+//   - Watchlist: the main view. Each item shows its lowest item market price; green = at or below the alert price you set.
 //   - Margin: the lowest listing against Torn's market value and the shop prices (shop to market, market to shop). Before fees.
-//   - Sell: a price for your own bazaar listing, a little under the lowest listing (you choose how much). Copy puts the number on the clipboard.
+//   - Sell: a price for your own bazaar listing, a little under the lowest item market listing (Torn's API has no bazaar prices) (you choose how much). Copy puts the number on the clipboard.
 // Nothing runs while the window is closed: no polling and no alerts in the background. Prices load when you open an item,
 // when you tap Refresh (once every 30 seconds, with the countdown on the button like Targets) and, for watchlist items older than 2 minutes, when the window opens.
 // Look and wording follow Targets and the Travel Helper Stocks box: prices are green (#7fd08a) like the Stocks profit, a loss is red,
@@ -2539,8 +2539,8 @@ try {
   const SD = window.SpeedDial;
   if (!SD) return;
 
-  const LS = 'speedDial.market1';   // { w: [{ id, name, th }], last: { id: { im, bz } }, npc: { id: { mv, b, s } }, uc, sm, bz, rt }
-  const MAX = 25;                   // most items on the watchlist (2 API calls per item per refresh)
+  const LS = 'speedDial.market1';   // { w: [{ id, name, th }], last: { id: { im } }, npc: { id: { mv, b, s } }, uc, rt }
+  const MAX = 25;                   // most items on the watchlist (1 API call per item per refresh)
   const COOL = 30000;               // Refresh button cooldown (also the age under which an opened item is not loaded again)
   const AUTO = 120000;              // on open, watchlist items older than this are refreshed (silently)
   const BATCH = 4;                  // items refreshed in parallel
@@ -2550,18 +2550,19 @@ try {
   const S = SD.read(LS, null) || {};
   if (!Array.isArray(S.w)) S.w = [];
   S.w = S.w.filter(w => w && typeof w.id === 'number' && w.name);
-  if (!S.last || typeof S.last !== 'object') S.last = {};   // lowest listing per watched item: { im: { p, q, t }, bz: { p, q, t } }
+  if (!S.last || typeof S.last !== 'object') S.last = {};   // lowest listing per watched item: { im: { p, q, t } }
   if (!S.npc || typeof S.npc !== 'object') S.npc = {};      // shop numbers per watched item: { mv, b (shop price), s (shop pays) }
   if (typeof S.uc !== 'number' || !(S.uc >= 0)) S.uc = UC;
-  if (['both', 'bz', 'im'].indexOf(S.sm) < 0) S.sm = 'both';
-  if (S.bz !== 'v1' && S.bz !== 'v2') S.bz = 'v2';          // which bazaar endpoint answered last time (tried first)
+  delete S.sm;
+  delete S.bz; delete S.bzna;                                // bazaar prices are gone from Torn's API (old saved data is dropped)
+  Object.keys(S.last).forEach(k => { if (S.last[k]) delete S.last[k].bz; });
   if (typeof S.rt !== 'number') S.rt = 0;
   const save = () => SD.write(LS, S);
 
   const isW = id => S.w.some(w => w.id === id);
   const num = v => { const n = +v; return isFinite(n) ? n : 0; };
   const money = n => '$' + Math.round(n).toLocaleString('en-US');
-  const srcName = k => (k === 'bz' ? 'Bazaar' : 'Item market');
+  const srcName = () => 'Item market';
   // "850000", "850k", "1.2m", "$1,200,000" -> number; anything else -> null
   const parseMoney = s => {
     const m = /^\$?\s*(\d[\d,]*(?:\.\d+)?)\s*([kmb])?$/i.exec(String(s).trim());
@@ -2572,7 +2573,7 @@ try {
 
   // ---------- API ----------
   // Item market v2 answers { itemmarket: { item: { average_price }, listings: [{ price, amount }] } }.
-  // Bazaar: v2 /market/{id}/bazaar if it exists, else v1 market/{id}?selections=bazaar ([{ cost, quantity }]).
+  // Bazaar prices are NOT available: Torn removed them from the API (v1 selections=bazaar now answers ok but empty, v2 market/{id}/bazaar only lists which bazaars specialise in an item).
   // Torn flags the v2 market as still changing, so the reader accepts a list under "listings", a plain list, or an object of listings.
   const isL = x => x && typeof x === 'object' && ('cost' in x || 'price' in x);
   function findList(node, depth) {      // first list of listings anywhere in the reply (an array, or an object of listings)
@@ -2604,30 +2605,6 @@ try {
     return { l: parseListings(node), avg: node.item ? num(node.item.average_price) : 0, t: Date.now() };
   }
 
-  async function fetchBZ(id) {
-    const order = S.bz === 'v1' ? ['v1', 'v2'] : ['v2', 'v1'];
-    let err = null, empty = null;
-    for (const v of order) {
-      try {
-        const j = await SD.api(v === 'v2' ? 'https://api.torn.com/v2/market/' + id + '/bazaar' : 'https://api.torn.com/market/' + id + '?selections=bazaar');
-        if (!j || !('bazaar' in j)) { err = new Error('bazaar reply not understood (' + v + ')'); SD.log('market', err.message + ' keys: ' + Object.keys(j || {}).join(','), 'w'); continue; }
-        const l = parseListings(j.bazaar);
-        if (!l.length && hasBody(j.bazaar)) {   // content we could not read: log its shape and try the other endpoint
-          SD.log('market', 'bazaar ' + v + ' reply has no readable listings, keys: ' + Object.keys(j.bazaar || {}).join(',') + ' | ' + JSON.stringify(j.bazaar).slice(0, 160), 'w');
-          empty = { l, t: Date.now(), odd: true };
-          continue;
-        }
-        if (S.bz !== v) { S.bz = v; save(); SD.log('market', 'bazaar endpoint now ' + v); }
-        return { l, t: Date.now() };
-      } catch (e) {
-        err = e;
-        if (e && e.api && e.code === 5) break;   // rate limit: the other endpoint would hit the same limit
-      }
-    }
-    if (empty) return empty;
-    throw err || new Error('bazaar failed');
-  }
-
   // item list with shop prices (one call, kept in memory); Torn's buy_price is what the shop sells at, sell_price what it pays you
   let catalog = null, catById = null, catP = null;
   function loadCatalog() {
@@ -2646,14 +2623,14 @@ try {
   const npcOf = id => (catById && catById.get(id)) || S.npc[id] || null;
 
   // ---------- data ----------
-  const mem = {};                   // id -> { im: { l, avg, t }, bz: { l, t } } (listings of this page visit, not saved)
+  const mem = {};                   // id -> { im: { l, avg, t } } (listings of this page visit, not saved)
   let dirty = false, rbusy = false;
 
   function persist(id) {            // lowest listing of a watched item goes into the saved data
     const m = mem[id];
     if (!m || !isW(id)) return;
     const o = (S.last[id] = S.last[id] || {});
-    ['im', 'bz'].forEach(k => { if (m[k]) o[k] = { p: m[k].l[0] ? m[k].l[0].p : 0, q: m[k].l[0] ? m[k].l[0].q : 0, t: m[k].t }; });
+    if (m.im) o.im = { p: m.im.l[0] ? m.im.l[0].p : 0, q: m.im.l[0] ? m.im.l[0].q : 0, t: m.im.t };
     dirty = true;
   }
   const commit = () => { if (dirty) { dirty = false; save(); } };
@@ -2666,12 +2643,10 @@ try {
     return o ? { p: o.p || 0, q: o.q || 0, t: o.t || 0 } : null;
   }
   function lowOf(id) {
-    const im = pickK(id, 'im'), bz = pickK(id, 'bz');
-    let best = null;
-    [['im', im], ['bz', bz]].forEach(([k, v]) => { if (v && v.p > 0 && (!best || v.p < best.p)) best = { p: v.p, q: v.q, src: k }; });
-    return { im, bz, best };
+    const im = pickK(id, 'im');
+    return { im, best: im && im.p > 0 ? { p: im.p, q: im.q, src: 'im' } : null };
   }
-  const oldest = id => { const L = lowOf(id); return Math.min(L.im ? L.im.t : 0, L.bz ? L.bz.t : 0); };
+  const oldest = id => { const L = lowOf(id); return L.im ? L.im.t : 0; };
   const stale = id => oldest(id) < Date.now() - AUTO;
 
   // refresh items (both sources each). Returns { bad, first, errs: [{ id, kind, msg }] }
@@ -2688,7 +2663,7 @@ try {
           if (e && e.api && e.code === 5) stop = true;
           SD.log('market', srcName(kind) + ' ' + id + ' failed: ' + ((e && e.message) || e), 'w');
         });
-        return Promise.all([one('im', fetchIM), one('bz', fetchBZ)]);
+        return one('im', fetchIM);
       }));
     }
     commit();
@@ -2796,7 +2771,7 @@ try {
       '</div>' +
       '<div class="dtv">' +
         '<div class="ah"><button class="back" aria-label="Back">' + backSvg + '</button><span class="dn"></span><button class="ref" aria-label="Refresh">' + SD.icons.refresh + '</button></div>' +
-        '<div class="seg"><button data-t="im" class="on">Market</button><button data-t="bz">Bazaar</button><button data-t="mg">Margin</button><button data-t="sl">Sell</button></div>' +
+        '<div class="seg"><button data-t="im" class="on">Market</button><button data-t="mg">Margin</button><button data-t="sl">Sell</button></div>' +
         '<div class="dc"></div>' +
         '<div class="wr"><button class="wt">\u2606 Watch</button><input class="fi th" type="text" inputmode="numeric" placeholder="Alert at or below $" autocomplete="off"></div>' +
       '</div>';
@@ -2819,12 +2794,12 @@ try {
         const L = lowOf(w.id);
         const hit = !!(w.th > 0 && L.best && L.best.p <= w.th);
         if (hit) hits.push(w.name);
-        latest = Math.max(latest, L.im ? L.im.t : 0, L.bz ? L.bz.t : 0);
+        latest = Math.max(latest, L.im ? L.im.t : 0);
         const row = document.createElement('div');
         row.className = 'ir' + (hit ? ' hit' : '') + (L.best ? '' : ' none');
         row.innerHTML = '<span class="t"><span class="nm"></span><span class="sub"></span></span><span class="pr"></span><button class="rm" aria-label="Remove">\u2715</button>';
         row.querySelector('.nm').textContent = w.name;
-        let sub = L.best ? srcName(L.best.src) + (L.best.q > 1 ? ' \u00d7' + L.best.q : '') : (L.im || L.bz ? 'No listings' : 'Not loaded yet');
+        let sub = L.best ? srcName(L.best.src) + (L.best.q > 1 ? ' \u00d7' + L.best.q : '') : (L.im ? 'No listings' : 'Not loaded yet');
         if (w.th > 0) sub += ' \u00b7 alert ' + money(w.th);
         row.querySelector('.sub').textContent = sub;
         row.querySelector('.pr').textContent = L.best ? money(L.best.p) : '\u2013';
@@ -2945,12 +2920,12 @@ try {
       const c = cur;
       if (!c) return;
       const m = mem[c.id];
-      if (m && m.im && m.bz && Date.now() - Math.min(m.im.t, m.bz.t) < COOL) {
-        if (manual) SD.toast('Up to date (' + SD.hhmm(Math.min(m.im.t, m.bz.t)) + ')');
+      if (m && m.im && Date.now() - m.im.t < COOL) {
+        if (manual) SD.toast('Up to date (' + SD.hhmm(m.im.t) + ')');
         return;
       }
       c.loading = true;
-      delete c.err.im; delete c.err.bz;
+      delete c.err.im;
       renderDetail();
       const r = await refreshItems([c.id]);
       if (!ctx.alive || cur !== c) return;
@@ -3026,7 +3001,7 @@ try {
         return w;
       }
       let h = '<div class="hd"><span>Cheapest listings' + (kind === 'im' && d.avg ? ' \u00b7 avg ' + money(d.avg) : '') + '</span><span>Updated ' + SD.hhmm(d.t) + '</span></div>';
-      if (!d.l.length) h += '<div class="hint">' + (d.odd ? 'Listings found but not readable (see Terminal log)' : 'No listings') + '</div>';
+      if (!d.l.length) h += '<div class="hint">' + 'No listings' + '</div>';
       d.l.slice(0, SHOW).forEach((x, i) => { h += '<div class="lr' + (i === 0 ? ' lo' : '') + '"><span class="p">' + money(x.p) + '</span><span class="q">\u00d7' + x.q.toLocaleString('en-US') + '</span></div>'; });
       if (d.l.length > SHOW) h += '<div class="hint">+' + (d.l.length - SHOW) + ' more</div>';
       w.innerHTML = h;
@@ -3068,20 +3043,12 @@ try {
     function sellView(c) {
       const w = document.createElement('div');
       const L = lowOf(c.id);
-      let ref = 0, label = '';
-      if (S.sm === 'bz') { ref = L.bz ? L.bz.p : 0; label = 'bazaar'; }
-      else if (S.sm === 'im') { ref = L.im ? L.im.p : 0; label = 'item market'; }
-      else if (L.best) { ref = L.best.p; label = srcName(L.best.src).toLowerCase(); }
+      const ref = L.best ? L.best.p : 0;
       const sug = ref > 0 ? Math.max(1, ref - S.uc) : 0;
       w.innerHTML =
-        '<div class="seg"><button data-m="both">Lowest</button><button data-m="bz">Bazaar</button><button data-m="im">Item market</button></div>' +
         '<div class="ur"><span>Undercut by $</span><input class="fi uc" type="text" inputmode="numeric" autocomplete="off"></div>' +
         '<div class="sg"><div class="k">Suggested price</div><div class="v"></div><button class="cp">Copy</button></div>' +
         '<div class="hint"></div>';
-      w.querySelectorAll('.seg button').forEach(b => {
-        b.classList.toggle('on', b.getAttribute('data-m') === S.sm);
-        b.addEventListener('click', () => { S.sm = b.getAttribute('data-m'); save(); renderDetail(); });
-      });
       const uc = w.querySelector('.uc');
       uc.value = String(S.uc);
       uc.addEventListener('change', () => {
@@ -3099,8 +3066,8 @@ try {
         SD.toast((await copy(String(sug))) ? 'Copied ' + sug : 'Could not copy. Price: ' + sug);
       });
       w.querySelector('.hint').textContent = c.loading && !ref ? 'Loading...'
-        : ref ? 'Lowest ' + label + ' listing: ' + money(ref) + '. Your own listing counts too.'
-        : 'No ' + (S.sm === 'both' ? '' : label + ' ') + 'listings to compare with';
+        : ref ? 'Lowest item market listing: ' + money(ref) + '. Your own listing counts too.'
+        : 'No item market listings to compare with';
       return w;
     }
 
