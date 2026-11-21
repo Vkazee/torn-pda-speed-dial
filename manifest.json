@@ -6,7 +6,7 @@
     "modules/travelhelper.js",
     "modules/targets.js",
     "modules/calculator.js",
-    "modules/market.js",
+    "modules/pricechecker.js",
     "modules/quicknotes.js",
     "modules/dailychecklist.js",
     "modules/showmore.js",

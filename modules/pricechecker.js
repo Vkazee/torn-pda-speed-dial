@@ -1,4 +1,4 @@
-// Speed Dial module: Market v0.3.0
+// Speed Dial module: Price Checker v0.4.1 (file pricechecker.js; internal id stays 'market' so saved menu positions and the watchlist under speedDial.market1 keep working)
 // Looks at what other players sell, straight from the official API. Four tools in one window:
 //   - Price checker: Add (search) an item, then the tab Market shows its cheapest item market listings.
 //   - Watchlist: the main view. Each item shows its lowest item market price; green = at or below the alert price you set.
@@ -561,10 +561,10 @@
 
   SD.register({
     id: 'market',
-    label: 'Market',
+    label: 'Price Checker',
     width: 270,
-    // price tag
-    icon: '<path d="M12 2H2v10l9.29 9.29a2.4 2.4 0 0 0 3.42 0l6.58-6.58a2.4 2.4 0 0 0 0-3.42L12 2z"/><path d="M7 7h.01"/>',
+    // receipt with a dollar sign (not a tag or label, on purpose)
+    icon: '<path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M12 6.8v6.4"/><path d="M14 8.5c-.3-.6-1-.9-1.9-.9-1 0-1.8.5-1.8 1.3s.8 1.1 1.8 1.3 1.8.5 1.8 1.3-.8 1.3-1.8 1.3c-.9 0-1.6-.3-1.9-.9"/><path d="M9 16.2h6"/>',
     mount
   });
 })();
