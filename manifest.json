@@ -11,7 +11,6 @@
     "modules/dailychecklist.js",
     "modules/showmore.js",
     "modules/settings.js",
-    "features/dashboard.js",
     "features/gymguide.js",
     "features/highlowhelper.js",
     "features/blackjackhelper.js",
