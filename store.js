@@ -1,4 +1,4 @@
-// Speed Dial store v0.2.0
+// Speed Dial store v0.3.0
 // Keeps your saved data (Targets, menu layout, shortcuts, window positions, Item Dock items, Travel Helper settings, Gym Guide choices)
 // in Torn PDA's native storage (PDA_storage): on disk in the app, not wiped when the browser cache is cleared.
 // PDA_storage is asynchronous, so everything is loaded ONCE before core.js and the modules start, then read from memory.
@@ -83,6 +83,18 @@
       if (nat && mine(k)) { cache[k] = s; dirty.add(k); sched(500); }
     },
     get native() { return !!nat; },
+    // for Settings > Backup: every key that belongs to Speed Dial (same rule as the app copy), whichever storage holds it
+    accepts: k => mine(k),
+    keys() {
+      const out = new Set();
+      if (nat) Object.keys(cache).forEach(k => { if (mine(k)) out.add(k); });
+      else {
+        try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && mine(k)) out.add(k); } }
+        catch (e) { log('could not list localStorage keys: ' + (e && e.message || e), 'w'); }
+      }
+      return Array.from(out);
+    },
+    get pending() { return dirty.size + (busy ? 1 : 0); },   // writes not yet in the app (0 = everything saved)
     flush
   };
 

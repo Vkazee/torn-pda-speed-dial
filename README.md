@@ -20,6 +20,16 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 - Your API key is masked (`***`) in every line, so a copied log is safe to share.
 - Limits: errors thrown by Torn's own scripts are not shown, and when you run the single-file bundle instead of the loader, uncaught errors are not recognised as ours (lines written with `SD.log` still appear).
 
+## Backup (Settings > Backup)
+
+Moves all your saved data in one piece, for a reinstall of Torn PDA, a new phone, or a safety copy before you try something.
+
+- **Copy** puts every saved item (Targets, notes, checklist, menu layout, shortcuts, window positions, Item Dock, Travel Helper, Market watchlist, Gym Guide and casino choices, which features are on) into one JSON text, shows it in the box and copies it to the clipboard. If the clipboard is blocked, the text stays selected in the box so you can copy it by hand. Paste it somewhere you keep (a note, a message to yourself).
+- **Restore** reads the text in the box. Tap it once to see how many items it found (the button asks "Restore N? Tap again"), tap again within 4 seconds to restore. The items are written over your current ones (items that are not in the backup stay as they are), Speed Dial waits until Torn PDA's storage confirms the write, and then reloads the page.
+- Not included, on purpose: your API key (it is never stored by Speed Dial), the Terminal logs (`speedDial.log1`, `speedDial.problems1`), and price caches (`itemDock.adj`, `travelHelper.mv`). Only keys with a Speed Dial prefix are accepted when restoring, so a pasted text cannot write anything else.
+- A text that is cut off, changed, or not from Speed Dial is refused with a message and nothing is written.
+- A new module needs nothing extra: if it saves through `SD.read` / `SD.write` with a `speedDial.` key, it is in the backup by itself. Only caches and logs belong in `BK_EXCL` at the top of the Backup code in `settings.js`.
+
 ## Windows
 
 - Each window has a title bar (module name and ✕). Drag it by the title bar only; the content scrolls normally.
@@ -37,7 +47,7 @@ Because the loader is the only script installed in PDA, all data lives in the lo
 |---|---|
 | `speed-dial.loader.user.js` | The only script installed in PDA. Downloads everything listed in `manifest.json` from GitHub |
 | `manifest.json` | List of files the loader downloads, in order |
-| `store.js` | Saved data: loads everything once from Torn PDA's native storage (`PDA_storage`) and saves back in batches; localStorage is the copy/fallback. Always first in `manifest.json` |
+| `store.js` | Saved data: loads everything once from Torn PDA's native storage (`PDA_storage`) and saves back in batches; localStorage is the copy/fallback; also lists the keys and the number of unsaved writes for Settings > Backup. Always first in `manifest.json` |
 | `core.js` | Core: main circle, module list, floating windows, shared player data (1 API call), toast, storage |
 | `modules/itemdock.js` | Item Dock module |
 | `modules/travelhelper.js` | Travel Helper module |
@@ -143,6 +153,7 @@ Features start when the page loads. A feature switched on while you are on anoth
 - Settings (gear circle, always last, cannot be hidden):
   - **Menu** page: two groups. **On screen** (max 3, default Item Dock, Travel Helper, Targets) and **Show More** (everything else: Calculator, your shortcuts, new modules). Tap the pin to move a module between the groups (a 4th pin is refused with a toast). Tap **Edit** to drag the handle (≡) to reorder inside a group; your own shortcuts also get a ✕ to delete. New modules and new shortcuts start in Show More. The old eye (hide) is gone: nothing needs hiding any more.
   - **Features** page: a row of filter chips on top (All + one per category, swipe it sideways; your choice is remembered), then one section per category (title and count) with a card per feature: its name, a **!** button that opens a pop-up with the one-line explanation and the page it runs on, and the on/off switch.
+  - **Backup** page: Copy / Restore for all saved data (see "Backup" above).
   - **Shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
   - Your order and hidden list are saved under `speedDial.layout1`; saved shortcuts keep using `speedDial.shortcuts1`, so they carry over from the old Shortcuts module.
 - Show More: a 4-column grid of icons with the name underneath. Tap a tile to open that module (the launcher closes); tap a tile whose window is open to close it. The single **Settings** button opens Settings > Menu already in edit mode, the one place that reorders, pins/unpins and deletes shortcuts. Anything new (a new shortcut, a module you unpin from the screen) is added at the END. A tile with a small arrow is a shortcut and leaves the page. While a window of something inside Show More is open, the `...` circle shows a dot. Saved under `speedDial.layout1` as `{ order, front }` (an old `hidden` list is ignored).

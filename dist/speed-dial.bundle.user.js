@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.12.2
+// @version      0.12.3
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -34,7 +34,7 @@
     for (let i = 0; i < 20 && typeof PDA_httpGet !== 'function'; i++) await new Promise(r => setTimeout(r, 100));   // PDA's bridge may not exist yet at document-start
     window.__sdNative = typeof PDA_storage !== 'undefined' ? PDA_storage : null;
 try {
-// Speed Dial store v0.2.0
+// Speed Dial store v0.3.0
 // Keeps your saved data (Targets, menu layout, shortcuts, window positions, Item Dock items, Travel Helper settings, Gym Guide choices)
 // in Torn PDA's native storage (PDA_storage): on disk in the app, not wiped when the browser cache is cleared.
 // PDA_storage is asynchronous, so everything is loaded ONCE before core.js and the modules start, then read from memory.
@@ -119,6 +119,18 @@ try {
       if (nat && mine(k)) { cache[k] = s; dirty.add(k); sched(500); }
     },
     get native() { return !!nat; },
+    // for Settings > Backup: every key that belongs to Speed Dial (same rule as the app copy), whichever storage holds it
+    accepts: k => mine(k),
+    keys() {
+      const out = new Set();
+      if (nat) Object.keys(cache).forEach(k => { if (mine(k)) out.add(k); });
+      else {
+        try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && mine(k)) out.add(k); } }
+        catch (e) { log('could not list localStorage keys: ' + (e && e.message || e), 'w'); }
+      }
+      return Array.from(out);
+    },
+    get pending() { return dirty.size + (busy ? 1 : 0); },   // writes not yet in the app (0 = everything saved)
     flush
   };
 
@@ -3590,7 +3602,7 @@ try {
 } catch (e) { console.error('Speed Dial: modules/showmore.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/showmore.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Settings v0.9.0
+// Speed Dial module: Settings v0.10.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
@@ -3601,6 +3613,8 @@ try {
 //                   (title + count) with a card per feature: name, "!" and the switch. The "!" opens a small pop-up with the
 //                   one-line explanation and the page it works on. The chosen filter is remembered (speedDial.featcat1).
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
+//   Backup        - Copy puts every saved item (Targets, notes, layout, shortcuts, ...) into one JSON text; Restore reads such a text
+//                   back from the box (tap twice to confirm), writes it through SD.write and reloads the page. No API key is inside.
 //   Terminal      - the debug log (SD.log in core.js): what Speed Dial did, API calls, storage writes, warnings and errors.
 //                   Lines live in memory only; Save keeps a copy in storage so it survives a reload (view it with Saved).
 // Nothing is read from or clicked on the page. Only torn.com pages are accepted.
@@ -3655,6 +3669,7 @@ try {
   // pages shown in the menu (order = order in the list). show(): optional, runs every time the page opens
   const ICON_MENU = '<svg viewBox="0 0 24 24"><line x1="9" y1="7" x2="20" y2="7"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="17" x2="20" y2="17"/><circle cx="5" cy="7" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="17" r="1"/></svg>';
   const ICON_FEAT = '<svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></svg>';
+  const ICON_BK = '<svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="14"/><polyline points="8 10 12 14 16 10"/><line x1="5" y1="19" x2="19" y2="19"/></svg>';
   const ICON_TERM = '<svg viewBox="0 0 24 24"><polyline points="4 7 9 12 4 17"/><line x1="12" y1="17" x2="20" y2="17"/></svg>';
   const ICON_ADD = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
 
@@ -3743,6 +3758,13 @@ try {
     #sdial .cz .tm .ln.w .tg,#sdial .cz .tm .ln.e .tg{color:inherit}
     #sdial .cz .tm .none{padding:10px 4px;text-align:center;color:#6f6f6f}
     #sdial .cz .tm .ct{margin-bottom:4px;font-size:10px;color:var(--sd-dim);text-align:right}
+    #sdial .cz .bk .bn{margin:0 2px 6px;font-size:12px;line-height:1.4;color:var(--sd-dim)}
+    #sdial .cz .bk .bi{margin:0 2px 6px;font-size:12px;color:var(--sd-text2)}
+    #sdial .cz .bk .bx{display:block;width:100%;box-sizing:border-box;height:96px;resize:none;padding:6px 8px;border-radius:8px;border:1px solid var(--sd-line2);background:#0f0f0f;color:var(--sd-text2);font:10px/1.35 ui-monospace,Menlo,Consolas,monospace;word-break:break-all;outline:none;touch-action:pan-y;user-select:text;-webkit-user-select:text;margin-bottom:6px}
+    #sdial .cz .bk .bx:focus{border-color:var(--sd-blue)}
+    #sdial .cz .bk .brow{display:flex;gap:6px}
+    #sdial .cz .bk .brow button{flex:1 1 0;min-width:0;padding:0 4px}
+    #sdial .cz .bk .br.arm{border-color:var(--sd-red);background:#3a1f1d;color:#f1b5b0}
     #sdial .sdtip{position:fixed;left:0;top:0;right:0;bottom:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.5)}
     #sdial .sdtip .tc{width:100%;max-width:240px;padding:12px 14px;border-radius:12px;border:1px solid var(--st);background:var(--sd-bg);color:var(--sd-text);box-shadow:0 8px 24px rgba(0,0,0,.6)}
     #sdial .sdtip .th{font-size:13px;font-weight:700}
@@ -3765,6 +3787,12 @@ try {
         '<div class="gh"><span>Show More</span></div><div class="lst lm"></div>' +
         '<button class="edit">Edit</button></div>' +
       '<div class="pg pf"><div class="fc"></div><div class="fl"></div></div>' +
+      '<div class="pg pb"><div class="bk">' +
+        '<div class="bi"></div>' +
+        '<textarea class="bx" placeholder="Copy puts your backup here. To restore, paste a backup here and tap Restore." autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>' +
+        '<div class="brow"><button class="bc">Copy</button><button class="br">Restore</button></div>' +
+        '<div class="bn">Restore writes the items in the box over your current ones (items not in the backup stay) and reloads the page. Not included: API key (never stored), Terminal logs, price caches.</div>' +
+      '</div></div>' +
       '<div class="pg pt"><div class="tm">' +
         '<div class="fr"><span class="nm">Logging</span><button class="sw" role="switch" aria-label="Logging"><i></i></button></div>' +
         '<div class="bar"><button data-v="live">Live</button><button data-v="saved">Saved</button><button data-v="prob">Problems</button></div>' +
@@ -3788,6 +3816,7 @@ try {
       { id: 'pm', label: 'Menu', icon: ICON_MENU, show: () => renderList() },
       { id: 'pf', label: 'Features', icon: ICON_FEAT, show: () => renderFeat() },
       { id: 'pa', label: 'Shortcut', icon: ICON_ADD },
+      { id: 'pb', label: 'Backup', icon: ICON_BK, show: () => paintBk() },
       { id: 'pt', label: 'Terminal', icon: ICON_TERM, show: () => startTerm() }
     ];
 
@@ -3818,6 +3847,77 @@ try {
       mn.appendChild(b);
     });
     hb.addEventListener('click', () => setNav(!el.classList.contains('nav-open')));
+
+    // ----- backup page: Copy = every saved key as one JSON text, Restore = write such a text back -----
+    const bk = el.querySelector('.bk');
+    const bx = bk.querySelector('.bx'), bInfo = bk.querySelector('.bi'), bCopy = bk.querySelector('.bc'), bRest = bk.querySelector('.br');
+    const BK_EXCL = /^(speedDial\.(log1|problems1)|itemDock\.adj|travelHelper\.mv)$/;   // debug logs and caches are not worth carrying over
+    const bkOk = k => { const st = window.__sdStore; return !!(st && st.accepts && st.accepts(k)) && !BK_EXCL.test(k); };
+    const bkKeys = () => { const st = window.__sdStore; return st && st.keys ? st.keys().filter(bkOk) : []; };
+    let rArm = 0, rT = 0;
+    function disarmRest() { clearTimeout(rT); rArm = 0; bRest.classList.remove('arm'); bRest.textContent = 'Restore'; }
+    function paintBk() {
+      const ks = bkKeys();
+      let n = 0;
+      ks.forEach(k => { const r = window.__sdStore.get(k); if (r) n += r.length; });
+      bInfo.textContent = ks.length + ' saved item' + (ks.length === 1 ? '' : 's') + ' (' + (n / 1024).toFixed(1) + ' KB)' + (window.__sdStore && window.__sdStore.native ? '' : ' - no PDA storage here, browser storage only');
+    }
+    function buildBackup() {
+      const data = {};
+      bkKeys().sort().forEach(k => {
+        try { const v = JSON.parse(window.__sdStore.get(k)); if (v != null) data[k] = v; }
+        catch (e) { SD.log('backup', 'skipped ' + k + ' (bad JSON)', 'w'); }
+      });
+      return { n: Object.keys(data).length, text: JSON.stringify({ app: 'speed-dial', fmt: 1, ver: SD.ver, t: new Date().toISOString(), data }) };
+    }
+    function parseBackup(txt) {
+      let o;
+      try { o = JSON.parse(txt); } catch (e) { return { err: 'Not a valid backup (text cut off or changed)' }; }
+      if (!o || o.app !== 'speed-dial' || !o.data || typeof o.data !== 'object' || Array.isArray(o.data)) return { err: 'This is not a Speed Dial backup' };
+      const all = Object.keys(o.data), keys = all.filter(k => bkOk(k) && o.data[k] != null);
+      if (all.length > keys.length) SD.log('backup', 'restore: ignored ' + (all.length - keys.length) + ' key(s) not allowed or empty', 'w');
+      if (!keys.length) return { err: 'The backup has no data to restore' };
+      return { o, keys };
+    }
+    bCopy.addEventListener('click', () => {
+      disarmRest();
+      const b = buildBackup();
+      if (!b.n) return SD.toast('Nothing saved yet');
+      bx.value = b.text;
+      SD.log('backup', 'copy: ' + b.n + ' key(s), ' + b.text.length + ' B');
+      copyText(b.text).then(ok => {
+        SD.toast(ok ? 'Copied backup (' + b.n + ' items)' : 'Could not copy. Select the text in the box and copy it by hand.');
+        if (!ok) { bx.focus(); bx.select(); }
+      });
+    });
+    bx.addEventListener('input', disarmRest);
+    bRest.addEventListener('click', () => {
+      const txt = bx.value.trim();
+      if (!txt) return SD.toast('Paste a backup into the box first');
+      if (txt.length > 1500000) return SD.toast('That text is too big for a backup');
+      const p = parseBackup(txt);
+      if (p.err) { disarmRest(); SD.log('backup', 'restore refused: ' + p.err, 'w'); return SD.toast(p.err); }
+      if (!rArm) {   // first tap arms, second tap restores
+        rArm = 1;
+        bRest.classList.add('arm');
+        bRest.textContent = 'Restore ' + p.keys.length + '? Tap again';
+        rT = setTimeout(() => { if (ctx.alive) disarmRest(); }, 4000);
+        return;
+      }
+      disarmRest();
+      p.keys.forEach(k => SD.write(k, p.o.data[k]));
+      SD.log('backup', 'restore: wrote ' + p.keys.length + ' key(s) from a backup made with v' + (p.o.ver || '?'));
+      SD.toast('Restored ' + p.keys.length + ' items. Reloading...');
+      const st = window.__sdStore;
+      let tries = 0;
+      const wait = () => {   // reload only once PDA storage really has the new data, or the old data would come back
+        if (!st || !st.pending) { setTimeout(() => location.reload(), 500); return; }
+        if (tries++ > 25) { SD.log('backup', 'restore: could not save to PDA storage in time', 'e'); SD.toast('Restored, but PDA storage did not confirm. Not reloading; try again.'); return; }
+        st.flush();
+        setTimeout(wait, 160);
+      };
+      wait();
+    });
 
     // ----- terminal page: the debug log. Lines are only drawn while this page is open (no timers: new lines arrive as events) -----
     const tm = el.querySelector('.tm');
@@ -4161,7 +4261,7 @@ try {
     const a = ctx.arg || {};                         // e.g. { page: 'pm', edit: true } from Show More > Arrange
     showPage(a.page || 'pm');
     if (a.edit && el.querySelector('.pm.on')) { el.classList.add('edit'); SD.editBtn(el.querySelector('.edit'), true); }
-    return { unmount() { closeTip(); stopTerm(); } };
+    return { unmount() { closeTip(); stopTerm(); clearTimeout(rT); } };
   }
 
   SD.register({
