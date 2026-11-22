@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.12.3
+// @version      0.12.4
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -3602,7 +3602,7 @@ try {
 } catch (e) { console.error('Speed Dial: modules/showmore.js:', e); try { window.SpeedDial && window.SpeedDial.log('boot', 'modules/showmore.js failed: ' + (e && e.message || e), 'e'); } catch (x) { /* log not ready yet */ } }
 
 try {
-// Speed Dial module: Settings v0.10.0
+// Speed Dial module: Settings v0.11.0
 // The pinned gear circle (always last, cannot be hidden). Pages are chosen from a Torn-style menu:
 // tap the 3-line button, a list of pages opens, tap one to go there. To add a page later, add an entry
 // to PAGES (id, label, icon, optional show hook) and a matching <div class="pg ID"> in the markup.
@@ -3613,8 +3613,9 @@ try {
 //                   (title + count) with a card per feature: name, "!" and the switch. The "!" opens a small pop-up with the
 //                   one-line explanation and the page it works on. The chosen filter is remembered (speedDial.featcat1).
 //   Shortcut      - your own emoji circles that open a torn.com page (this is the old "Add shortcut" module).
-//   Backup        - Copy puts every saved item (Targets, notes, layout, shortcuts, ...) into one JSON text; Restore reads such a text
-//                   back from the box (tap twice to confirm), writes it through SD.write and reloads the page. No API key is inside.
+//   Backup        - Copy puts every saved item (Targets, notes, layout, shortcuts, ...) into one text, gzip-compressed (starts with SDB1:)
+//                   when this phone supports it, plain JSON otherwise; Restore reads either kind back from the box (tap twice to confirm),
+//                   writes it through SD.write and reloads the page. No API key is inside.
 //   Terminal      - the debug log (SD.log in core.js): what Speed Dial did, API calls, storage writes, warnings and errors.
 //                   Lines live in memory only; Save keeps a copy in storage so it survives a reload (view it with Saved).
 // Nothing is read from or clicked on the page. Only torn.com pages are accepted.
@@ -3791,7 +3792,7 @@ try {
         '<div class="bi"></div>' +
         '<textarea class="bx" placeholder="Copy puts your backup here. To restore, paste a backup here and tap Restore." autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>' +
         '<div class="brow"><button class="bc">Copy</button><button class="br">Restore</button></div>' +
-        '<div class="bn">Restore writes the items in the box over your current ones (items not in the backup stay) and reloads the page. Not included: API key (never stored), Terminal logs, price caches.</div>' +
+        '<div class="bn">The backup is a short compressed text (starts with SDB1:). Restore writes the items in the box over your current ones (items not in the backup stay) and reloads the page. Not included: API key (never stored), Terminal logs, price caches.</div>' +
       '</div></div>' +
       '<div class="pg pt"><div class="tm">' +
         '<div class="fr"><span class="nm">Logging</span><button class="sw" role="switch" aria-label="Logging"><i></i></button></div>' +
@@ -3870,6 +3871,37 @@ try {
       });
       return { n: Object.keys(data).length, text: JSON.stringify({ app: 'speed-dial', fmt: 1, ver: SD.ver, t: new Date().toISOString(), data }) };
     }
+    // gzip + base64 with the browser's own streams (no library). Needs CompressionStream; without it Copy falls back to plain JSON.
+    const MAGIC = 'SDB1:';
+    async function gz(text) {
+      const cs = new CompressionStream('gzip');
+      const w = cs.writable.getWriter();
+      w.write(new TextEncoder().encode(text)).catch(() => {});   // a failure shows up on the read side below
+      w.close().catch(() => {});
+      const buf = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+      let s = '';
+      for (let i = 0; i < buf.length; i += 8192) s += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
+      return btoa(s);
+    }
+    async function gunz(b64) {
+      const bin = atob(b64.replace(/\s+/g, ''));
+      const u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const ds = new DecompressionStream('gzip');
+      const w = ds.writable.getWriter();
+      w.write(u).catch(() => {});
+      w.close().catch(() => {});
+      return await new Response(ds.readable).text();
+    }
+    // the box holds either a compressed backup (SDB1:...) or plain JSON (older copies, or phones without CompressionStream)
+    async function readBackup(txt) {
+      if (txt.indexOf(MAGIC) !== 0) return parseBackup(txt);
+      if (typeof DecompressionStream !== 'function') return { err: 'This phone cannot unpack a compressed backup' };
+      let plain;
+      try { plain = await gunz(txt.slice(MAGIC.length)); }
+      catch (e) { return { err: 'Could not unpack the backup (text cut off or changed)' }; }
+      return parseBackup(plain);
+    }
     function parseBackup(txt) {
       let o;
       try { o = JSON.parse(txt); } catch (e) { return { err: 'Not a valid backup (text cut off or changed)' }; }
@@ -3879,23 +3911,36 @@ try {
       if (!keys.length) return { err: 'The backup has no data to restore' };
       return { o, keys };
     }
-    bCopy.addEventListener('click', () => {
+    bCopy.addEventListener('click', async () => {
       disarmRest();
       const b = buildBackup();
       if (!b.n) return SD.toast('Nothing saved yet');
-      bx.value = b.text;
-      SD.log('backup', 'copy: ' + b.n + ' key(s), ' + b.text.length + ' B');
-      copyText(b.text).then(ok => {
-        SD.toast(ok ? 'Copied backup (' + b.n + ' items)' : 'Could not copy. Select the text in the box and copy it by hand.');
-        if (!ok) { bx.focus(); bx.select(); }
-      });
+      let out = b.text, how = 'plain';
+      if (typeof CompressionStream === 'function') {
+        try {
+          const z = MAGIC + await gz(b.text);
+          if (z.length < b.text.length) { out = z; how = 'gzip'; }
+        } catch (e) { SD.log('backup', 'compression failed, plain JSON used: ' + (e && e.message || e), 'w'); }
+      } else SD.log('backup', 'no CompressionStream in this phone: plain JSON used', 'w');
+      if (!ctx.alive) return;
+      bx.value = out;
+      const kb = n => (n / 1024).toFixed(1) + ' KB';
+      SD.log('backup', 'copy: ' + b.n + ' key(s), ' + b.text.length + ' B -> ' + out.length + ' B (' + how + ')');
+      const ok = await copyText(out);
+      SD.toast(ok ? 'Copied backup (' + b.n + ' items, ' + kb(out.length) + (how === 'gzip' ? ' instead of ' + kb(b.text.length) : '') + ')' : 'Could not copy. Select the text in the box and copy it by hand.');
+      if (!ok) { bx.focus(); bx.select(); }
     });
     bx.addEventListener('input', disarmRest);
-    bRest.addEventListener('click', () => {
+    let rBusy = false;
+    bRest.addEventListener('click', async () => {
+      if (rBusy) return;
       const txt = bx.value.trim();
       if (!txt) return SD.toast('Paste a backup into the box first');
       if (txt.length > 1500000) return SD.toast('That text is too big for a backup');
-      const p = parseBackup(txt);
+      rBusy = true;
+      let p;
+      try { p = await readBackup(txt); } finally { rBusy = false; }
+      if (!ctx.alive) return;
       if (p.err) { disarmRest(); SD.log('backup', 'restore refused: ' + p.err, 'w'); return SD.toast(p.err); }
       if (!rArm) {   // first tap arms, second tap restores
         rArm = 1;
