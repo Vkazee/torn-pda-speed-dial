@@ -1,8 +1,10 @@
-// Speed Dial module: Targets v0.5.1
+// Speed Dial module: Targets v0.6.0
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
 // anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
 // Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
 // Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
+// Each row has a crossed-swords Attack button: one tap opens that player's attack page (loader.php?sid=attack). It is dimmed while the
+// target is not Okay (hospital, jail, traveling...) but still works, and it is hidden in Edit mode so it cannot be hit by mistake.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
 // Auto-refresh: the targets on screen are also refreshed when the window opens, when you change page and when you change the sort.
 // It only loads targets whose data is older than 30 seconds, does not start the Refresh button cooldown and stays silent unless something fails.
@@ -124,6 +126,11 @@
     #sdial .tg .cd{display:block;color:var(--sd-text2);font-size:11px;margin-top:1px;min-height:13px}
     #sdial .tg .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid #2f2f2f;color:var(--sd-dim);font-size:11px;line-height:1.35;word-break:break-word}
     #sdial .tg .tr.open .dt{display:block}
+    #sdial .tg .atk{flex:0 0 34px;width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border-color:#4a3030;background:#2a1f1f}
+    #sdial .tg .atk svg{stroke:#f1807a}
+    #sdial .tg .atk:active{background:#3a2626}
+    #sdial .tg .tr.nk .atk{opacity:.4}
+    #sdial .tg.ed .atk{display:none}
     #sdial .tg .rm{display:none;flex:0 0 var(--sd-h);width:var(--sd-h);height:var(--sd-h);padding:0;color:var(--sd-redt)}
     #sdial .tg.ed .rm{display:block}
     #sdial .tg .pg{display:none;align-items:center;gap:6px;margin:6px 0 0}
@@ -154,6 +161,7 @@
   const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
   const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
   const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
+  const SWORDS = '<svg viewBox="0 0 24 24"><path d="M4 4l15 15"/><path d="M12 16l4-4"/><path d="M20 4L5 19"/><path d="M8 12l4 4"/></svg>';
   const SORTS = [['def', 'Sort by Default'], ['name', 'Sort by A-Z'], ['okay', 'Sort by Time']];
 
   function mount(ctx) {
@@ -204,10 +212,11 @@
       lst.innerHTML = shown().map(t => {
         const v = view(t.st);
         const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
-        return '<div class="tr" data-id="' + t.id + '" style="--c:' + v.color + '">' +
+        return '<div class="tr' + (v.label === 'Okay' ? '' : ' nk') + '" data-id="' + t.id + '" style="--c:' + v.color + '">' +
           '<div class="r1">' +
             '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
             '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
+            '<button class="atk" aria-label="Attack ' + SD.esc(t.name) + '">' + SWORDS + '</button>' +
             '<button class="rm" aria-label="Remove">\u2715</button>' +
           '</div>' +
           '<div class="dt">' + SD.esc(det || 'No details') + '</div>' +
@@ -396,6 +405,7 @@
         render();
         return;
       }
+      if (e.target.closest('.atk')) { location.href = '/loader.php?sid=attack&user2ID=' + row.dataset.id; return; }   // crossed swords: attack page
       if (e.target.closest('a')) return;   // the name opens the profile
       row.classList.toggle('open');
     });
