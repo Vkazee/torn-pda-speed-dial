@@ -1,8 +1,8 @@
-// Speed Dial module: Targets v0.6.2
+// Speed Dial module: Targets v0.6.3
 // Bottom bar: Add | Edit | Filter | Refresh. Add opens its own view (like Item Dock) with a search box: digits / profile link = ID,
 // anything else = name search with a pick list. Filter opens a pop-up (screen dimmed) to pick the order: Sort by Default (as added), A-Z, or Time (Okay first, then the shortest cooldown).
 // Each row shows name, ID (dark grey) with the player's level, and status with a live cooldown (Okay green, Hospital, Jail, ...).
-// Tap a row to see the status details (for example who put them in hospital). Tap the name to open the profile.
+// Tap a row to see the status details (for example who put them in hospital). The name is plain text (no link); nothing opens a profile.
 // Each row has a single thin-sword Attack button (plain, follows the row background, grey outline): one tap opens that player's attack page (page.php?sid=attack). It is dimmed while the
 // target is not Okay (hospital, jail, traveling...) but still works, and it is hidden in Edit mode so it cannot be hit by mistake.
 // Refresh reloads only the targets on screen and can be used once every 30 seconds (also after closing and reopening the window).
@@ -115,7 +115,7 @@
     #sdial .tg .lst{max-height:46vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y}
     #sdial .tg .em{padding:14px 6px;text-align:center;color:var(--sd-dim);font-size:12px;line-height:1.4}
     #sdial .tg .tr{margin-bottom:3px;padding:5px 8px;border-radius:8px;background:var(--sd-bg2);border-left:3px solid var(--c,#5a5a5a)}
-    #sdial .tg .tr:active{background:var(--sd-hov)}
+    #sdial .tg .tr:active:not(:has(button:active)){background:var(--sd-hov)}   /* pressing a button highlights only that button, not the whole row */
     #sdial .tg .r1{display:flex;align-items:center;gap:8px}
     #sdial .tg .who{flex:1;min-width:0}
     #sdial .tg .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sd-text);text-decoration:none;font-size:13px}
@@ -127,7 +127,7 @@
     #sdial .tg .dt{display:none;margin-top:4px;padding-top:4px;border-top:1px solid #2f2f2f;color:var(--sd-dim);font-size:11px;line-height:1.35;word-break:break-word}
     #sdial .tg .tr.open .dt{display:block}
     #sdial .tg .atk{flex:0 0 34px;width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid #6e6e6e;background:var(--sd-bg2)}
-    #sdial .tg .atk svg{width:22px;height:22px;stroke:#b8b8b8;stroke-width:1.2}
+    #sdial .tg .atk svg{width:22px;height:22px;stroke:#b8b8b8;stroke-width:1.7}
     #sdial .tg .atk:active{background:var(--sd-hov)}
     #sdial .tg .tr.nk .atk{opacity:.4}
     #sdial .tg.ed .atk{display:none}
@@ -161,7 +161,7 @@
   const ARROW_L = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
   const ARROW_R = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
   const FUNNEL = '<svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></svg>';
-  const SWORDS = '<svg viewBox="0 0 24 24"><path d="M20.5 3.5L11 13"/><path d="M8.5 10.5l5 5"/><path d="M11 13L6.5 17.5"/><circle cx="5.3" cy="18.7" r="1"/></svg>';
+  const SWORDS = '<svg viewBox=\"0 0 24 24\"><polyline points=\"14.5 17.5 3 6 3 3 6 3 17.5 14.5\"/><line x1=\"13\" x2=\"19\" y1=\"19\" y2=\"13\"/><line x1=\"16\" x2=\"20\" y1=\"16\" y2=\"20\"/><line x1=\"19\" x2=\"21\" y1=\"21\" y2=\"19\"/></svg>';
   const SORTS = [['def', 'Sort by Default'], ['name', 'Sort by A-Z'], ['okay', 'Sort by Time']];
 
   function mount(ctx) {
@@ -214,7 +214,7 @@
         const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
         return '<div class="tr' + (v.label === 'Okay' ? '' : ' nk') + '" data-id="' + t.id + '" style="--c:' + v.color + '">' +
           '<div class="r1">' +
-            '<div class="who"><a class="nm" href="/profiles.php?XID=' + t.id + '">' + SD.esc(t.name) + '</a><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
+            '<div class="who"><span class="nm">' + SD.esc(t.name) + '</span><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
             '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
             '<button class="atk" aria-label="Attack ' + SD.esc(t.name) + '">' + SWORDS + '</button>' +
             '<button class="rm" aria-label="Remove">\u2715</button>' +
@@ -405,8 +405,7 @@
         render();
         return;
       }
-      if (e.target.closest('.atk')) { location.href = '/page.php?sid=attack&user2ID=' + row.dataset.id; return; }   // crossed swords: attack page
-      if (e.target.closest('a')) return;   // the name opens the profile
+      if (e.target.closest('.atk')) { location.href = '/page.php?sid=attack&user2ID=' + row.dataset.id; return; }   // sword button: attack page
       row.classList.toggle('open');
     });
 
