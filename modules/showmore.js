@@ -57,7 +57,7 @@
         if (m.href) { const g = document.createElement('span'); g.className = 'go'; g.setAttribute('aria-hidden', 'true'); g.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>'; bx.appendChild(g); }
         b.querySelector('.nm').textContent = m.label;
         b.addEventListener('click', () => {
-          if (m.href) { location.href = m.href; return; }
+          if (m.href) { SD.go(m.href); return; }
           if (SD.isOpen(m.id)) { SD.close(m.id); render(); return; }   // already open: this tap closes it
           ctx.close();                                                  // launcher out of the way, then open the module
           SD.open(m.id);

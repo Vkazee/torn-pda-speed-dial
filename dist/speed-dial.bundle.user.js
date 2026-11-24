@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.12.7
+// @version      0.12.8
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -142,7 +142,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.14.0
+// Speed Dial core v0.14.1
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -153,7 +153,8 @@ try {
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.14.0' };
+  let KEY = '';   // the API key lives only in this closure, NOT on window.SpeedDial (page scripts could read it there)
+  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.14.1' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -198,7 +199,7 @@ try {
   let dbgOn = true;
   const mask = s => {
     s = String(s);
-    if (SD.key && SD.key.length > 4) s = s.split(SD.key).join('***');
+    if (KEY && KEY.length > 4) s = s.split(KEY).join('***');
     return s.replace(/([?&]key=)[^&\s"']+/gi, '$1***');
   };
   const tell = e => subs.forEach(f => { try { f(e); } catch (x) { /* a broken subscriber must not break logging; cannot log here (would loop) */ } });
@@ -259,6 +260,14 @@ try {
   window.__sdBoot = null;
   SD.log('boot', 'core v' + SD.ver + ' loaded');
   // (SD.read exists from here on, so the logging switch and the lines that waited for core.js are handled now)
+  // Links (shortcuts) may only go to a torn.com page: "/page.php" or https://torn.com/... Anything else (other sites, javascript:, // or \ tricks, hidden control characters) gives ''.
+  SD.safeHref = h => {
+    h = String(h == null ? '' : h).trim();
+    if (!h || /[\u0000-\u001f\u007f\\]/.test(h)) return '';
+    if (h[0] === '/') return h[1] === '/' ? '' : h;
+    return /^https:\/\/(www\.)?torn\.com\//i.test(h) ? h : '';
+  };
+  SD.go = h => { const u = SD.safeHref(h); if (u) location.href = u; else SD.log('nav', 'blocked a link that is not a torn.com page', 'w'); };
   SD.esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // minutes precision: 2h 14m
   SD.dur = sec => {
@@ -312,10 +321,13 @@ try {
 
   // official API (throws on API errors)
   SD.api = async url => {
+    url = String(url);
+    // the key is only ever sent to Torn's own API host (a wrong URL from a module or a changed setting must not leak it)
+    if (!/^https:\/\/api\.torn\.com\/[^\s\\]*$/.test(url)) { SD.log('api', 'blocked: not an api.torn.com URL', 'e'); throw new Error('Blocked: not an api.torn.com URL'); }
     const t0 = Date.now(), ep = String(url).replace(/^https:\/\/api\.torn\.com/, '');
     let j;
     try {
-      const r = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'key=' + SD.key);
+      const r = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'key=' + encodeURIComponent(KEY));
       j = await r.json();
     } catch (e) {
       SD.log('api', ep + ' network/parse FAILED after ' + (Date.now() - t0) + 'ms: ' + (e && e.message), 'e');
@@ -639,7 +651,7 @@ try {
     b.innerHTML = (m.emoji ? '<span class="emo"></span>' : '<svg viewBox="0 0 24 24">' + m.icon + '</svg>') + '<span class="lb"></span>';
     if (m.emoji) b.querySelector('.emo').textContent = m.emoji;
     b.querySelector('.lb').textContent = m.label;
-    b.addEventListener('click', () => { if (m.href) location.href = m.href; else pick(m); });
+    b.addEventListener('click', () => { if (m.href) SD.go(m.href); else pick(m); });
     stack.appendChild(b);
     circles.push({ m, b });
     layout();
@@ -813,8 +825,8 @@ try {
     if (SD.started) return;
     if (!document.body) { document.addEventListener('DOMContentLoaded', () => SD.start(opts)); return; }
     SD.started = true;
-    SD.key = (opts && opts.apiKey) || '';
-    SD.hasKey = !!SD.key && SD.key.indexOf('###') !== 0;
+    KEY = String((opts && opts.apiKey) || '');
+    SD.hasKey = !!KEY && KEY.indexOf('###') !== 0;
     P = Object.assign({ x: 8, y: 220 }, SD.read(POS, {}));
 
     SD.css('sd-core', CSS);
@@ -1497,6 +1509,7 @@ try {
 
   const LS = 'travelHelper.v1'; // same key as the standalone Travel Helper, so your settings carry over
   const S = Object.assign({ method: 0, book: false, stay: 0, sc: 'all', ss: 'profit' }, SD.read(LS, null) || {});
+  S.stay = +S.stay || 0;   // from storage: must be a number (it is written into HTML below)
   const save = () => SD.write(LS, S);
 
   // flight times (minutes, one way) from the Torn wiki
@@ -1949,6 +1962,8 @@ try {
 
   const S = SD.read(LS, null) || {};
   if (!Array.isArray(S.list)) S.list = [];
+  // numbers stay numbers, so a hand-edited or pasted backup can never put markup into the list HTML
+  S.list = S.list.filter(t => t && Number.isInteger(+t.id) && +t.id > 0).map(t => { t.id = +t.id; t.lv = +t.lv || 0; t.name = String(t.name == null ? '' : t.name); return t; });
   if (typeof S.rt !== 'number') S.rt = 0;
   const save = () => SD.write(LS, S);
 
@@ -2137,10 +2152,10 @@ try {
       lst.innerHTML = shown().map(t => {
         const v = view(t.st);
         const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
-        return '<div class="tr' + (v.label === 'Okay' ? '' : ' nk') + '" data-id="' + t.id + '" style="--c:' + v.color + '">' +
+        return '<div class="tr' + (v.label === 'Okay' ? '' : ' nk') + '" data-id="' + (+t.id) + '" style="--c:' + v.color + '">' +
           '<div class="r1">' +
-            '<div class="who"><span class="nm">' + SD.esc(t.name) + '</span><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
-            '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
+            '<div class="who"><span class="nm">' + SD.esc(t.name) + '</span><span class="id">[' + (+t.id) + ']' + (+t.lv ? '<em>Lv ' + (+t.lv) + '</em>' : '') + '</span></div>' +
+            '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? (+t.st.until || 0) : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
             '<button class="atk" aria-label="Attack ' + SD.esc(t.name) + '">' + SWORDS + '</button>' +
             '<button class="rm" aria-label="Remove">\u2715</button>' +
           '</div>' +
@@ -2178,7 +2193,7 @@ try {
         const have = S.list.some(t => t.id === o.id);
         const r = document.createElement('div');
         r.className = 'r' + (have ? ' have' : '');
-        r.innerHTML = '<div class="who"><span class="nm"></span><span class="id">[' + o.id + ']</span></div>' + (o.level ? '<span class="lv">Lv ' + o.level + '</span>' : '') + '<span class="pl">' + (have ? '\u2713' : '+') + '</span>';
+        r.innerHTML = '<div class="who"><span class="nm"></span><span class="id">[' + (+o.id) + ']</span></div>' + (+o.level ? '<span class="lv">Lv ' + (+o.level) + '</span>' : '') + '<span class="pl">' + (have ? '\u2713' : '+') + '</span>';
         r.querySelector('.nm').textContent = o.name;
         if (!have) r.addEventListener('click', () => { if (!busy) addId(o.id); });
         res.appendChild(r);
@@ -3720,7 +3735,7 @@ try {
         if (m.href) { const g = document.createElement('span'); g.className = 'go'; g.setAttribute('aria-hidden', 'true'); g.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>'; bx.appendChild(g); }
         b.querySelector('.nm').textContent = m.label;
         b.addEventListener('click', () => {
-          if (m.href) { location.href = m.href; return; }
+          if (m.href) { SD.go(m.href); return; }
           if (SD.isOpen(m.id)) { SD.close(m.id); render(); return; }   // already open: this tap closes it
           ctx.close();                                                  // launcher out of the way, then open the module
           SD.open(m.id);
@@ -3775,8 +3790,9 @@ try {
   const LS = 'speedDial.shortcuts1';   // same key as the old Shortcuts module, so saved shortcuts carry over
   const MAX = 8;
   const QUICK = ['\u{1F3E0}', '\u{1F6D2}', '\u{1F3E6}', '\u{1F3B0}', '\u2694\uFE0F', '\u{1F3E5}', '\u{1F4BC}', '\u{1F4E6}', '\u{1F3AF}', '\u2B50'];
-  let list = SD.read(LS, []);
-  if (!Array.isArray(list)) list = [];
+  // shortcuts from storage/backup are re-checked every load: only torn.com links survive
+  const cleanSc = a => (Array.isArray(a) ? a : []).filter(s => s && typeof s === 'object' && SD.safeHref(s.u)).slice(0, MAX).map(s => ({ id: String(s.id == null ? '' : s.id).replace(/[^a-z0-9]/gi, '').slice(0, 20) || Date.now().toString(36), e: String(s.e == null ? '' : s.e).slice(0, 16), n: String(s.n == null ? '' : s.n).slice(0, 40), u: SD.safeHref(s.u) }));
+  let list = cleanSc(SD.read(LS, []));
   const save = () => SD.write(LS, list);
 
   const sid = s => 'sc-' + s.id;
@@ -3786,10 +3802,8 @@ try {
   // torn.com page only: "/bazaar.php", "torn.com/bazaar.php" or "https://www.torn.com/bazaar.php"
   const fixUrl = raw => {
     let u = String(raw || '').trim();
-    if (!u) return '';
-    if (u[0] === '/') return (u[1] === '/' || u[1] === '\\') ? '' : u;
     if (/^(www\.)?torn\.com\//i.test(u)) u = 'https://' + u;
-    return /^https:\/\/(www\.)?torn\.com\//i.test(u) ? u : '';
+    return SD.safeHref(u);
   };
 
   // first emoji of the input (keeps skin tones and combined emoji in one piece)
@@ -4050,11 +4064,41 @@ try {
       catch (e) { return { err: 'Could not unpack the backup (text cut off or changed)' }; }
       return parseBackup(plain);
     }
+    // ----- restore safety: a backup is text from outside, so values are checked before they are saved -----
+    // generic: drop dangerous object keys, cap depth / size / string length. specific: shortcuts (links) and Targets (ids, names, numbers).
+    const BAD = new Set(['__proto__', 'constructor', 'prototype']);
+    const deep = (v, d) => {
+      if (d > 8) return null;
+      if (typeof v === 'string') return v.slice(0, 5000);
+      if (v === null || typeof v === 'number' || typeof v === 'boolean') return (typeof v === 'number' && !isFinite(v)) ? 0 : v;
+      if (Array.isArray(v)) return v.slice(0, 1000).map(x => deep(x, d + 1));
+      if (typeof v === 'object') { const r = {}; Object.keys(v).slice(0, 500).forEach(k => { if (!BAD.has(k)) r[k] = deep(v[k], d + 1); }); return r; }
+      return null;
+    };
+    const num = (x, dflt) => { x = +x; return isFinite(x) ? x : (dflt || 0); };
+    const noTag = s => String(s == null ? '' : s).replace(/[<>]/g, '').trim();
+    function cleanBk(k, v) {
+      v = deep(v, 0);
+      if (k === 'speedDial.shortcuts1') return cleanSc(v);
+      if (k === 'speedDial.targets1') {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+        v.rt = num(v.rt);
+        v.list = (Array.isArray(v.list) ? v.list : []).filter(t => t && typeof t === 'object' && Number.isInteger(+t.id) && +t.id > 0).slice(0, 150).map(t => {
+          const st = t.st && typeof t.st === 'object' ? { state: noTag(t.st.state).slice(0, 30), desc: noTag(t.st.desc).slice(0, 200), det: noTag(t.st.det).slice(0, 200), until: num(t.st.until), t: num(t.st.t) } : null;
+          return { id: +t.id, name: noTag(t.name).slice(0, 40), lv: num(t.lv), st };
+        });
+        return v;
+      }
+      if (k === 'travelHelper.v1' && v && typeof v === 'object' && !Array.isArray(v)) { v.stay = num(v.stay); }
+      return v;
+    }
     function parseBackup(txt) {
       let o;
       try { o = JSON.parse(txt); } catch (e) { return { err: 'Not a valid backup (text cut off or changed)' }; }
       if (!o || o.app !== 'speed-dial' || !o.data || typeof o.data !== 'object' || Array.isArray(o.data)) return { err: 'This is not a Speed Dial backup' };
       const all = Object.keys(o.data), keys = all.filter(k => bkOk(k) && o.data[k] != null);
+      keys.forEach(k => { o.data[k] = cleanBk(k, o.data[k]); });   // never trust the pasted text: clean every value before it is written
+      for (let i = keys.length - 1; i >= 0; i--) if (o.data[keys[i]] == null) keys.splice(i, 1);
       if (all.length > keys.length) SD.log('backup', 'restore: ignored ' + (all.length - keys.length) + ' key(s) not allowed or empty', 'w');
       if (!keys.length) return { err: 'The backup has no data to restore' };
       return { o, keys };

@@ -24,6 +24,8 @@
 
   const S = SD.read(LS, null) || {};
   if (!Array.isArray(S.list)) S.list = [];
+  // numbers stay numbers, so a hand-edited or pasted backup can never put markup into the list HTML
+  S.list = S.list.filter(t => t && Number.isInteger(+t.id) && +t.id > 0).map(t => { t.id = +t.id; t.lv = +t.lv || 0; t.name = String(t.name == null ? '' : t.name); return t; });
   if (typeof S.rt !== 'number') S.rt = 0;
   const save = () => SD.write(LS, S);
 
@@ -212,10 +214,10 @@
       lst.innerHTML = shown().map(t => {
         const v = view(t.st);
         const det = t.st ? [t.st.desc, t.st.det].filter(Boolean).join(' - ') : '';
-        return '<div class="tr' + (v.label === 'Okay' ? '' : ' nk') + '" data-id="' + t.id + '" style="--c:' + v.color + '">' +
+        return '<div class="tr' + (v.label === 'Okay' ? '' : ' nk') + '" data-id="' + (+t.id) + '" style="--c:' + v.color + '">' +
           '<div class="r1">' +
-            '<div class="who"><span class="nm">' + SD.esc(t.name) + '</span><span class="id">[' + t.id + ']' + (t.lv ? '<em>Lv ' + t.lv + '</em>' : '') + '</span></div>' +
-            '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? t.st.until : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
+            '<div class="who"><span class="nm">' + SD.esc(t.name) + '</span><span class="id">[' + (+t.id) + ']' + (+t.lv ? '<em>Lv ' + (+t.lv) + '</em>' : '') + '</span></div>' +
+            '<div class="sx"><b class="sl">' + SD.esc(v.label) + '</b><span class="cd" data-u="' + (v.rem ? (+t.st.until || 0) : 0) + '">' + (v.rem ? SD.durS(v.rem) : '') + '</span></div>' +
             '<button class="atk" aria-label="Attack ' + SD.esc(t.name) + '">' + SWORDS + '</button>' +
             '<button class="rm" aria-label="Remove">\u2715</button>' +
           '</div>' +
@@ -253,7 +255,7 @@
         const have = S.list.some(t => t.id === o.id);
         const r = document.createElement('div');
         r.className = 'r' + (have ? ' have' : '');
-        r.innerHTML = '<div class="who"><span class="nm"></span><span class="id">[' + o.id + ']</span></div>' + (o.level ? '<span class="lv">Lv ' + o.level + '</span>' : '') + '<span class="pl">' + (have ? '\u2713' : '+') + '</span>';
+        r.innerHTML = '<div class="who"><span class="nm"></span><span class="id">[' + (+o.id) + ']</span></div>' + (+o.level ? '<span class="lv">Lv ' + (+o.level) + '</span>' : '') + '<span class="pl">' + (have ? '\u2713' : '+') + '</span>';
         r.querySelector('.nm').textContent = o.name;
         if (!have) r.addEventListener('click', () => { if (!busy) addId(o.id); });
         res.appendChild(r);

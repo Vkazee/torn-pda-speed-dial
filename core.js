@@ -1,4 +1,4 @@
-// Speed Dial core v0.14.0
+// Speed Dial core v0.14.1
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -9,7 +9,8 @@
   'use strict';
   if (window.SpeedDial) return;
 
-  const SD = window.SpeedDial = { mods: [], key: '', hasKey: false, started: false, ver: '0.14.0' };
+  let KEY = '';   // the API key lives only in this closure, NOT on window.SpeedDial (page scripts could read it there)
+  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.14.1' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -54,7 +55,7 @@
   let dbgOn = true;
   const mask = s => {
     s = String(s);
-    if (SD.key && SD.key.length > 4) s = s.split(SD.key).join('***');
+    if (KEY && KEY.length > 4) s = s.split(KEY).join('***');
     return s.replace(/([?&]key=)[^&\s"']+/gi, '$1***');
   };
   const tell = e => subs.forEach(f => { try { f(e); } catch (x) { /* a broken subscriber must not break logging; cannot log here (would loop) */ } });
@@ -115,6 +116,14 @@
   window.__sdBoot = null;
   SD.log('boot', 'core v' + SD.ver + ' loaded');
   // (SD.read exists from here on, so the logging switch and the lines that waited for core.js are handled now)
+  // Links (shortcuts) may only go to a torn.com page: "/page.php" or https://torn.com/... Anything else (other sites, javascript:, // or \ tricks, hidden control characters) gives ''.
+  SD.safeHref = h => {
+    h = String(h == null ? '' : h).trim();
+    if (!h || /[\u0000-\u001f\u007f\\]/.test(h)) return '';
+    if (h[0] === '/') return h[1] === '/' ? '' : h;
+    return /^https:\/\/(www\.)?torn\.com\//i.test(h) ? h : '';
+  };
+  SD.go = h => { const u = SD.safeHref(h); if (u) location.href = u; else SD.log('nav', 'blocked a link that is not a torn.com page', 'w'); };
   SD.esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // minutes precision: 2h 14m
   SD.dur = sec => {
@@ -168,10 +177,13 @@
 
   // official API (throws on API errors)
   SD.api = async url => {
+    url = String(url);
+    // the key is only ever sent to Torn's own API host (a wrong URL from a module or a changed setting must not leak it)
+    if (!/^https:\/\/api\.torn\.com\/[^\s\\]*$/.test(url)) { SD.log('api', 'blocked: not an api.torn.com URL', 'e'); throw new Error('Blocked: not an api.torn.com URL'); }
     const t0 = Date.now(), ep = String(url).replace(/^https:\/\/api\.torn\.com/, '');
     let j;
     try {
-      const r = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'key=' + SD.key);
+      const r = await fetch(url + (url.indexOf('?') > -1 ? '&' : '?') + 'key=' + encodeURIComponent(KEY));
       j = await r.json();
     } catch (e) {
       SD.log('api', ep + ' network/parse FAILED after ' + (Date.now() - t0) + 'ms: ' + (e && e.message), 'e');
@@ -495,7 +507,7 @@
     b.innerHTML = (m.emoji ? '<span class="emo"></span>' : '<svg viewBox="0 0 24 24">' + m.icon + '</svg>') + '<span class="lb"></span>';
     if (m.emoji) b.querySelector('.emo').textContent = m.emoji;
     b.querySelector('.lb').textContent = m.label;
-    b.addEventListener('click', () => { if (m.href) location.href = m.href; else pick(m); });
+    b.addEventListener('click', () => { if (m.href) SD.go(m.href); else pick(m); });
     stack.appendChild(b);
     circles.push({ m, b });
     layout();
@@ -669,8 +681,8 @@
     if (SD.started) return;
     if (!document.body) { document.addEventListener('DOMContentLoaded', () => SD.start(opts)); return; }
     SD.started = true;
-    SD.key = (opts && opts.apiKey) || '';
-    SD.hasKey = !!SD.key && SD.key.indexOf('###') !== 0;
+    KEY = String((opts && opts.apiKey) || '');
+    SD.hasKey = !!KEY && KEY.indexOf('###') !== 0;
     P = Object.assign({ x: 8, y: 220 }, SD.read(POS, {}));
 
     SD.css('sd-core', CSS);

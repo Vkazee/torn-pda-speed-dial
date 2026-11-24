@@ -11,6 +11,7 @@
 
   const LS = 'travelHelper.v1'; // same key as the standalone Travel Helper, so your settings carry over
   const S = Object.assign({ method: 0, book: false, stay: 0, sc: 'all', ss: 'profit' }, SD.read(LS, null) || {});
+  S.stay = +S.stay || 0;   // from storage: must be a number (it is written into HTML below)
   const save = () => SD.write(LS, S);
 
   // flight times (minutes, one way) from the Torn wiki

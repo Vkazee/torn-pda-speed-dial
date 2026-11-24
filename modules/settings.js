@@ -23,8 +23,9 @@
   const LS = 'speedDial.shortcuts1';   // same key as the old Shortcuts module, so saved shortcuts carry over
   const MAX = 8;
   const QUICK = ['\u{1F3E0}', '\u{1F6D2}', '\u{1F3E6}', '\u{1F3B0}', '\u2694\uFE0F', '\u{1F3E5}', '\u{1F4BC}', '\u{1F4E6}', '\u{1F3AF}', '\u2B50'];
-  let list = SD.read(LS, []);
-  if (!Array.isArray(list)) list = [];
+  // shortcuts from storage/backup are re-checked every load: only torn.com links survive
+  const cleanSc = a => (Array.isArray(a) ? a : []).filter(s => s && typeof s === 'object' && SD.safeHref(s.u)).slice(0, MAX).map(s => ({ id: String(s.id == null ? '' : s.id).replace(/[^a-z0-9]/gi, '').slice(0, 20) || Date.now().toString(36), e: String(s.e == null ? '' : s.e).slice(0, 16), n: String(s.n == null ? '' : s.n).slice(0, 40), u: SD.safeHref(s.u) }));
+  let list = cleanSc(SD.read(LS, []));
   const save = () => SD.write(LS, list);
 
   const sid = s => 'sc-' + s.id;
@@ -34,10 +35,8 @@
   // torn.com page only: "/bazaar.php", "torn.com/bazaar.php" or "https://www.torn.com/bazaar.php"
   const fixUrl = raw => {
     let u = String(raw || '').trim();
-    if (!u) return '';
-    if (u[0] === '/') return (u[1] === '/' || u[1] === '\\') ? '' : u;
     if (/^(www\.)?torn\.com\//i.test(u)) u = 'https://' + u;
-    return /^https:\/\/(www\.)?torn\.com\//i.test(u) ? u : '';
+    return SD.safeHref(u);
   };
 
   // first emoji of the input (keeps skin tones and combined emoji in one piece)
@@ -298,11 +297,41 @@
       catch (e) { return { err: 'Could not unpack the backup (text cut off or changed)' }; }
       return parseBackup(plain);
     }
+    // ----- restore safety: a backup is text from outside, so values are checked before they are saved -----
+    // generic: drop dangerous object keys, cap depth / size / string length. specific: shortcuts (links) and Targets (ids, names, numbers).
+    const BAD = new Set(['__proto__', 'constructor', 'prototype']);
+    const deep = (v, d) => {
+      if (d > 8) return null;
+      if (typeof v === 'string') return v.slice(0, 5000);
+      if (v === null || typeof v === 'number' || typeof v === 'boolean') return (typeof v === 'number' && !isFinite(v)) ? 0 : v;
+      if (Array.isArray(v)) return v.slice(0, 1000).map(x => deep(x, d + 1));
+      if (typeof v === 'object') { const r = {}; Object.keys(v).slice(0, 500).forEach(k => { if (!BAD.has(k)) r[k] = deep(v[k], d + 1); }); return r; }
+      return null;
+    };
+    const num = (x, dflt) => { x = +x; return isFinite(x) ? x : (dflt || 0); };
+    const noTag = s => String(s == null ? '' : s).replace(/[<>]/g, '').trim();
+    function cleanBk(k, v) {
+      v = deep(v, 0);
+      if (k === 'speedDial.shortcuts1') return cleanSc(v);
+      if (k === 'speedDial.targets1') {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+        v.rt = num(v.rt);
+        v.list = (Array.isArray(v.list) ? v.list : []).filter(t => t && typeof t === 'object' && Number.isInteger(+t.id) && +t.id > 0).slice(0, 150).map(t => {
+          const st = t.st && typeof t.st === 'object' ? { state: noTag(t.st.state).slice(0, 30), desc: noTag(t.st.desc).slice(0, 200), det: noTag(t.st.det).slice(0, 200), until: num(t.st.until), t: num(t.st.t) } : null;
+          return { id: +t.id, name: noTag(t.name).slice(0, 40), lv: num(t.lv), st };
+        });
+        return v;
+      }
+      if (k === 'travelHelper.v1' && v && typeof v === 'object' && !Array.isArray(v)) { v.stay = num(v.stay); }
+      return v;
+    }
     function parseBackup(txt) {
       let o;
       try { o = JSON.parse(txt); } catch (e) { return { err: 'Not a valid backup (text cut off or changed)' }; }
       if (!o || o.app !== 'speed-dial' || !o.data || typeof o.data !== 'object' || Array.isArray(o.data)) return { err: 'This is not a Speed Dial backup' };
       const all = Object.keys(o.data), keys = all.filter(k => bkOk(k) && o.data[k] != null);
+      keys.forEach(k => { o.data[k] = cleanBk(k, o.data[k]); });   // never trust the pasted text: clean every value before it is written
+      for (let i = keys.length - 1; i >= 0; i--) if (o.data[keys[i]] == null) keys.splice(i, 1);
       if (all.length > keys.length) SD.log('backup', 'restore: ignored ' + (all.length - keys.length) + ' key(s) not allowed or empty', 'w');
       if (!keys.length) return { err: 'The backup has no data to restore' };
       return { o, keys };

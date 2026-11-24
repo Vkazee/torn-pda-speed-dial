@@ -160,3 +160,11 @@ Features start when the page loads. A feature switched on while you are on anoth
 - Calculator: + − × ÷ with the usual precedence (2+3×4 = 14), %, ±, backspace, AC. The typed line has a caret: tap the display to place it, drag along it to slide it (hold at the left/right edge to keep going); keys insert at the caret and backspace deletes before it. The caret is hidden after `=`. `%` stays in the sum as typed (`25%` stays `25%`) and is only worked out in the small live result under it and at `=` (`25%` = 0.25, `200 + 10%` = 220). Nothing is saved.
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
 - Main circle colours (the window outline, the Item Dock banner and the Targets status text use the same rule): blue = abroad or traveling, yellow = hospital (at home or abroad), red = jail or federal. The colour is kept live by **Live status** (always on, there is no switch): one light API call every 5 s while the page is visible, a check right when a hospital/jail timer or flight should end, one 1.5 s after any tap on the page (attacking, travelling and using items change your status), and one when you return to the app or the connection comes back. It never fetches more often than every 2.5 s and backs off after API errors.
+
+## Security notes (v0.14.1)
+
+- The API key lives only inside core.js (a closure). It is not `window.SpeedDial.key` any more. Modules call `SD.api(url)`; they never see the key.
+- `SD.api` only accepts `https://api.torn.com/...` URLs. Anything else throws, so a wrong URL can never carry the key to another host.
+- Links (shortcuts, `href` on a module) go through `SD.go(href)` / `SD.safeHref(href)`: only `/path` or `https://(www.)torn.com/...` are allowed. A new module that navigates must use `SD.go`, never `location.href = ...` with stored text.
+- Settings > Backup > Restore cleans every value before saving it (dangerous object keys, sizes, shortcuts, Targets). Targets and Travel Helper also re-check their numbers on load, because those values are written into HTML.
+- When you add HTML with `innerHTML`: wrap text in `SD.esc(...)` or use `textContent`; numbers from storage with `+x`.
