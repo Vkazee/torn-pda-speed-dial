@@ -55,6 +55,7 @@ Moves all your saved data in one piece, for a reinstall of Torn PDA, a new phone
 | `modules/calculator.js` | Calculator module (lives in Show More by default) |
 | `modules/pricechecker.js` | Price Checker module (id `market`, lives in Show More by default): price checker, watchlist with alert prices, margin check and a bazaar price helper, from the official market API |
 | `modules/dailychecklist.js` | Daily Checklist module (lives in Show More by default): your own tasks, checks cleared every day at midnight TCT, no API |
+| `modules/quickactions.js` | Quick Actions module (lives in Show More by default): reads the shared status and shows the 1-3 most useful actions for now (energy full, landed abroad, hospital over...), no API of its own and no saved data. Remove it by deleting the file and its line in `manifest.json` |
 | `modules/quicknotes.js` | Quick Notes module (lives in Show More by default): a list of notes, each with its own title and text, saved as you type |
 | `modules/showmore.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included, plus one Settings button (opens Settings > Menu in edit mode) |
 | `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, add your own emoji shortcuts, and the Terminal (debug log) |
