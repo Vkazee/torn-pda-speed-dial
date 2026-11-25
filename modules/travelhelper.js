@@ -94,9 +94,9 @@
   async function loadMV(force) {
     if (!SD.hasKey) return;
     if (!force && mv.t && Date.now() - mv.t < MV_TTL) return;
-    const j = await SD.api('https://api.torn.com/torn/?selections=items');
+    const items = await SD.items(force);
     const v = {};
-    Object.keys(j.items || {}).forEach(id => { const x = j.items[id]; if (x && x.market_value) v[id] = x.market_value; });
+    Object.keys(items).forEach(id => { const x = items[id]; if (x && x.market_value) v[id] = x.market_value; });
     mv.t = Date.now(); mv.v = v;
     SD.write(MVK, { t: mv.t, v });
   }

@@ -55,8 +55,8 @@
   let catalog = null;
   async function loadCatalog() {
     if (catalog) return catalog;
-    const j = await SD.api('https://api.torn.com/torn/?selections=items');
-    catalog = Object.entries(j.items || {}).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase() }));
+    const items = await SD.items();
+    catalog = Object.entries(items).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase() }));
     return catalog;
   }
 

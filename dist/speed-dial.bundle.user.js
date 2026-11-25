@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.12.8
+// @version      0.14.2
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -142,7 +142,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.14.1
+// Speed Dial core v0.14.2
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -342,6 +342,19 @@ try {
     }
     SD.log('api', ep + ' ok ' + (Date.now() - t0) + 'ms');
     return j;
+  };
+
+  // ---------- shared item list: ONE call for every module (Item Dock, Travel Helper, Price Checker), cached 30 min in memory ----------
+  // Resolves to the "items" object of torn/?selections=items ({ id: { name, type, market_value, buy_price, sell_price, ... } }).
+  let ITEMS = null, itemsT = 0, itemsP = null;
+  const ITEMS_TTL = 30 * 60 * 1000;
+  SD.items = force => {
+    if (!force && ITEMS && Date.now() - itemsT < ITEMS_TTL) return Promise.resolve(ITEMS);
+    if (itemsP) return itemsP;
+    itemsP = SD.api('https://api.torn.com/torn/?selections=items')
+      .then(j => { ITEMS = j.items || {}; itemsT = Date.now(); return ITEMS; })
+      .finally(() => { itemsP = null; });
+    return itemsP;
   };
 
   // ---------- shared player data: ONE call for every module, cached 30s ----------
@@ -984,8 +997,8 @@ try {
   let catalog = null;
   async function loadCatalog() {
     if (catalog) return catalog;
-    const j = await SD.api('https://api.torn.com/torn/?selections=items');
-    catalog = Object.entries(j.items || {}).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase() }));
+    const items = await SD.items();
+    catalog = Object.entries(items).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase() }));
     return catalog;
   }
 
@@ -1592,9 +1605,9 @@ try {
   async function loadMV(force) {
     if (!SD.hasKey) return;
     if (!force && mv.t && Date.now() - mv.t < MV_TTL) return;
-    const j = await SD.api('https://api.torn.com/torn/?selections=items');
+    const items = await SD.items(force);
     const v = {};
-    Object.keys(j.items || {}).forEach(id => { const x = j.items[id]; if (x && x.market_value) v[id] = x.market_value; });
+    Object.keys(items).forEach(id => { const x = items[id]; if (x && x.market_value) v[id] = x.market_value; });
     mv.t = Date.now(); mv.v = v;
     SD.write(MVK, { t: mv.t, v });
   }
@@ -2810,8 +2823,8 @@ try {
   function loadCatalog() {
     if (catalog) return Promise.resolve(catalog);
     if (catP) return catP;
-    catP = SD.api('https://api.torn.com/torn/?selections=items').then(j => {
-      catalog = Object.entries(j.items || {}).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase(), mv: num(v.market_value), b: num(v.buy_price), s: num(v.sell_price) }));
+    catP = SD.items().then(items => {
+      catalog = Object.entries(items).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase(), mv: num(v.market_value), b: num(v.buy_price), s: num(v.sell_price) }));
       catById = new Map(catalog.map(c => [c.id, c]));
       let ch = false;
       S.w.forEach(w => { const c = catById.get(w.id); if (c) { S.npc[w.id] = { mv: c.mv, b: c.b, s: c.s }; ch = true; } });

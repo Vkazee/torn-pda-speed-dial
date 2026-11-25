@@ -16,7 +16,7 @@ cat <<'HEAD'
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.12.8
+// @version      ###VER###
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -70,4 +70,6 @@ cat <<'TAIL'
 })();
 TAIL
 } > dist/speed-dial.bundle.user.js
-echo "built dist/speed-dial.bundle.user.js"
+VER=$(sed -n 's/^\/\/ Speed Dial core v\([0-9.]*\).*/\1/p' core.js | head -1)   # one place for the version: the first line of core.js
+sed -i "s/###VER###/${VER:-0}/" dist/speed-dial.bundle.user.js
+echo "built dist/speed-dial.bundle.user.js (v${VER:-?})"

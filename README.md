@@ -161,7 +161,11 @@ Features start when the page loads. A feature switched on while you are on anoth
 - Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
 - Main circle colours (the window outline, the Item Dock banner and the Targets status text use the same rule): blue = abroad or traveling, yellow = hospital (at home or abroad), red = jail or federal. The colour is kept live by **Live status** (always on, there is no switch): one light API call every 5 s while the page is visible, a check right when a hospital/jail timer or flight should end, one 1.5 s after any tap on the page (attacking, travelling and using items change your status), and one when you return to the app or the connection comes back. It never fetches more often than every 2.5 s and backs off after API errors.
 
-## Security notes (v0.14.1)
+## Shared item list
+
+`SD.items(force)` (in `core.js`) returns the `items` object of `torn/?selections=items`: one API call shared by Item Dock, Travel Helper and Price Checker, kept in memory for 30 minutes. A new module that needs item names, types or prices must use it instead of calling that endpoint itself.
+
+## Security notes (v0.14.2)
 
 - The API key lives only inside core.js (a closure). It is not `window.SpeedDial.key` any more. Modules call `SD.api(url)`; they never see the key.
 - `SD.api` only accepts `https://api.torn.com/...` URLs. Anything else throws, so a wrong URL can never carry the key to another host.

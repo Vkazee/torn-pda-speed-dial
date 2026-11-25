@@ -84,8 +84,8 @@
   function loadCatalog() {
     if (catalog) return Promise.resolve(catalog);
     if (catP) return catP;
-    catP = SD.api('https://api.torn.com/torn/?selections=items').then(j => {
-      catalog = Object.entries(j.items || {}).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase(), mv: num(v.market_value), b: num(v.buy_price), s: num(v.sell_price) }));
+    catP = SD.items().then(items => {
+      catalog = Object.entries(items).map(([id, v]) => ({ id: +id, name: v.name, type: v.type, l: String(v.name).toLowerCase(), mv: num(v.market_value), b: num(v.buy_price), s: num(v.sell_price) }));
       catById = new Map(catalog.map(c => [c.id, c]));
       let ch = false;
       S.w.forEach(w => { const c = catById.get(w.id); if (c) { S.npc[w.id] = { mv: c.mv, b: c.b, s: c.s }; ch = true; } });

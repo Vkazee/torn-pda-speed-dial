@@ -1,4 +1,4 @@
-// Speed Dial core v0.14.1
+// Speed Dial core v0.14.2
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -198,6 +198,19 @@
     }
     SD.log('api', ep + ' ok ' + (Date.now() - t0) + 'ms');
     return j;
+  };
+
+  // ---------- shared item list: ONE call for every module (Item Dock, Travel Helper, Price Checker), cached 30 min in memory ----------
+  // Resolves to the "items" object of torn/?selections=items ({ id: { name, type, market_value, buy_price, sell_price, ... } }).
+  let ITEMS = null, itemsT = 0, itemsP = null;
+  const ITEMS_TTL = 30 * 60 * 1000;
+  SD.items = force => {
+    if (!force && ITEMS && Date.now() - itemsT < ITEMS_TTL) return Promise.resolve(ITEMS);
+    if (itemsP) return itemsP;
+    itemsP = SD.api('https://api.torn.com/torn/?selections=items')
+      .then(j => { ITEMS = j.items || {}; itemsT = Date.now(); return ITEMS; })
+      .finally(() => { itemsP = null; });
+    return itemsP;
   };
 
   // ---------- shared player data: ONE call for every module, cached 30s ----------
