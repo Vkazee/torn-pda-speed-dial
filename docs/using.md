@@ -5,7 +5,7 @@ How Speed Dial behaves and what each tool does. Exact limits and layouts can cha
 ## The circle and the windows
 
 - **Tap** the main circle to fold the tool circles out or away. **Drag** it to move it: it snaps to the nearest screen edge and remembers where you left it.
-- **Left alone for a few seconds, the main circle fades and half-hides** at the screen edge, so it stays out of the way. Touch it (or any circle or window of Speed Dial) and it comes back. It never fades while the tool circles are fanned out. The delay is `IDLE_MS` at the top of `core.js` (`0` turns the effect off).
+- **Left alone for a few seconds, the main circle fades and slides partly off the screen edge** (a quarter of it), so it stays out of the way. Touch it (or any circle or window of Speed Dial) and it comes back. It never fades while the tool circles are fanned out. The state carries over to the next Torn page: a page opened while it is idle starts idle, so it does not pop back and fade again. The delay (`IDLE_MS`) and the hidden part (`IDLE_HIDE`) are set at the top of `core.js`; `IDLE_MS = 0` turns the effect off.
 - A few tools stay on screen as circles (you choose which in Settings > Menu). The rest are behind the **...** circle, which shows a dot while one of its tools is open. The gear circle opens Settings.
 - A tool opens in its own **floating window**. Drag it by the title bar. Close it with the ✕ or by tapping the tool's circle again. Several windows can be open at once and a tap brings one to the front.
 - Window positions are remembered per tool and always kept on screen, also after you rotate the phone. Which windows are open is not remembered.

@@ -2,10 +2,18 @@
 
 The release version is the first line of `core.js`. Only the loader needs pasting into PDA again, and only when its version changes (0.6.0 is the latest). History before 0.15.0 was not recorded here (see the Git history).
 
+## 0.15.2
+
+### Changed
+- The idle circle now slides a **quarter** (not half) past the screen edge. The share is `IDLE_HIDE` at the top of `core.js`.
+
+### Fixed
+- The idle look no longer starts over on every new page. The time of the last touch is kept for the tab (sessionStorage), so a new page continues the countdown, or starts already idle (without animating) when the circle was idle on the previous page.
+
 ## 0.15.1
 
 ### Added
-- **Idle look for the main circle.** After a few seconds without a touch it turns see-through and slides half off the screen edge; a touch on Speed Dial brings it back. It stays visible while the tool circles are fanned out. Tune or disable it with `IDLE_MS` at the top of `core.js`.
+- **Idle look for the main circle.** After a few seconds without a touch it turns see-through and slides partly off the screen edge; a touch on Speed Dial brings it back. It stays visible while the tool circles are fanned out. Tune or disable it with `IDLE_MS` at the top of `core.js`.
 
 ## 0.15.0 (loader 0.6.0)
 

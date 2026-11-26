@@ -1,4 +1,4 @@
-// Speed Dial core v0.15.1
+// Speed Dial core v0.15.2
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -10,7 +10,7 @@
   if (window.SpeedDial) return;
 
   let KEY = '';   // the API key lives only in this closure, NOT on window.SpeedDial (page scripts could read it there)
-  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.15.1' };
+  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.15.2' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -18,7 +18,8 @@
   const MOD = 36;              // module circles (px)
   const OFF = (FAB - MOD) / 2; // centres a module circle under the main one
   const GAP = MOD + 10;        // distance between circle tops
-  const IDLE_MS = 5000;        // main circle fades and half-hides at the screen edge after this long without a touch (0 = never)
+  const IDLE_MS = 5000;        // main circle fades and slides partly off the screen edge after this long without a touch (0 = never)
+  const IDLE_HIDE = 0.25;      // ... and this fraction of it (0.25 = a quarter) goes past the edge
   const LAY = 'speedDial.layout1';   // { order: [ids], front: [ids] | null }
 
   // ---------- debug log (the Terminal page in Settings) ----------
@@ -432,14 +433,29 @@
 
   // ---------- hub UI ----------
   let root, fab, stack, wrap, P, menuOpen = false, WP = null;
-  // idle look: after IDLE_MS without a touch the main circle turns see-through and slides half off the screen edge (like a floating assistive button).
+  // idle look: after IDLE_MS without a touch the main circle turns see-through and slides partly off the screen edge (like a floating assistive button).
   // Any touch on Speed Dial brings it back. It never goes idle while the circles are fanned out.
+  // The moment of the last touch is kept in sessionStorage (this tab only, a convenience, not saved data), so opening a new Torn page continues
+  // the countdown, or starts already idle, instead of showing the full circle and fading it again on every page.
   let idleT = 0;
+  const IK = 'speedDial.idleAt';
+  const bump = () => { try { sessionStorage.setItem(IK, String(Date.now())); } catch (e) { /* only a convenience: without it the circle fades again on each page */ } };
   const wake = () => { clearTimeout(idleT); idleT = 0; if (fab) fab.classList.remove('idle'); };
-  const arm = () => {
+  const arm = ms => {
     clearTimeout(idleT); idleT = 0;
     if (!IDLE_MS || !fab) return;
-    idleT = setTimeout(() => { idleT = 0; if (!menuOpen && fab) fab.classList.add('idle'); }, IDLE_MS);
+    idleT = setTimeout(() => { idleT = 0; if (!menuOpen && fab) fab.classList.add('idle'); }, typeof ms === 'number' ? ms : IDLE_MS);
+  };
+  // page load: carry on from the previous page's countdown
+  const resumeIdle = () => {
+    if (!IDLE_MS || !fab) return;
+    let last = 0;
+    try { last = +sessionStorage.getItem(IK) || 0; } catch (e) { /* no sessionStorage: behave like a fresh page */ }
+    if (!last) bump();
+    const left = last ? Math.min(IDLE_MS, IDLE_MS - (Date.now() - last)) : IDLE_MS;
+    if (left > 0) return arm(left);
+    fab.classList.add('idle', 'still');   // it was already idle on the previous page: start that way, without animating again
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (fab) fab.classList.remove('still'); }));
   };
   const circles = [];
   const wins = new Map();
@@ -467,6 +483,7 @@
     #sdial .fab.hosp{opacity:1;border-color:var(--sd-yel);box-shadow:0 0 0 2px rgba(217,164,65,.3),0 2px 6px rgba(0,0,0,.4)}
     #sdial .fab.blk{opacity:1;border-color:var(--sd-red);box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
     #sdial .fab.idle{opacity:.4;transform:translateX(var(--sd-idle-x,0px))}   /* after the status looks above, so it also dims them */
+    #sdial .fab.still{transition:none}
     #sdial .mod{position:absolute;z-index:2000;left:${OFF}px;width:${MOD}px;height:${MOD}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
     #sdial .stack.show .mod{opacity:1;transform:scale(1);pointer-events:auto}
     #sdial[data-st="away"]{--st:var(--sd-blue)}
@@ -518,7 +535,7 @@
     root.style.top = P.y + 'px';
     const down = P.y < innerHeight / 2, right = P.x > innerWidth / 2;
     root.classList.toggle('r', right);
-    root.style.setProperty('--sd-idle-x', Math.round(right ? innerWidth - P.x - FAB / 2 : -(P.x + FAB / 2)) + 'px');   // half-hidden: the circle's centre on the screen edge
+    root.style.setProperty('--sd-idle-x', Math.round(right ? innerWidth - P.x - FAB * (1 - IDLE_HIDE) : -(P.x + FAB * IDLE_HIDE)) + 'px');   // idle: IDLE_HIDE of the circle past the screen edge
     circles.forEach((c, i) => {
       const off = GAP * (i + 1);
       c.b.style.top = (OFF + (down ? off : -off)) + 'px';
@@ -687,6 +704,7 @@
     menuOpen = on;
     stack.classList.toggle('show', on);
     fab.classList.toggle('on', on);
+    bump();
     if (on) wake(); else arm();
   }
   function pick(m) {
@@ -725,10 +743,11 @@
     refreshCircles();
 
     // any touch on Speed Dial (circle, fanned-out circles, windows) wakes the main circle; the idle countdown starts again when the finger lifts
-    root.addEventListener('pointerdown', wake, true);
-    root.addEventListener('pointerup', arm, true);
-    root.addEventListener('pointercancel', arm, true);
-    arm();
+    root.addEventListener('pointerdown', () => { bump(); wake(); }, true);
+    root.addEventListener('pointerup', () => { bump(); arm(); }, true);
+    root.addEventListener('pointercancel', () => { bump(); arm(); }, true);
+    layout();
+    resumeIdle();
 
     // drag + tap on the main circle
     let sx, sy, ox, oy, moved = false;
