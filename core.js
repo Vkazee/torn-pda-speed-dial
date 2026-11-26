@@ -1,4 +1,4 @@
-// Speed Dial core v0.14.2
+// Speed Dial core v0.15.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -10,7 +10,7 @@
   if (window.SpeedDial) return;
 
   let KEY = '';   // the API key lives only in this closure, NOT on window.SpeedDial (page scripts could read it there)
-  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.14.1' };
+  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.15.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;

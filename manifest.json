@@ -15,5 +15,22 @@
     "features/highlowhelper.js",
     "features/blackjackhelper.js",
     "features/pokerhelper.js"
-  ]
+  ],
+  "v": {
+    "store.js": "123619392-6045",
+    "core.js": "2121728243-42715",
+    "modules/itemdock.js": "1732297233-27664",
+    "modules/travelhelper.js": "2378383342-22260",
+    "modules/targets.js": "3202276875-24558",
+    "modules/calculator.js": "1598562398-16222",
+    "modules/pricechecker.js": "2417073141-30841",
+    "modules/quicknotes.js": "2444461626-9868",
+    "modules/dailychecklist.js": "2645318630-9064",
+    "modules/showmore.js": "315018622-4788",
+    "modules/settings.js": "1229068043-46248",
+    "features/gymguide.js": "2093078466-20648",
+    "features/highlowhelper.js": "3890160595-20922",
+    "features/blackjackhelper.js": "2221919094-29174",
+    "features/pokerhelper.js": "581392143-28786"
+  }
 }

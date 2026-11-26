@@ -1,174 +1,69 @@
 # torn-pda-speed-dial
 
-A single floating circle for Torn PDA. Tap the main circle, then circles appear for your (at most 3) favourite tools, a **Show More** circle (`...`) for everything else, and the Settings gear. Tap a tool's circle to open it in its own **floating window**. Each tool **only runs while its window is open**: no timers, API calls, or background rendering once it is closed. The one exception is **Live status** (always on, no switch; see Notes), which keeps the circle colour current.
+One floating circle on every Torn page, for [Torn PDA](https://github.com/Manuito83/torn-pda). Tap it and your favourite tools fan out as circles; tap a tool to open it in its own floating window. Everything else lives behind a **...** (Show More) circle, and a gear circle opens Settings.
 
-## Saved data (native storage)
+Tools only run while their window is open: no background timers, no polling, no surprise API calls. The one exception is the circle's status colour (see [Using Speed Dial](docs/using.md)).
 
-Everything you save (Targets, menu order and hidden circles, shortcuts, window positions, Item Dock items, Travel Helper settings, Market watchlist and settings, Gym Guide choices, which features are on) is kept in Torn PDA's native per-script storage (`PDA_storage`): on disk in the app, not wiped when the browser cache is cleared. Because PDA_storage is asynchronous, `store.js` loads it once before anything else starts and then works from memory; writes reach the app in one batch about half a second later and again when the page is hidden. The first time, whatever is already in localStorage is copied into the app, so nothing is lost. localStorage still gets a copy of each write and is used alone if your PDA has no native storage. The downloaded-source cache (`speedDial.src.*`) stays in localStorage on purpose: it is only an offline backup of the code.
+## What is inside
 
-Because the loader is the only script installed in PDA, all data lives in the loader's own namespace (Userscripts > the script's storage button shows what it uses; the default limit is 10 MB, this project needs well under 1 MB). **After updating, paste the new `speed-dial.loader.user.js` into PDA once** (it now hands `PDA_storage` to `store.js`); everything else updates from GitHub as before. Add `store.js` to the repo root next to `core.js`.
-
-## Terminal (debug log)
-
-**Settings > Terminal** shows what Speed Dial has been doing, so errors are no longer hidden: windows opening and closing, every API call (endpoint, time taken, API error code), status checks and the outline colour changing, page changes inside Torn (and whether the Speed Dial element is still in the page), saved-data writes and failures, features starting, stopping or refusing, toasts, and errors thrown by Speed Dial's own code.
-
-- Lines live **in memory only** (the last 300). Nothing is written to storage per line, there is no timer and no API call, and nothing is drawn unless the Terminal page is open (new lines arrive as events).
-- **Problems** (automatic): every warning and error is also kept on its own, with no tap needed, under `speedDial.problems1`, so a problem that happens while the Terminal is closed or the app is reloaded is still there later. The same problem repeating only raises its counter ("x3") and its time, at most 50 different problems are kept (the oldest drop out), the view shows the date for older ones, and the **Problems (n)** button shows how many there are. Clear in that view deletes them. This is the only thing that is written to storage without you tapping Save, and only when a warning or error happens; the Logging switch off also stops it.
-- **Save** keeps a copy of the current log under `speedDial.log1`, so it survives a reload; **Saved** shows that copy (Clear there deletes it). Use it when an error happens, you reload, and want to look afterwards.
-- Buttons: Live/Saved/Problems, All/Warn+/Errors filter, Pause (stops new lines from appearing, Resume redraws), Clear, Copy (puts the lines on the clipboard with a short header: version, native storage yes/no), Save.
-- The **Logging** switch turns the log off completely (`SD.log` then does nothing). On by default; saved under `speedDial.dbg1`.
-- Your API key is masked (`***`) in every line, so a copied log is safe to share.
-- Limits: errors thrown by Torn's own scripts are not shown, and when you run the single-file bundle instead of the loader, uncaught errors are not recognised as ours (lines written with `SD.log` still appear).
-
-## Backup (Settings > Backup)
-
-Moves all your saved data in one piece, for a reinstall of Torn PDA, a new phone, or a safety copy before you try something.
-
-- **Copy** puts every saved item (Targets, notes, checklist, menu layout, shortcuts, window positions, Item Dock, Travel Helper, Market watchlist, Gym Guide and casino choices, which features are on) into one text, shows it in the box and copies it to the clipboard. The text is gzip-compressed and written as base64 (it starts with `SDB1:`), so it is much shorter than the plain JSON; the toast shows both sizes. A phone without `CompressionStream` gets plain JSON instead. If the clipboard is blocked, the text stays selected in the box so you can copy it by hand. Paste it somewhere you keep (a note, a message to yourself).
-- **Restore** reads the text in the box: a compressed backup (`SDB1:...`) or plain JSON from an older copy, both work. Tap it once to see how many items it found (the button asks "Restore N? Tap again"), tap again within 4 seconds to restore. The items are written over your current ones (items that are not in the backup stay as they are), Speed Dial waits until Torn PDA's storage confirms the write, and then reloads the page.
-- Not included, on purpose: your API key (it is never stored by Speed Dial), the Terminal logs (`speedDial.log1`, `speedDial.problems1`), and price caches (`itemDock.adj`, `travelHelper.mv`). Only keys with a Speed Dial prefix are accepted when restoring, so a pasted text cannot write anything else.
-- A text that is cut off, changed (a compressed one cannot be unpacked then), or not from Speed Dial is refused with a message and nothing is written.
-- A new module needs nothing extra: if it saves through `SD.read` / `SD.write` with a `speedDial.` key, it is in the backup by itself. Only caches and logs belong in `BK_EXCL` at the top of the Backup code in `settings.js`.
-
-## Windows
-
-- Each window has a title bar (module name and ✕). Drag it by the title bar only; the content scrolls normally.
-- Several windows can be open at once. Tap a module circle again to close its window. Tap any window to bring it to the front.
-- ✕ closes the window and unmounts the module, so its timers stop.
-- Each window's position is remembered per module (`speedDial.win1`) and always kept fully on screen, also after rotating the phone or when a module changes its own width. Which windows are open is not remembered.
-- New windows start next to the main circle and are staggered, so two never sit exactly on top of each other.
-- Tapping the main circle only folds the module circles away; open windows stay.
-- The window outline follows the main circle's status colour.
-- Touches on the circles and windows are hidden from Torn's own swipe handlers, so dragging does not pull Torn's sidebar open. The touch guard lives only in the loader (and the bundle), which is injected at document start so this guard is registered before Torn's own scripts; if it ever runs late, set its injection time to **Start** in PDA.
-
-## Folder Contents
-
-| File | Function |
+| Tool (circle) | What it does |
 |---|---|
-| `speed-dial.loader.user.js` | The only script installed in PDA. Downloads everything listed in `manifest.json` from GitHub |
-| `manifest.json` | List of files the loader downloads, in order |
-| `store.js` | Saved data: loads everything once from Torn PDA's native storage (`PDA_storage`) and saves back in batches; localStorage is the copy/fallback; also lists the keys and the number of unsaved writes for Settings > Backup. Always first in `manifest.json` |
-| `core.js` | Core: main circle, module list, floating windows, shared player data (1 API call), toast, storage |
-| `modules/itemdock.js` | Item Dock module |
-| `modules/travelhelper.js` | Travel Helper module |
-| `modules/targets.js` | Targets module |
-| `modules/calculator.js` | Calculator module (lives in Show More by default) |
-| `modules/pricechecker.js` | Price Checker module (id `market`, lives in Show More by default): price checker, watchlist with alert prices, margin check and a bazaar price helper, from the official market API |
-| `modules/dailychecklist.js` | Daily Checklist module (lives in Show More by default): your own tasks, checks cleared every day at midnight TCT, no API |
-| `modules/quicknotes.js` | Quick Notes module (lives in Show More by default): a list of notes, each with its own title and text, saved as you type |
-| `modules/showmore.js` | Show More module (pinned `...` circle before Settings): launcher grid with every module that is not on screen, shortcuts included, plus one Settings button (opens Settings > Menu in edit mode) |
-| `modules/settings.js` | Settings module (gear circle, always last): choose which (max 3) modules stay on screen, reorder, switch page features on/off, add your own emoji shortcuts, and the Terminal (debug log) |
-| `features/gymguide.js` | Gym Guide, a page feature (runs on the Gym page, outside the circles) |
-| `features/highlowhelper.js` | High-Low Helper, a page feature (Casino, `sid=highlow`): win chance of Higher / Lower against the dealer card |
-| `features/blackjackhelper.js` | Blackjack Helper, a page feature (Casino, `sid=blackjack`): win chance and the best next move |
-| `features/pokerhelper.js` | Poker Helper, a page feature (Casino, `sid=holdem`): win chance, outs and pot odds |
-| `dist/speed-dial.bundle.user.js` | Single-file backup (no GitHub required) |
-| `build.sh` | Combines `store.js` + `core.js` + every file in `manifest.json` (same order) into the bundle. Each file sits in its own try/catch, so a runtime error in one module does not stop the others (like the loader; only the loader also survives a syntax error) |
+| **Item Dock** | Your own short list of items: tap, confirm, used in place |
+| **Travel Helper** | Flight times, return time, warnings, foreign shop stock |
+| **Targets** | Players you track, with live status and a one-tap Attack button |
+| **Price Checker** | Watchlist with alert prices, margin check, bazaar price helper |
+| **Calculator**, **Quick Notes**, **Daily Checklist** | Small everyday tools (no API) |
+| **Shortcuts** | Your own emoji circles that open a Torn page |
+
+| Page feature (runs on a Torn page, off by default) | What it does |
+|---|---|
+| **Gym Guide** | Highlights the gym to train next and shows progress |
+| **High-Low / Blackjack / Poker Helper** | Read-only odds panels on the casino pages |
+
+All of it is explained in [docs/using.md](docs/using.md).
 
 ## Install
 
-1. Create a **public** GitHub repo named `torn-pda-speed-dial`.
-2. Upload `store.js`, `core.js`, `manifest.json`, and the `modules/` and `features/` folders to the repo root.
-3. Open `speed-dial.loader.user.js` and make sure `BASE` matches your username, repo, and branch.
-4. In Torn PDA, add `speed-dial.loader.user.js` as a new userscript.
-5. Disable or delete the old Item Dock, Travel Helper, and any earlier Speed Dial scripts to avoid duplicates.
-6. Reload the Torn page. A circle with a four-square icon should appear.
+1. Create a **public** GitHub repo named `torn-pda-speed-dial` and upload the contents of this folder (`dist/` is optional).
+2. Open `speed-dial.loader.user.js` and make sure `BASE` matches your username, repo and branch.
+3. In Torn PDA, add `speed-dial.loader.user.js` as a new userscript. It is the only script you install.
+4. Disable or delete any older Item Dock, Travel Helper, Gym Guide or Speed Dial scripts so nothing runs twice.
+5. Reload a Torn page. A circle with a four-square icon should appear.
 
-How the loader works: it downloads the files through PDA's `PDA_httpGet`, keeps the last good copy in localStorage (works if GitHub is unreachable), and runs them as inline scripts using the page's CSP nonce, because Torn blocks `eval`.
+No GitHub? Paste `dist/speed-dial.bundle.user.js` instead: the same thing as one file (it does not update by itself).
 
-## Rule for every new module or feature: saved data goes through `SD.read` / `SD.write`
+## Updating
 
-Never touch `localStorage` directly. `SD.read(key, default)` and `SD.write(key, value)` are what keep the data in Torn PDA's native storage (see "Saved data"). The key MUST start with `speedDial.` (or the old prefixes `itemDock.`, `travelHelper.`, `gymGuide.`); `store.js` only saves keys with those prefixes to the app, any other key silently stays in localStorage only. Read once when the module loads, keep it in memory, call `SD.write` after each change. Data that can be re-fetched (API caches) may use `sessionStorage` or memory instead.
+Everything except the loader updates from GitHub on its own. The loader looks at the file list every couple of minutes at most and downloads only the files that changed, so most page loads make no request at all.
 
-## Rule for every new module or feature: log what it does with `SD.log`
+You paste the loader into PDA again **only when its own version changes**; the [CHANGELOG](CHANGELOG.md) says when. Right now: **loader 0.6.0, paste it once.**
 
-`SD.log('tag', 'message')` adds a line to the Terminal (tag = short name, 10 characters at most). Use `SD.log('tag', 'message', 'w')` for a warning and `'e'` for an error. Log module opens that matter, API/HTTP calls (`SD.api` already logs its own), and **every `catch` block**: an empty `catch (e) {}` hides the problem, so log the message or write a short comment on why it is safe to ignore. Never put your API key or other secrets in a message (the key is masked anyway, but do not rely on it).
-
-## Rule for every new module: colours and sizes come from the tokens
-
-`core.js` defines CSS variables on `#sdial`; use them instead of hex values or fixed heights so every module looks the same and one change reaches everything.
-
-| Token | Value | Use |
-|---|---|---|
-| `--sd-bg` / `--sd-bg2` / `--sd-hov` | `#1c1c1c` / `#242424` / `#2e2e2e` | window / card and button / pressed |
-| `--sd-line` / `--sd-line2` | `#333` / `#3a3a3a` | border / stronger border (inputs, circles) |
-| `--sd-text` / `--sd-text2` / `--sd-dim` | `#e6e6e6` / `#d0d0d0` / `#8a8a8a` | main / button text / secondary text |
-| `--sd-red` / `--sd-redt` | `#e5534b` / `#f1807a` | red accent / red text |
-| `--sd-blue` / `--sd-bluet` | `#4a8fd9` / `#6fa8e8` | blue accent / blue text |
-| `--sd-yel`, `--sd-green` | `#d9a441`, `#85b200` | yellow, green accent |
-| `--sd-h` / `--sd-hi` / `--sd-hl` | 34 / 36 / 38 px | standard button / input / large button height |
-
-**Edit / Done buttons:** call `SD.editBtn(button, on)`; it sets the text and the green `sd-on` look, so every window's Edit mode looks the same. Green = a mode or switch that is on, blue = the chosen option, grey = the current page or tab.
-
-Circle sizes are named constants at the top of `core.js` (`FAB` 40, `MOD` 36, `GAP`, `OFF`). Tinted status backgrounds (chips, warnings) may still use their own hex. Page features outside `#sdial` (Gym Guide) cannot see the tokens and keep their own palette. `store.js` writes a warning to the Terminal when a key has no known prefix.
-
-## Adding a New Module
-
-1. Create `modules/name.js` that calls `SpeedDial.register({ id, label, icon, width, mount })`. `width` is the window's width in px (about 200-300 fits a phone).
-   - `icon` is inner SVG markup for a 24x24 stroke icon. Use `emoji` instead for an emoji circle; `href` makes the circle open a page instead of a window; `ord` sets the default order; `pinned: true` keeps it as a fixed circle after the on-screen ones (sorted by `ord`) and out of the Show More list. A new unpinned module lands in Show More; the user can pin it to the screen in Settings > Menu. Other modules can be opened from code with `SD.open(id, arg)` (arg arrives in `mount` as `ctx.arg`; with an arg an open window is reopened), `SD.close(id)`, `SD.isOpen(id)`. `SpeedDial.unregister(id)` removes one.
-   - `mount(ctx)` gets `ctx.el`, `ctx.every(fn, ms)`, `ctx.after(fn, ms)`, `ctx.alive`, `ctx.setWidth(px)` and `ctx.close()`; timers are cleared automatically when the window closes. `mount` may return `{ unmount() }`.
-   - `ctx.setWidth(px)` changes the window width (for example a wider secondary view); the core keeps the window on screen. Tall content is fine: the window is capped to the screen height and its body scrolls.
-   - Style your content under `#sdial` (for example `#sdial .mything{...}`); the window frame, title bar and padding come from the core.
-2. Add `"modules/name.js"` to `manifest.json` (after `core.js`).
-3. Push to GitHub. Nothing changes in PDA.
-4. Optional: run `./build.sh` to refresh the offline bundle.
-
-## Page Features (outside the circles)
-
-A **feature** runs on a Torn page itself instead of inside a window (for example Gym Guide adds a panel under the gym icons). Every feature has an on/off switch in **Settings > Features**; tap the **!** next to it for a small pop-up with the feature name, a short description and the page it runs on (pin icon, blue). Features are **off by default** (`def: true` makes one start on). A feature that is off runs nothing: no timer, no style, no element on the page. Switching it off removes everything it added, without a reload.
-
-1. Create `features/name.js` (the file name is the menu name without spaces and in lower case: label "High-Low Helper" -> `highlowhelper.js`, "Show More" -> `showmore.js`) that calls `SpeedDial.feature({ id, label, group, info, where, match, start })`.
-   - One Torn page = one feature file. Files do not share code, so a card reader that two features need is copied into both.
-   - `group` is the category: one filter chip and one section title on the **Features** page (for example `Casino`, `Gym`; without it the feature is listed under `Other`). `was` (optional) is the id of an older feature this one was split off from: until you flip its own switch it follows the old switch.
-   - `info` is the one-line text in the **!** pop-up (keep it short, a few words); `where` is the page name shown with a pin icon in blue under the description (for example `Gym`).
-   - `match` decides on which page it may run: a RegExp tested on `location.pathname` (`/^\/gym\.php/`), a function `(location) => boolean`, a path prefix string, or leave it out for every page.
-   - `start(ctx)` builds whatever it needs and returns `{ stop() }`. `ctx.every(fn, ms)`, `ctx.after(fn, ms)`, `ctx.css(text)` and `ctx.on(target, type, fn)` are tracked and undone by the core when the feature stops; `stop()` only has to remove the elements the feature inserted into the page. `start` may `throw new Error('...')` to refuse; the message is shown as a toast.
-2. Add `"features/name.js"` to `manifest.json` (after `core.js`).
-3. Push to GitHub. It appears in Settings > Features by itself.
-
-Features start when the page loads. A feature switched on while you are on another page starts the next time you open its page. The old standalone Gym Guide userscript must be removed from PDA (the feature refuses to start while it is installed).
+Publishing your own changes is a two-step habit: edit, then run `./build.sh` before you push. Details in [docs/developing.md](docs/developing.md).
 
 ## Troubleshooting
 
-- **Red box "Speed Dial: ..."**: the message names the failing file. Open its raw URL in a browser (repo public, correct branch and path).
-- **"no page nonce found" or other CSP errors**: use `dist/speed-dial.bundle.user.js` as a single pasted script instead.
-- **"No API key available"**: the `###PDA-APIKEY###` placeholder was not filled in. Make sure the script is added inside PDA's userscripts.
-- GitHub caches raw files for around 5 minutes, so changes may take a while to appear.
+- **Nothing appears.** Open the loader's raw URL in a browser (repo public, right branch and path). A red box on a Torn page names the failing file.
+- **Red box "N file(s) skipped".** One module or feature failed to load; everything else still works. Tap the box to dismiss it; Settings > Terminal > Problems has the detail.
+- **"no page nonce found" or other CSP errors.** Use `dist/speed-dial.bundle.user.js` as a single pasted script instead.
+- **"No API key available".** The script must be added inside PDA's userscripts so PDA can fill in your key.
+- **An update does not show up.** Allow a few minutes (the loader's check interval plus GitHub's own caching). If you changed a file but forgot `./build.sh`, nobody receives it.
+- **Something misbehaves.** Settings > Terminal shows what Speed Dial has been doing. **Copy** gives you a log that is safe to share (your API key is masked).
 
-## Notes
+## Repository layout
 
-- Travel Helper: tap a country for flight times, the time you will be back, and warnings. "Go to travel agency" only opens Torn's travel page (nothing on the page is clicked or read). The button is disabled while you are in hospital or jail.
-- Targets: bottom bar **Add | Edit | Filter | Refresh**. **Add** opens its own view (like Item Dock) with a back button and one search box: digits, `[123]` or a profile link add that ID directly; anything else is searched by name (Torn API v2 `user/search`) and shows a pick list (name, ID, level, tap to add; every result is checked against what you typed, because the API ignores a wrong filter). Each row shows name, ID (dark grey) and status with a live cooldown (Okay green, Hospital, Jail, Traveling, ...). Tap a row for the status details; the name is plain text (no profile link); tapping anywhere on the row only toggles the details. Each row has a single-sword **Attack** button (plain, grey outline) that opens that player's attack page (`page.php?sid=attack&user2ID=…`); it is dimmed while the target is not Okay (but still works) and hidden in Edit mode. **Edit** shows a ✕ per row. **Filter** (funnel) picks the order: Default (as added), A-Z, or Okay first (then the shortest cooldown); it is remembered. Refresh reloads only the targets on screen and works once every 30 seconds (also across reopening the window). The list scrolls a little inside a height-capped window; from 15 targets on it uses pages (15 each, arrows with `page / total` between them) and Refresh only requests the current page. Max 150 targets, saved under `speedDial.targets1`.
-- Price Checker (`modules/pricechecker.js`, id `market`, saved under `speedDial.market1`): the main view is your watchlist (max 25 items), each row shows the lowest item market price; the row gets a green edge when it is at or below the alert price you set. Bottom bar **Add | Edit | Refresh** (same layout as Targets): **Add** finds an item by name and opens it; **Edit** shows a red ✕ per row; **Refresh** reloads every watched item (1 API call each), works once every 30 seconds and shows the countdown on the button. Prices are green like the Travel Helper Stocks box (a loss is red); header buttons are 36px and toasts say "Updated". Open an item for three tabs: **Market** (cheapest item-market listings and the average price), **Margin** (lowest listing against Torn's market value and the shop prices, shop → market and market → shop, before fees) and **Sell** (a suggested price for your own bazaar listing: the lowest item market listing minus an undercut you choose; **Copy** puts the number on the clipboard). The item window also has **Watch** and, once watched, an alert price box (`850000`, `850k` or `1.2m`). Nothing runs while the window is closed, so alerts only show inside the window; when it opens, watchlist items older than 2 minutes are refreshed silently. Item market: Torn API v2 `market/{id}/itemmarket`. There are no bazaar prices: Torn removed them from the API (v1 `selections=bazaar` answers ok but empty; v2 `market/{id}/bazaar` only lists which bazaars specialise in an item). Shop prices come from `torn/?selections=items`.
-- Quick Notes (`modules/quicknotes.js`, saved under `speedDial.notes1`): a list of notes (newest on top), each with its own title and text (title up to 60 characters, text up to 5,000, at most 60 notes). Bottom bar **Add | Edit**: **Add** opens a new note, and a note left empty is not kept; tap a note to open it, what you type is saved a moment after you stop typing and when you tap back or close the window; **Edit** shows a red ✕ per note, tap it once to arm it ("Delete?") and again to delete. No API, nothing leaves the phone.
-- Daily Checklist (`modules/dailychecklist.js`, saved under `speedDial.daily1`): a plain checklist of your own tasks that clears its checks every day at midnight Torn time (TCT = UTC); the new day is noticed when the window opens. Progress at the top ("3/7" with a bar, "All done"). **Add** a task (up to 30, several in a row), tap a row to check it, **Edit** shows a red ✕ per task (tap once to arm, again to delete). No API.
-- Casino (three features under the **Casino** filter in Settings > Features, all off by default): each puts a panel under the page title of its own page. They read the cards and the enabled buttons on the page, never click anything and use no API. The old combined Casino Helper is gone (each panel is titled with its own feature name now, for example "Poker Helper"); High-Low Helper and Blackjack Helper start with its old switch until you flip their own, and its saved rules (`speedDial.casino1`) are carried over.
-  - **High-Low Helper** (`features/highlowhelper.js`, `sid=highlow`): chance that your face-down card is higher or lower than the **dealer's** card (full deck minus the dealer card), the same-rank chance, and which one to pick. The dealer card is chosen by name (dealer ancestor), then by position (dealer sits left); face-down, hidden, faded-out or covered cards, and anything outside the game area (sidebar, chat), are ignored. Rules: ace high or low. Saved under `speedDial.highlow1`.
-  - **Blackjack Helper** (`features/blackjackhelper.js`, `sid=blackjack`): big recommendation (Stand / Hit / Double / Split), a win / push / lose bar for that move, and the expected value per unit bet of every option. Odds are exact for the dealer card you see (infinite deck). Button labels are matched loosely ("HIT ME", "DOUBLE DOWN"); only moves whose buttons are shown greyed out are skipped, a button that is not recognised counts as available. Rules: dealer on soft 17 (stands/hits), double after split, dealer checks for blackjack. Saved under `speedDial.blackjack1`.
-  - **Poker Helper** (`features/pokerhelper.js`, `sid=holdem`): your win / tie / lose chance (the hand is played out 2,500 times against random hands), a rating (STRONG / GOOD / FAIR / WEAK) compared with a fair share (1 / players), your hand type, and on the flop and turn your outs with the chance to hit. Type the pot and the amount to call and it says whether calling pays off. Your two cards and the board are told apart by name (hero / community ancestors) and then by position (a row of 3+ cards is the board). Random opponents flatter your hand a little; set how many opponents are still in under **Rules** (1 to 8, saved under `speedDial.poker1`). The panel is put right under the page title row (checked on every tick, because Poker draws its title late); `Settings > Terminal` logs which element it found. The Poker page markup was not seen when this was written: if the cards are not recognised, use **Manual** and send the `poker` line from Terminal.
-  - Between rounds (the Hit/Stand or Higher/Lower buttons are gone or greyed out after having been on the page) the panel goes back to its standard "Waiting..." state and cards typed in with Manual are cleared (Poker: tap **New hand**).
-  - **Manual** button: tap the ranks (and for Poker the suits) yourself if the page markup is not recognised.
-  - If no cards are found, **Settings > Terminal** logs a `highlow`, `blackjack` or `poker` line with the card-like elements it saw, which is what is needed to adjust the card detection. Every read logs each card as `rank+suit/role@x` with `*` on the one used (`!hid` = hidden, `!cov` = covered).
-  - No strategy beats the house over time; this only avoids choosing worse than necessary.
-- Settings (gear circle, always last, cannot be hidden):
-  - **Menu** page: two groups. **On screen** (max 3, default Item Dock, Travel Helper, Targets) and **Show More** (everything else: Calculator, your shortcuts, new modules). Tap the pin to move a module between the groups (a 4th pin is refused with a toast). Tap **Edit** to drag the handle (≡) to reorder inside a group; your own shortcuts also get a ✕ to delete. New modules and new shortcuts start in Show More. The old eye (hide) is gone: nothing needs hiding any more.
-  - **Features** page: a row of filter chips on top (All + one per category, swipe it sideways; your choice is remembered), then one section per category (title and count) with a card per feature: its name, a **!** button that opens a pop-up with the one-line explanation and the page it runs on, and the on/off switch.
-  - **Backup** page: Copy / Restore for all saved data (see "Backup" above).
-  - **Shortcut** page: pick an emoji, name it, and enter a torn.com page (or tap "This page" while on it). Max 8. Only torn.com pages are accepted.
-  - Your order and hidden list are saved under `speedDial.layout1`; saved shortcuts keep using `speedDial.shortcuts1`, so they carry over from the old Shortcuts module.
-- Show More: a 4-column grid of icons with the name underneath. Tap a tile to open that module (the launcher closes); tap a tile whose window is open to close it. The single **Settings** button opens Settings > Menu already in edit mode, the one place that reorders, pins/unpins and deletes shortcuts. Anything new (a new shortcut, a module you unpin from the screen) is added at the END. A tile with a small arrow is a shortcut and leaves the page. While a window of something inside Show More is open, the `...` circle shows a dot. Saved under `speedDial.layout1` as `{ order, front }` (an old `hidden` list is ignored).
-- Calculator: + − × ÷ with the usual precedence (2+3×4 = 14), %, ±, backspace, AC. The typed line has a caret: tap the display to place it, drag along it to slide it (hold at the left/right edge to keep going); keys insert at the caret and backspace deletes before it. The caret is hidden after `=`. `%` stays in the sum as typed (`25%` stays `25%`) and is only worked out in the small live result under it and at `=` (`25%` = 0.25, `200 + 10%` = 220). Nothing is saved.
-- Item Dock items and Travel Helper settings use the same storage keys as the old standalone scripts, so they carry over.
-- Main circle colours (the window outline, the Item Dock banner and the Targets status text use the same rule): blue = abroad or traveling, yellow = hospital (at home or abroad), red = jail or federal. The colour is kept live by **Live status** (always on, there is no switch): one light API call every 5 s while the page is visible, a check right when a hospital/jail timer or flight should end, one 1.5 s after any tap on the page (attacking, travelling and using items change your status), and one when you return to the app or the connection comes back. It never fetches more often than every 2.5 s and backs off after API errors.
+| Path | Purpose |
+|---|---|
+| `speed-dial.loader.user.js` | The only script installed in PDA. Downloads and runs everything listed in `manifest.json` |
+| `manifest.json` | File list (in load order) and a version per file. The versions are written by `build.sh` |
+| `store.js` | Saved data: PDA's native storage, with localStorage as copy and fallback. Always first |
+| `core.js` | The circle, windows, menu and the helpers shared by all tools (player data, item list, API, log) |
+| `modules/` | Tools that open in a window |
+| `features/` | Page features that run on a Torn page itself |
+| `build.sh` | Release script: versions, manifest, offline bundle |
+| `dist/` | The offline single-file bundle |
+| `docs/` | [Using Speed Dial](docs/using.md) and [Developing](docs/developing.md) |
+| `CHANGELOG.md` | What changed, and when the loader must be pasted again |
 
-## Shared item list
+## Credits
 
-`SD.items(force)` (in `core.js`) returns the `items` object of `torn/?selections=items`: one API call shared by Item Dock, Travel Helper and Price Checker, kept in memory for 30 minutes. A new module that needs item names, types or prices must use it instead of calling that endpoint itself.
-
-## Security notes (v0.14.2)
-
-- The API key lives only inside core.js (a closure). It is not `window.SpeedDial.key` any more. Modules call `SD.api(url)`; they never see the key.
-- `SD.api` only accepts `https://api.torn.com/...` URLs. Anything else throws, so a wrong URL can never carry the key to another host.
-- Links (shortcuts, `href` on a module) go through `SD.go(href)` / `SD.safeHref(href)`: only `/path` or `https://(www.)torn.com/...` are allowed. A new module that navigates must use `SD.go`, never `location.href = ...` with stored text.
-- Settings > Backup > Restore cleans every value before saving it (dangerous object keys, sizes, shortcuts, Targets). Targets and Travel Helper also re-check their numbers on load, because those values are written into HTML.
-- When you add HTML with `innerHTML`: wrap text in `SD.esc(...)` or use `textContent`; numbers from storage with `+x`.
+The Gym Guide's ratio logic is adapted from [GymIQ](https://github.com/CLASIX/GymIQ---Torn-Ratio-Helper) by ClasixTV (MIT License). Foreign stock data in the Travel Helper comes from the community services YATA and Prometheus.

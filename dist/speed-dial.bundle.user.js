@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.14.2
+// @version      0.15.0
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -142,7 +142,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.14.2
+// Speed Dial core v0.15.0
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -154,7 +154,7 @@ try {
   if (window.SpeedDial) return;
 
   let KEY = '';   // the API key lives only in this closure, NOT on window.SpeedDial (page scripts could read it there)
-  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.14.1' };
+  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.15.0' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
