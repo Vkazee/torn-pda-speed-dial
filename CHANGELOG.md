@@ -1,6 +1,11 @@
 # Changelog
 
-The release version is the first line of `core.js`. History before 0.15.0 was not recorded here (see the Git history).
+The release version is the first line of `core.js`. Only the loader needs pasting into PDA again, and only when its version changes (0.6.0 is the latest). History before 0.15.0 was not recorded here (see the Git history).
+
+## 0.15.1
+
+### Added
+- **Idle look for the main circle.** After a few seconds without a touch it turns see-through and slides half off the screen edge; a touch on Speed Dial brings it back. It stays visible while the tool circles are fanned out. Tune or disable it with `IDLE_MS` at the top of `core.js`.
 
 ## 0.15.0 (loader 0.6.0)
 

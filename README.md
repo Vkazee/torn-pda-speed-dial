@@ -36,7 +36,7 @@ No GitHub? Paste `dist/speed-dial.bundle.user.js` instead: the same thing as one
 
 Everything except the loader updates from GitHub on its own. The loader looks at the file list every couple of minutes at most and downloads only the files that changed, so most page loads make no request at all.
 
-You paste the loader into PDA again **only when its own version changes**; the [CHANGELOG](CHANGELOG.md) says when. Right now: **loader 0.6.0, paste it once.**
+You paste the loader into PDA again **only when its own version changes**; the [CHANGELOG](CHANGELOG.md) says when. Right now: **loader 0.6.0, paste it once if you still have an older one.**
 
 Publishing your own changes is a two-step habit: edit, then run `./build.sh` before you push. Details in [docs/developing.md](docs/developing.md).
 

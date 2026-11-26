@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.15.0
+// @version      0.15.1
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -142,7 +142,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.15.0
+// Speed Dial core v0.15.1
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -154,7 +154,7 @@ try {
   if (window.SpeedDial) return;
 
   let KEY = '';   // the API key lives only in this closure, NOT on window.SpeedDial (page scripts could read it there)
-  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.15.0' };
+  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.15.1' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -162,6 +162,7 @@ try {
   const MOD = 36;              // module circles (px)
   const OFF = (FAB - MOD) / 2; // centres a module circle under the main one
   const GAP = MOD + 10;        // distance between circle tops
+  const IDLE_MS = 5000;        // main circle fades and half-hides at the screen edge after this long without a touch (0 = never)
   const LAY = 'speedDial.layout1';   // { order: [ids], front: [ids] | null }
 
   // ---------- debug log (the Terminal page in Settings) ----------
@@ -575,6 +576,15 @@ try {
 
   // ---------- hub UI ----------
   let root, fab, stack, wrap, P, menuOpen = false, WP = null;
+  // idle look: after IDLE_MS without a touch the main circle turns see-through and slides half off the screen edge (like a floating assistive button).
+  // Any touch on Speed Dial brings it back. It never goes idle while the circles are fanned out.
+  let idleT = 0;
+  const wake = () => { clearTimeout(idleT); idleT = 0; if (fab) fab.classList.remove('idle'); };
+  const arm = () => {
+    clearTimeout(idleT); idleT = 0;
+    if (!IDLE_MS || !fab) return;
+    idleT = setTimeout(() => { idleT = 0; if (!menuOpen && fab) fab.classList.add('idle'); }, IDLE_MS);
+  };
   const circles = [];
   const wins = new Map();
   const zorder = [];
@@ -595,11 +605,12 @@ try {
     #sdial button.sd-on.sd-on.sd-on{border-color:var(--sd-green);background:#25360f;color:#c6e66a}   /* triple class on purpose: must beat every module's own button rule */
     @keyframes sdspin{to{transform:rotate(360deg)}}
     #sdial .spin svg{animation:sdspin .8s linear infinite}
-    #sdial .fab{position:relative;z-index:2000;touch-action:none;width:${FAB}px;height:${FAB}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0}
+    #sdial .fab{position:relative;z-index:2000;touch-action:none;width:${FAB}px;height:${FAB}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;transition:opacity .25s,transform .25s}
     #sdial .fab.on{opacity:1;border-color:var(--sd-text2)}
     #sdial .fab.away{opacity:1;border-color:var(--sd-blue);box-shadow:0 0 0 2px rgba(74,143,217,.3),0 2px 6px rgba(0,0,0,.4)}
     #sdial .fab.hosp{opacity:1;border-color:var(--sd-yel);box-shadow:0 0 0 2px rgba(217,164,65,.3),0 2px 6px rgba(0,0,0,.4)}
     #sdial .fab.blk{opacity:1;border-color:var(--sd-red);box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
+    #sdial .fab.idle{opacity:.4;transform:translateX(var(--sd-idle-x,0px))}   /* after the status looks above, so it also dims them */
     #sdial .mod{position:absolute;z-index:2000;left:${OFF}px;width:${MOD}px;height:${MOD}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
     #sdial .stack.show .mod{opacity:1;transform:scale(1);pointer-events:auto}
     #sdial[data-st="away"]{--st:var(--sd-blue)}
@@ -651,6 +662,7 @@ try {
     root.style.top = P.y + 'px';
     const down = P.y < innerHeight / 2, right = P.x > innerWidth / 2;
     root.classList.toggle('r', right);
+    root.style.setProperty('--sd-idle-x', Math.round(right ? innerWidth - P.x - FAB / 2 : -(P.x + FAB / 2)) + 'px');   // half-hidden: the circle's centre on the screen edge
     circles.forEach((c, i) => {
       const off = GAP * (i + 1);
       c.b.style.top = (OFF + (down ? off : -off)) + 'px';
@@ -819,6 +831,7 @@ try {
     menuOpen = on;
     stack.classList.toggle('show', on);
     fab.classList.toggle('on', on);
+    if (on) wake(); else arm();
   }
   function pick(m) {
     if (wins.has(m.id)) closeWin(m.id); else openWin(m);
@@ -854,6 +867,12 @@ try {
     stack = root.querySelector('.stack');
     wrap = root.querySelector('.wins');
     refreshCircles();
+
+    // any touch on Speed Dial (circle, fanned-out circles, windows) wakes the main circle; the idle countdown starts again when the finger lifts
+    root.addEventListener('pointerdown', wake, true);
+    root.addEventListener('pointerup', arm, true);
+    root.addEventListener('pointercancel', arm, true);
+    arm();
 
     // drag + tap on the main circle
     let sx, sy, ox, oy, moved = false;
