@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Speed Dial (bundle)
 // @namespace    speeddial
-// @version      0.15.0
+// @version      0.14.2
 // @description  One floating circle for Torn PDA. Tap it to fan out your tools (Item Dock, Travel Helper). Each tool only runs while its panel is open. Page features run only while switched on in Settings.
 // @match        https://www.torn.com/*
 // @run-at       document-start
@@ -142,7 +142,7 @@ try {
 
     if (typeof window.__sdInit === 'function') { const init = window.__sdInit; window.__sdInit = null; try { await init(); } catch (e) {} }
 try {
-// Speed Dial core v0.15.0
+// Speed Dial core v0.14.2
 // One floating circle. Tap it and one circle per module fans out. Tap a module circle to open or close its floating window.
 // A module may also be a shortcut circle: { emoji, href } opens a page on tap instead of a panel.
 // At most 3 modules are shown as circles (default: Item Dock, Travel Helper, Targets). Everything else (calculator, your shortcuts, new modules)
@@ -154,7 +154,7 @@ try {
   if (window.SpeedDial) return;
 
   let KEY = '';   // the API key lives only in this closure, NOT on window.SpeedDial (page scripts could read it there)
-  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.15.0' };
+  const SD = window.SpeedDial = { mods: [], hasKey: false, started: false, ver: '0.14.1' };
   const POS = 'speedDial.pos1';
   const DK = 'speedDial.data1';
   const TTL = 30000;
@@ -600,11 +600,6 @@ try {
     #sdial .fab.away{opacity:1;border-color:var(--sd-blue);box-shadow:0 0 0 2px rgba(74,143,217,.3),0 2px 6px rgba(0,0,0,.4)}
     #sdial .fab.hosp{opacity:1;border-color:var(--sd-yel);box-shadow:0 0 0 2px rgba(217,164,65,.3),0 2px 6px rgba(0,0,0,.4)}
     #sdial .fab.blk{opacity:1;border-color:var(--sd-red);box-shadow:0 0 0 2px rgba(229,83,75,.35),0 2px 6px rgba(0,0,0,.4)}
-    #sdial .fab.hint{opacity:1}
-    #sdial .fab.hint::after{content:'';position:absolute;top:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:var(--sd-green);border:2px solid var(--sd-bg)}
-    #sdial .mod.smart{display:none;border-color:var(--sd-green);background:#25360f}
-    #sdial .mod.smart.has{display:flex}
-    #sdial .mod.smart svg{stroke:#c6e66a}
     #sdial .mod{position:absolute;z-index:2000;left:${OFF}px;width:${MOD}px;height:${MOD}px;border-radius:50%;border:1px solid var(--sd-line2);background:var(--sd-bg);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4);padding:0;opacity:0;transform:scale(.5);pointer-events:none;transition:opacity .12s,transform .12s}
     #sdial .stack.show .mod{opacity:1;transform:scale(1);pointer-events:auto}
     #sdial[data-st="away"]{--st:var(--sd-blue)}
@@ -646,61 +641,6 @@ try {
     const now = root.dataset.st || 'none';
     if (now !== lastRing) { SD.log('ring', 'outline ' + (lastRing || '-') + ' -> ' + now + (d ? ' (state=' + d.state + ')' : ' (no data)')); lastRing = now; }
     if (!root.isConnected) SD.log('ring', 'WARNING: the Speed Dial element is not in the page any more', 'w');
-    smartRefresh();
-  }
-
-  // ---------- smart circle: the one action that makes sense right now (nothing shown when there is none) ----------
-  // Reads the shared status only (no API call of its own). Returns { key, label, icon, go | open } or null. Pure, so it can be tested without a page.
-  const SMART_PAGE = { gym: '/gym.php', crimes: '/loader.php?sid=crimes', travel: '/page.php?sid=travel' };
-  const SMART_ICON = {
-    gym: '<path d="M6 8v8M18 8v8M3 10v4M21 10v4M6 12h12"/>',
-    crimes: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
-    home: '<path d="M21 3L3 10l7 3 3 7z"/>',
-    med: '<path d="M12 5v14M5 12h14"/>'
-  };
-  const SNOOZE_MS = 20 * 60 * 1000;   // after you tap the suggestion it stays quiet for this long
-  function smartPlan(d, now) {
-    if (!d) return null;
-    const e = Math.max(0, (now - d.t) / 1000);                       // seconds since the status was fetched
-    const full = b => !!b && b.maximum > 0 && (b.current >= b.maximum || (b.fulltime || 0) - e <= 0);
-    const mode = SD.mode(d);
-    if (mode === 'flying' || d.state === 'Jail' || d.state === 'Federal') return null;
-    if (mode === 'abroad') {
-      if (d.state === 'Hospital') return null;                       // cannot fly out of a foreign hospital
-      return { key: 'home', label: 'Fly home', icon: SMART_ICON.home, go: SMART_PAGE.travel };
-    }
-    if (d.state === 'Hospital') {
-      const left = (d.until || 0) - Math.floor(now / 1000);
-      if (left > 0 && ((d.cd || {}).medical || 0) - e <= 0) return { key: 'med', label: 'Medical ready: Item Dock', icon: SMART_ICON.med, open: 'itemdock' };
-      return null;
-    }
-    if (full(d.energy)) return { key: 'energy', label: 'Energy full: Gym', icon: SMART_ICON.gym, go: SMART_PAGE.gym };
-    if (full(d.nerve)) return { key: 'nerve', label: 'Nerve full: Crimes', icon: SMART_ICON.crimes, go: SMART_PAGE.crimes };
-    return null;
-  }
-  SD.smart = smartPlan;
-
-  const SNZ = 'speedDial.snooze';   // { key: until ms }
-  const snoozed = k => { const m = SD.read(SNZ, {}) || {}; return (m[k] || 0) > Date.now(); };
-  const snooze = k => { const m = SD.read(SNZ, {}) || {}; m[k] = Date.now() + SNOOZE_MS; SD.write(SNZ, m); };
-  let smartB = null, smartCur = null;
-
-  function smartRefresh() {
-    if (!smartB || !fab) return;
-    let s = null;
-    try { s = SD.hasKey ? smartPlan(D, Date.now()) : null; } catch (e) { SD.log('smart', 'plan failed: ' + e.message, 'e'); }
-    if (s && snoozed(s.key)) s = null;
-    if ((s ? s.key : '') !== (smartCur ? smartCur.key : '')) {
-      SD.log('smart', s ? 'suggest ' + s.key : 'no suggestion');
-      smartCur = s;
-      smartB.classList.toggle('has', !!s);
-      if (s) {
-        smartB.setAttribute('aria-label', s.label);
-        smartB.querySelector('svg').innerHTML = s.icon;
-        smartB.querySelector('.lb').textContent = s.label;
-      }
-    }
-    fab.classList.toggle('hint', !!s && !menuOpen);   // a dot on the main circle while the menu is closed
   }
 
   function layout() {
@@ -715,7 +655,6 @@ try {
       const off = GAP * (i + 1);
       c.b.style.top = (OFF + (down ? off : -off)) + 'px';
     });
-    if (smartB) { const off = GAP * (circles.length + 1); smartB.style.top = (OFF + (down ? off : -off)) + 'px'; }   // farthest from the main circle
   }
 
   function addCircle(m) {
@@ -880,7 +819,6 @@ try {
     menuOpen = on;
     stack.classList.toggle('show', on);
     fab.classList.toggle('on', on);
-    smartRefresh();
   }
   function pick(m) {
     if (wins.has(m.id)) closeWin(m.id); else openWin(m);
@@ -915,17 +853,6 @@ try {
     fab = root.querySelector('.fab');
     stack = root.querySelector('.stack');
     wrap = root.querySelector('.wins');
-    smartB = document.createElement('button');
-    smartB.className = 'mod smart';
-    smartB.innerHTML = '<svg viewBox="0 0 24 24"></svg><span class="lb"></span>';
-    smartB.addEventListener('click', () => {
-      const x = smartCur;
-      if (!x) return;
-      SD.log('smart', 'tap ' + x.key);
-      snooze(x.key); smartRefresh();
-      if (x.go) SD.go(x.go); else if (x.open) SD.open(x.open);
-    });
-    stack.appendChild(smartB);
     refreshCircles();
 
     // drag + tap on the main circle
